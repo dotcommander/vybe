@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +32,7 @@ func TestSetMemory_GlobalScope(t *testing.T) {
 	assert.Equal(t, "api_key", mem.Key)
 	assert.Equal(t, "secret123", mem.Value)
 	assert.Equal(t, "string", mem.ValueType)
-	assert.Equal(t, "global", mem.Scope)
+	assert.Equal(t, models.MemoryScopeGlobal, mem.Scope)
 	assert.Equal(t, "", mem.ScopeID)
 }
 

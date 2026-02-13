@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +32,7 @@ func TestAddTaskDependency(t *testing.T) {
 	// Verify task2 is now blocked (since task1 is pending)
 	updatedTask2, err := GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updatedTask2.Status)
+	assert.Equal(t, models.TaskStatusBlocked, updatedTask2.Status)
 }
 
 func TestAddDuplicateDependency(t *testing.T) {
@@ -131,7 +132,7 @@ func TestUnblockDependents(t *testing.T) {
 	// Verify task2 is blocked
 	updatedTask2, err := GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updatedTask2.Status)
+	assert.Equal(t, models.TaskStatusBlocked, updatedTask2.Status)
 
 	// Complete task1
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
@@ -144,7 +145,7 @@ func TestUnblockDependents(t *testing.T) {
 	// Verify task2 is now pending
 	updatedTask2, err = GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "pending", updatedTask2.Status)
+	assert.Equal(t, models.TaskStatusPending, updatedTask2.Status)
 }
 
 func TestUnblockDependents_MultipleBlockers(t *testing.T) {
@@ -170,7 +171,7 @@ func TestUnblockDependents_MultipleBlockers(t *testing.T) {
 	// Verify task3 is blocked
 	updatedTask3, err := GetTask(db, task3.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updatedTask3.Status)
+	assert.Equal(t, models.TaskStatusBlocked, updatedTask3.Status)
 
 	// Complete task1
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
@@ -182,7 +183,7 @@ func TestUnblockDependents_MultipleBlockers(t *testing.T) {
 	// task3 should still be blocked (task2 is pending)
 	updatedTask3, err = GetTask(db, task3.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updatedTask3.Status)
+	assert.Equal(t, models.TaskStatusBlocked, updatedTask3.Status)
 
 	// Complete task2
 	err = UpdateTaskStatus(db, task2.ID, "completed", task2.Version)
@@ -194,7 +195,7 @@ func TestUnblockDependents_MultipleBlockers(t *testing.T) {
 	// Now task3 should be unblocked
 	updatedTask3, err = GetTask(db, task3.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "pending", updatedTask3.Status)
+	assert.Equal(t, models.TaskStatusPending, updatedTask3.Status)
 }
 
 func TestDetermineFocusTask_SkipsBlockedDeps(t *testing.T) {
@@ -477,7 +478,7 @@ func TestAddTaskDependencyTx_CASCheck(t *testing.T) {
 	// task2 should be blocked
 	updatedTask2, err := GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updatedTask2.Status)
+	assert.Equal(t, models.TaskStatusBlocked, updatedTask2.Status)
 	// Version should have been bumped by the CAS update
 	assert.Greater(t, updatedTask2.Version, 1)
 }
@@ -499,7 +500,7 @@ func TestRemoveTaskDependency_ProactiveUnblock(t *testing.T) {
 	// task2 should be blocked
 	updatedTask2, err := GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updatedTask2.Status)
+	assert.Equal(t, models.TaskStatusBlocked, updatedTask2.Status)
 
 	// Remove the only dependency — task2 should proactively unblock
 	err = RemoveTaskDependency(db, task2.ID, task1.ID)
@@ -507,7 +508,7 @@ func TestRemoveTaskDependency_ProactiveUnblock(t *testing.T) {
 
 	updatedTask2, err = GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "pending", updatedTask2.Status)
+	assert.Equal(t, models.TaskStatusPending, updatedTask2.Status)
 }
 
 func TestRemoveTaskDependency_StillBlocked(t *testing.T) {
@@ -532,7 +533,7 @@ func TestRemoveTaskDependency_StillBlocked(t *testing.T) {
 	// task3 should be blocked
 	updatedTask3, err := GetTask(db, task3.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updatedTask3.Status)
+	assert.Equal(t, models.TaskStatusBlocked, updatedTask3.Status)
 
 	// Remove one of two deps — task3 should remain blocked
 	err = RemoveTaskDependency(db, task3.ID, task1.ID)
@@ -540,7 +541,7 @@ func TestRemoveTaskDependency_StillBlocked(t *testing.T) {
 
 	updatedTask3, err = GetTask(db, task3.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updatedTask3.Status)
+	assert.Equal(t, models.TaskStatusBlocked, updatedTask3.Status)
 }
 
 func TestAddTaskDependency_SetsBlockedReason(t *testing.T) {
@@ -558,8 +559,8 @@ func TestAddTaskDependency_SetsBlockedReason(t *testing.T) {
 
 	updatedTask2, err := GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updatedTask2.Status)
-	assert.Equal(t, "dependency", updatedTask2.BlockedReason)
+	assert.Equal(t, models.TaskStatusBlocked, updatedTask2.Status)
+	assert.Equal(t, models.BlockedReasonDependency, updatedTask2.BlockedReason)
 }
 
 func TestUnblockDependents_ClearsBlockedReason(t *testing.T) {
@@ -578,7 +579,7 @@ func TestUnblockDependents_ClearsBlockedReason(t *testing.T) {
 	// Verify blocked with reason
 	updatedTask2, err := GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "dependency", updatedTask2.BlockedReason)
+	assert.Equal(t, models.BlockedReasonDependency, updatedTask2.BlockedReason)
 
 	// Complete task1 and unblock
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
@@ -589,7 +590,7 @@ func TestUnblockDependents_ClearsBlockedReason(t *testing.T) {
 	// Verify blocked_reason is cleared
 	updatedTask2, err = GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "pending", updatedTask2.Status)
+	assert.Equal(t, models.TaskStatusPending, updatedTask2.Status)
 	assert.Empty(t, updatedTask2.BlockedReason)
 }
 
@@ -613,8 +614,8 @@ func TestBlockedReason_RoundTrip(t *testing.T) {
 	// Read it back
 	fetched, err := GetTask(db, task.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", fetched.Status)
-	assert.Equal(t, "failure:timed out", fetched.BlockedReason)
+	assert.Equal(t, models.TaskStatusBlocked, fetched.Status)
+	assert.Equal(t, models.NewBlockedReasonFailure("timed out"), fetched.BlockedReason)
 
 	// Clear it
 	err = Transact(db, func(tx *sql.Tx) error {

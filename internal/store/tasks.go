@@ -54,52 +54,17 @@ func CreateTaskTx(tx *sql.Tx, title, description, projectID string, priority int
 		return nil, fmt.Errorf("failed to insert task: no rows affected")
 	}
 
-	var task models.Task
-	var projID, blockedReason, claimedBy sql.NullString
-	var claimedAt, claimExpiresAt, lastHeartbeatAt sql.NullTime
-	err = tx.QueryRow(`
+	row := tx.QueryRow(`
 		SELECT id, title, description, status, priority, project_id, blocked_reason, claimed_by, claimed_at, claim_expires_at, last_heartbeat_at, attempt, version, created_at, updated_at
 		FROM tasks WHERE id = ?
-	`, taskID).Scan(
-		&task.ID,
-		&task.Title,
-		&task.Description,
-		&task.Status,
-		&task.Priority,
-		&projID,
-		&blockedReason,
-		&claimedBy,
-		&claimedAt,
-		&claimExpiresAt,
-		&lastHeartbeatAt,
-		&task.Attempt,
-		&task.Version,
-		&task.CreatedAt,
-		&task.UpdatedAt,
-	)
+	`, taskID)
+
+	task, err := scanTaskRow(row)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch created task: %w", err)
 	}
-	if projID.Valid {
-		task.ProjectID = projID.String
-	}
-	if blockedReason.Valid {
-		task.BlockedReason = blockedReason.String
-	}
-	if claimedBy.Valid {
-		task.ClaimedBy = claimedBy.String
-	}
-	if claimedAt.Valid {
-		task.ClaimedAt = &claimedAt.Time
-	}
-	if claimExpiresAt.Valid {
-		task.ClaimExpiresAt = &claimExpiresAt.Time
-	}
-	if lastHeartbeatAt.Valid {
-		task.LastHeartbeatAt = &lastHeartbeatAt.Time
-	}
 
-	return &task, nil
+	return task, nil
 }
 
 // GetTaskVersionTx loads only the version for optimistic concurrency updates.
@@ -180,56 +145,17 @@ func GetTaskTx(tx *sql.Tx, taskID string) (*models.Task, error) {
 }
 
 func getTaskByQuerier(q Querier, taskID string) (*models.Task, error) {
-	var task models.Task
-	var projID, blockedReason, claimedBy sql.NullString
-	var claimedAt, claimExpiresAt, lastHeartbeatAt sql.NullTime
-
-	err := q.QueryRow(`
+	row := q.QueryRow(`
 		SELECT id, title, description, status, priority, project_id, blocked_reason, claimed_by, claimed_at, claim_expires_at, last_heartbeat_at, attempt, version, created_at, updated_at
 		FROM tasks WHERE id = ?
-	`, taskID).Scan(
-		&task.ID,
-		&task.Title,
-		&task.Description,
-		&task.Status,
-		&task.Priority,
-		&projID,
-		&blockedReason,
-		&claimedBy,
-		&claimedAt,
-		&claimExpiresAt,
-		&lastHeartbeatAt,
-		&task.Attempt,
-		&task.Version,
-		&task.CreatedAt,
-		&task.UpdatedAt,
-	)
+	`, taskID)
 
+	task, err := scanTaskRow(row)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to query task: %w", err)
-	}
-
-	if projID.Valid {
-		task.ProjectID = projID.String
-	}
-	if blockedReason.Valid {
-		task.BlockedReason = blockedReason.String
-	}
-	if claimedBy.Valid {
-		task.ClaimedBy = claimedBy.String
-	}
-	if claimedAt.Valid {
-		task.ClaimedAt = &claimedAt.Time
-	}
-	if claimExpiresAt.Valid {
-		task.ClaimExpiresAt = &claimExpiresAt.Time
-	}
-	if lastHeartbeatAt.Valid {
-		task.LastHeartbeatAt = &lastHeartbeatAt.Time
 	}
 
 	// Populate dependencies
@@ -239,7 +165,7 @@ func getTaskByQuerier(q Querier, taskID string) (*models.Task, error) {
 	}
 	task.DependsOn = deps
 
-	return &task, nil
+	return task, nil
 }
 
 // loadTaskDependencies loads dependencies for a task using a querier (db or tx).
@@ -326,48 +252,13 @@ func ListTasks(db *sql.DB, statusFilter, projectFilter string, priorityFilter in
 	var tasks []*models.Task
 	var taskIDs []string
 	for rows.Next() {
-		var task models.Task
-		var projID, blockedReason, claimedBy sql.NullString
-		var claimedAt, claimExpiresAt, lastHeartbeatAt sql.NullTime
-		err := rows.Scan(
-			&task.ID,
-			&task.Title,
-			&task.Description,
-			&task.Status,
-			&task.Priority,
-			&projID,
-			&blockedReason,
-			&claimedBy,
-			&claimedAt,
-			&claimExpiresAt,
-			&lastHeartbeatAt,
-			&task.Attempt,
-			&task.Version,
-			&task.CreatedAt,
-			&task.UpdatedAt,
-		)
-		if err != nil {
+		scanner := &taskRowScanner{}
+		if err := scanner.scan(rows); err != nil {
 			return nil, fmt.Errorf("failed to scan task row: %w", err)
 		}
-		if projID.Valid {
-			task.ProjectID = projID.String
-		}
-		if blockedReason.Valid {
-			task.BlockedReason = blockedReason.String
-		}
-		if claimedBy.Valid {
-			task.ClaimedBy = claimedBy.String
-		}
-		if claimedAt.Valid {
-			task.ClaimedAt = &claimedAt.Time
-		}
-		if claimExpiresAt.Valid {
-			task.ClaimExpiresAt = &claimExpiresAt.Time
-		}
-		if lastHeartbeatAt.Valid {
-			task.LastHeartbeatAt = &lastHeartbeatAt.Time
-		}
-		tasks = append(tasks, &task)
+		scanner.hydrate()
+		task := scanner.getTask()
+		tasks = append(tasks, task)
 		taskIDs = append(taskIDs, task.ID)
 	}
 

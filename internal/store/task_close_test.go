@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +41,7 @@ func TestCloseTaskTx_Done(t *testing.T) {
 	// Verify task is completed.
 	updated, err := GetTask(db, task.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "completed", updated.Status)
+	assert.Equal(t, models.TaskStatusCompleted, updated.Status)
 
 	// Verify claim is released.
 	assert.Empty(t, updated.ClaimedBy)
@@ -61,7 +62,7 @@ func TestCloseTaskTx_DoneUnblocksDependents(t *testing.T) {
 	// Verify dependent is blocked.
 	dep, err := GetTask(db, dependent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", dep.Status)
+	assert.Equal(t, models.TaskStatusBlocked, dep.Status)
 
 	// Start then close the blocker.
 	_, _, err = StartTaskAndFocus(db, "agent1", blocker.ID)
@@ -78,7 +79,7 @@ func TestCloseTaskTx_DoneUnblocksDependents(t *testing.T) {
 	// Verify dependent is unblocked.
 	dep, err = GetTask(db, dependent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "pending", dep.Status)
+	assert.Equal(t, models.TaskStatusPending, dep.Status)
 }
 
 func TestCloseTaskTx_Blocked(t *testing.T) {
@@ -111,8 +112,8 @@ func TestCloseTaskTx_Blocked(t *testing.T) {
 
 	updated, err := GetTask(db, task.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updated.Status)
-	assert.Equal(t, "failure:api_timeout", updated.BlockedReason)
+	assert.Equal(t, models.TaskStatusBlocked, updated.Status)
+	assert.Equal(t, models.NewBlockedReasonFailure("api_timeout"), updated.BlockedReason)
 }
 
 func TestCloseTaskTx_BlockedClearsStaleReason(t *testing.T) {
@@ -138,7 +139,7 @@ func TestCloseTaskTx_BlockedClearsStaleReason(t *testing.T) {
 
 	updated, err := GetTask(db, task.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "failure:old_reason", updated.BlockedReason)
+	assert.Equal(t, models.NewBlockedReasonFailure("old_reason"), updated.BlockedReason)
 
 	// Re-open the task so we can close it again.
 	err = UpdateTaskStatus(db, task.ID, "in_progress", updated.Version)
@@ -155,7 +156,7 @@ func TestCloseTaskTx_BlockedClearsStaleReason(t *testing.T) {
 
 	updated, err = GetTask(db, task.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", updated.Status)
+	assert.Equal(t, models.TaskStatusBlocked, updated.Status)
 	assert.Empty(t, updated.BlockedReason, "stale blocked_reason should be cleared")
 }
 

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ func TestCreateTask(t *testing.T) {
 	assert.NotEmpty(t, task.ID)
 	assert.Equal(t, "Test Task", task.Title)
 	assert.Equal(t, "Test Description", task.Description)
-	assert.Equal(t, "pending", task.Status)
+	assert.Equal(t, models.TaskStatusPending, task.Status)
 	assert.Equal(t, 1, task.Version)
 	assert.False(t, task.CreatedAt.IsZero())
 	assert.False(t, task.UpdatedAt.IsZero())
@@ -73,7 +74,7 @@ func TestUpdateTaskStatus(t *testing.T) {
 	// Verify update
 	updated, err := GetTask(db, task.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "in_progress", updated.Status)
+	assert.Equal(t, models.TaskStatusInProgress, updated.Status)
 	assert.Equal(t, 2, updated.Version)
 	// UpdatedAt should be >= CreatedAt (SQLite timestamps may have same precision)
 	assert.False(t, updated.UpdatedAt.Before(task.UpdatedAt))
@@ -127,19 +128,19 @@ func TestListTasks(t *testing.T) {
 	pendingTasks, err := ListTasks(db, "pending", "", -1)
 	require.NoError(t, err)
 	assert.Len(t, pendingTasks, 1)
-	assert.Equal(t, "pending", pendingTasks[0].Status)
+	assert.Equal(t, models.TaskStatusPending, pendingTasks[0].Status)
 
 	// List in_progress tasks
 	inProgressTasks, err := ListTasks(db, "in_progress", "", -1)
 	require.NoError(t, err)
 	assert.Len(t, inProgressTasks, 1)
-	assert.Equal(t, "in_progress", inProgressTasks[0].Status)
+	assert.Equal(t, models.TaskStatusInProgress, inProgressTasks[0].Status)
 
 	// List completed tasks
 	completedTasks, err := ListTasks(db, "completed", "", -1)
 	require.NoError(t, err)
 	assert.Len(t, completedTasks, 1)
-	assert.Equal(t, "completed", completedTasks[0].Status)
+	assert.Equal(t, models.TaskStatusCompleted, completedTasks[0].Status)
 }
 
 func TestListTasksEmpty(t *testing.T) {
@@ -172,7 +173,7 @@ func TestConcurrentTaskUpdates(t *testing.T) {
 	// Verify final state
 	final, err := GetTask(db, task.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "in_progress", final.Status)
+	assert.Equal(t, models.TaskStatusInProgress, final.Status)
 	assert.Equal(t, 2, final.Version)
 }
 

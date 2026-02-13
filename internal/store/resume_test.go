@@ -147,7 +147,7 @@ func TestDetermineFocusTask_DependencyBlockedKeeps(t *testing.T) {
 	// Verify it's blocked
 	refreshed, err := GetTask(db, blockedTask.ID)
 	require.NoError(t, err)
-	require.Equal(t, "blocked", refreshed.Status)
+	require.Equal(t, models.TaskStatusBlocked, refreshed.Status)
 
 	// Determine focus: should KEEP dependency-blocked focus
 	focusID, err := DetermineFocusTask(db, "agent1", blockedTask.ID, []*models.Event{}, "")
@@ -471,7 +471,7 @@ func TestFetchRelevantMemory(t *testing.T) {
 
 	// Verify agent memory is excluded
 	for _, mem := range memories {
-		if mem.Scope == "agent" {
+		if mem.Scope == models.MemoryScopeAgent {
 			t.Errorf("Agent-scoped memory should not be included in brief")
 		}
 	}
@@ -545,7 +545,7 @@ func TestBuildBrief_WithProject(t *testing.T) {
 	// Memory should include project-scoped
 	found := false
 	for _, m := range brief.RelevantMemory {
-		if m.Scope == "project" && m.ScopeID == project.ID {
+		if m.Scope == models.MemoryScopeProject && m.ScopeID == project.ID {
 			found = true
 		}
 	}
@@ -579,7 +579,7 @@ func TestFetchRelevantMemory_ProjectFiltered(t *testing.T) {
 		t.Fatalf("fetchRelevantMemory failed: %v", err)
 	}
 	for _, m := range memories {
-		if m.Scope == "project" {
+		if m.Scope == models.MemoryScopeProject {
 			if m.ScopeID != "proj_1" {
 				t.Errorf("Expected only proj_1, got %s", m.ScopeID)
 			}
@@ -593,7 +593,7 @@ func TestFetchRelevantMemory_ProjectFiltered(t *testing.T) {
 	}
 	projectCount := 0
 	for _, m := range memories {
-		if m.Scope == "project" {
+		if m.Scope == models.MemoryScopeProject {
 			projectCount++
 		}
 	}
@@ -977,7 +977,7 @@ func TestGetTaskStatusCounts_Global(t *testing.T) {
 	require.NoError(t, AddTaskDependency(db, t1.ID, t3.ID))
 	refreshed, err := GetTask(db, t1.ID)
 	require.NoError(t, err)
-	require.Equal(t, "blocked", refreshed.Status)
+	require.Equal(t, models.TaskStatusBlocked, refreshed.Status)
 
 	counts, err := GetTaskStatusCounts(db, "")
 	require.NoError(t, err)

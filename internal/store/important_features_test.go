@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +22,7 @@ func TestStartTaskAndFocus_AndIdempotent(t *testing.T) {
 
 	updated, err := GetTask(db, task.ID)
 	require.NoError(t, err)
-	require.Equal(t, "in_progress", updated.Status)
+	require.Equal(t, models.TaskStatusInProgress, updated.Status)
 	require.Equal(t, "agent-a", updated.ClaimedBy)
 
 	state, err := LoadOrCreateAgentState(db, "agent-a")
@@ -191,5 +192,5 @@ func TestTaskTxHelpers_GetTaskTxAndUpdateWithEvent(t *testing.T) {
 
 	updated, err := GetTask(db, task.ID)
 	require.NoError(t, err)
-	require.Equal(t, "in_progress", updated.Status)
+	require.Equal(t, models.TaskStatusInProgress, updated.Status)
 }

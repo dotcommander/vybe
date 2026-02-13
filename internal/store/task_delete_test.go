@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,7 +66,7 @@ func TestDeleteTask_CascadesDeps(t *testing.T) {
 	// task2 was blocked — should now be pending (unblocked by delete)
 	task2Updated, err := GetTask(db, task2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "pending", task2Updated.Status)
+	assert.Equal(t, models.TaskStatusPending, task2Updated.Status)
 	assert.Empty(t, task2Updated.BlockedReason)
 }
 
@@ -86,7 +87,7 @@ func TestDeleteTask_UnblocksOrphanedDependents(t *testing.T) {
 	// Verify dependent is blocked
 	dep, err := GetTask(db, dependent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", dep.Status)
+	assert.Equal(t, models.TaskStatusBlocked, dep.Status)
 
 	// Delete blocker
 	err = Transact(db, func(tx *sql.Tx) error {
@@ -97,7 +98,7 @@ func TestDeleteTask_UnblocksOrphanedDependents(t *testing.T) {
 	// Dependent should be unblocked (pending)
 	dep, err = GetTask(db, dependent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "pending", dep.Status)
+	assert.Equal(t, models.TaskStatusPending, dep.Status)
 	assert.Empty(t, dep.BlockedReason)
 }
 
@@ -129,7 +130,7 @@ func TestDeleteTask_PartialUnblock(t *testing.T) {
 	// Dependent should STAY blocked (blocker2 still exists)
 	dep, err := GetTask(db, dependent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", dep.Status)
+	assert.Equal(t, models.TaskStatusBlocked, dep.Status)
 }
 
 func TestDeleteTask_RefusesInProgressClaimedByOther(t *testing.T) {
@@ -205,8 +206,8 @@ func TestDeleteTask_DoesNotUnblockFailureBlocked(t *testing.T) {
 
 	dep, err := GetTask(db, dependent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", dep.Status, "failure-blocked task should stay blocked")
-	assert.Equal(t, "failure:timeout", dep.BlockedReason)
+	assert.Equal(t, models.TaskStatusBlocked, dep.Status, "failure-blocked task should stay blocked")
+	assert.Equal(t, models.NewBlockedReasonFailure("timeout"), dep.BlockedReason)
 }
 
 func TestDeleteTask_AllowsExpiredClaim(t *testing.T) {

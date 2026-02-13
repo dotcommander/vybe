@@ -3,7 +3,6 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -118,7 +117,7 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 			// Rule 1.5: If blocked, keep only if dependency-blocked.
 			// Failure-blocked tasks (blocked_reason="failure:...") fall through to Rule 4.
 			if task.Status == "blocked" {
-				if strings.HasPrefix(task.BlockedReason, models.BlockedReasonFailurePrefix) {
+				if task.BlockedReason.IsFailure() {
 					// Explicit failure block: fall through to find new work
 				} else {
 					// Dependency-blocked or unknown reason: check unresolved deps
