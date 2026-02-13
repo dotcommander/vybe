@@ -19,8 +19,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewRunCmd creates the autonomous driver command.
-func NewRunCmd() *cobra.Command {
+// NewLoopCmd creates the autonomous driver command.
+func NewLoopCmd() *cobra.Command {
 	var (
 		project     string
 		maxTasks    int
@@ -33,9 +33,9 @@ func NewRunCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "run",
+		Use:   "loop",
 		Short: "Autonomous task driver — loops resume → spawn → complete",
-		Long: `Run is the autonomous driver loop. It repeatedly calls resume to get the next
+		Long: `Loop is the autonomous driver loop. It repeatedly calls resume to get the next
 focus task, spawns an external command (default: claude -p) with the task prompt,
 waits for completion, and moves to the next task.
 
@@ -93,7 +93,7 @@ Safety rails:
 	cmd.Flags().StringVar(&command, "command", "claude", "Command to spawn (receives prompt via -p flag)")
 	cmd.Flags().StringVar(&postHook, "post-hook", "", "Command to pipe run results JSON to on completion (fallback: config post_run_hook)")
 
-	cmd.AddCommand(newRunStatsCmd())
+	cmd.AddCommand(newLoopStatsCmd())
 
 	return cmd
 }
@@ -313,8 +313,8 @@ func execPostRunHook(command string, resultsJSON []byte) error {
 	return nil
 }
 
-// newRunStatsCmd creates the "run stats" subcommand.
-func newRunStatsCmd() *cobra.Command {
+// newLoopStatsCmd creates the "loop stats" subcommand.
+func newLoopStatsCmd() *cobra.Command {
 	var (
 		lastN   int
 		project string

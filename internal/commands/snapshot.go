@@ -7,15 +7,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewCheckpointCmd creates the checkpoint command.
-func NewCheckpointCmd() *cobra.Command {
+// NewSnapshotCmd creates the snapshot command (formerly checkpoint).
+func NewSnapshotCmd() *cobra.Command {
 	var project string
 
 	cmd := &cobra.Command{
-		Use:   "checkpoint",
+		Use:   "snapshot",
 		Short: "Capture point-in-time state snapshot with diff against previous",
-		Long: `Checkpoint captures the current agent state (focus task, cursor position,
-task counts) and compares against the previous checkpoint to show what changed.
+		Long: `Snapshot captures the current agent state (focus task, cursor position,
+task counts) and compares against the previous snapshot to show what changed.
 
 Useful for human-readable progress summaries across sessions.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
