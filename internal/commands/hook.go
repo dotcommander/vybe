@@ -33,12 +33,20 @@ func NewHookCmd() *cobra.Command {
 
 	cmd.AddCommand(newHookInstallCmd())
 	cmd.AddCommand(newHookUninstallCmd())
-	cmd.AddCommand(newHookSessionStartCmd())
-	cmd.AddCommand(newHookPromptCmd())
-	cmd.AddCommand(newHookToolFailureCmd())
-	cmd.AddCommand(newHookCheckpointCmd())
-	cmd.AddCommand(newHookTaskCompletedCmd())
-	cmd.AddCommand(newHookRetrospectiveCmd())
+
+	// Hook handler subcommands — called by the hook system, not agents directly.
+	// Hidden from help output to reduce command surface noise.
+	for _, sub := range []*cobra.Command{
+		newHookSessionStartCmd(),
+		newHookPromptCmd(),
+		newHookToolFailureCmd(),
+		newHookCheckpointCmd(),
+		newHookTaskCompletedCmd(),
+		newHookRetrospectiveCmd(),
+	} {
+		sub.Hidden = true
+		cmd.AddCommand(sub)
+	}
 
 	return cmd
 }

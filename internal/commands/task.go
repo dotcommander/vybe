@@ -19,7 +19,7 @@ func NewTaskCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(newTaskCreateCmd())
-	cmd.AddCommand(newTaskStartCmd())
+	cmd.AddCommand(newTaskBeginCmd())
 	cmd.AddCommand(newTaskHeartbeatCmd())
 	cmd.AddCommand(newTaskSetStatusCmd())
 	cmd.AddCommand(newTaskGetCmd())
@@ -28,7 +28,7 @@ func NewTaskCmd() *cobra.Command {
 	cmd.AddCommand(newTaskRemoveDepCmd())
 	cmd.AddCommand(newTaskDeleteCmd())
 	cmd.AddCommand(newTaskClaimCmd())
-	cmd.AddCommand(newTaskCloseCmd())
+	cmd.AddCommand(newTaskCompleteCmd())
 	cmd.AddCommand(newTaskGCCmd())
 	cmd.AddCommand(newTaskSetPriorityCmd())
 	cmd.AddCommand(newTaskNextCmd())
@@ -145,9 +145,9 @@ func newTaskSetStatusCmd() *cobra.Command {
 	return cmd
 }
 
-func newTaskStartCmd() *cobra.Command {
+func newTaskBeginCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "start",
+		Use:   "begin",
 		Short: "Set task in_progress and focus it for the agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
@@ -454,10 +454,10 @@ func newTaskClaimCmd() *cobra.Command {
 	return cmd
 }
 
-func newTaskCloseCmd() *cobra.Command {
+func newTaskCompleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "close",
-		Short: "Atomically close a task with structured outcome",
+		Use:   "complete",
+		Short: "Atomically complete a task with structured outcome",
 		Long:  "Sets status + emits task_closed event with summary/label metadata in one transaction. Outcome: done|blocked.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")

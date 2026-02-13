@@ -12,6 +12,8 @@ import (
 )
 
 func NewStatusCmd() *cobra.Command {
+	var check bool
+
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show vybe installation status and system overview",
@@ -39,9 +41,12 @@ func NewStatusCmd() *cobra.Command {
 			}
 
 			type resp struct {
-				DB     dbInfo              `json:"db"`
-				Hooks  hooksInfo           `json:"hooks"`
-				Counts *store.StatusCounts `json:"counts,omitempty"`
+				DB         dbInfo              `json:"db"`
+				Hooks      hooksInfo           `json:"hooks"`
+				Counts     *store.StatusCounts `json:"counts,omitempty"`
+				QueryOK    *bool               `json:"query_ok,omitempty"`
+				QueryError string              `json:"query_error,omitempty"`
+				Hint       string              `json:"hint,omitempty"`
 			}
 
 			result := resp{
@@ -60,6 +65,12 @@ func NewStatusCmd() *cobra.Command {
 			if err != nil {
 				result.DB.OK = false
 				result.DB.Error = err.Error()
+				if check {
+					qOK := false
+					result.QueryOK = &qOK
+					result.QueryError = "db not available"
+					result.Hint = "If this is running in a sandboxed environment, set db_path to a writable location or use --db-path."
+				}
 			} else {
 				result.DB.OK = true
 				defer db.Close()
@@ -74,11 +85,26 @@ func NewStatusCmd() *cobra.Command {
 				if counts, err := store.GetStatusCounts(db); err == nil {
 					result.Counts = counts
 				}
+
+				// 7. Health check (--check): run SELECT 1 to verify connectivity
+				if check {
+					var one int
+					if qErr := db.QueryRow("SELECT 1").Scan(&one); qErr != nil {
+						qOK := false
+						result.QueryOK = &qOK
+						result.QueryError = qErr.Error()
+					} else {
+						qOK := true
+						result.QueryOK = &qOK
+					}
+				}
 			}
 
 			return output.PrintSuccess(result)
 		},
 	}
+
+	cmd.Flags().BoolVar(&check, "check", false, "Run database connectivity check (SELECT 1)")
 
 	return cmd
 }

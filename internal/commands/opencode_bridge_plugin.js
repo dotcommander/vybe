@@ -2,9 +2,18 @@ function reqID(prefix) {
   return prefix + "_" + Date.now() + "_" + Math.random().toString(16).slice(2, 8)
 }
 
-function stableAgent(sessionID) {
+function projectKey(projectDir) {
+  if (!projectDir || projectDir.trim() === "") return ""
+  const base = projectDir.split(/[\\/]/).filter(Boolean).pop() || ""
+  if (base === "") return ""
+  return base.replace(/[^A-Za-z0-9_-]/g, "-").toLowerCase()
+}
+
+function stableAgent(sessionID, projectDir) {
   const envAgent = process.env.VYBE_AGENT
   if (envAgent && envAgent.trim() !== "") return envAgent.trim()
+  const pkey = projectKey(projectDir)
+  if (pkey !== "") return "opencode-" + pkey
   if (sessionID && sessionID.length >= 8) return "opencode-" + sessionID.slice(0, 8)
   return "opencode-agent"
 }
@@ -43,6 +52,7 @@ function extractUserPrompt(parts) {
 
 export const VybeBridgePlugin = async ({ client }) => {
   const sessionPrompts = new Map()
+  const sessionProjects = new Map()
   const todoTimers = new Map()
   const todoPending = new Map()
   const TODO_DEBOUNCE_MS = 3000
@@ -52,7 +62,7 @@ export const VybeBridgePlugin = async ({ client }) => {
       const oldest = sessionPrompts.keys().next().value
       sessionPrompts.delete(oldest)
     }
-    const agent = stableAgent(sessionID)
+    const agent = stableAgent(sessionID, projectDir)
     const args = ["resume", "--agent", agent, "--request-id", reqID("oc_session_start")]
     if (projectDir && projectDir.trim() !== "") {
       args.push("--project", projectDir)
@@ -70,7 +80,10 @@ export const VybeBridgePlugin = async ({ client }) => {
       try {
         if (event.type === "session.created") {
           const info = event.properties.info
-          const agent = stableAgent(info.id)
+          if (info.directory && info.directory.trim() !== "") {
+            sessionProjects.set(info.id, info.directory)
+          }
+          const agent = stableAgent(info.id, info.directory)
           await hydrateSessionPrompt(info.id, info.directory)
           await client.app.log({
             body: {
@@ -85,6 +98,7 @@ export const VybeBridgePlugin = async ({ client }) => {
         if (event.type === "session.deleted") {
           const delID = event.properties.info.id
           sessionPrompts.delete(delID)
+          sessionProjects.delete(delID)
           if (todoTimers.has(delID)) {
             clearTimeout(todoTimers.get(delID))
             todoTimers.delete(delID)
@@ -104,9 +118,10 @@ export const VybeBridgePlugin = async ({ client }) => {
             todoPending.delete(sessionID)
             if (!latestTodos) return
             try {
-              const agent = stableAgent(sessionID)
+              const agent = stableAgent(sessionID, sessionProjects.get(sessionID))
               await runVybe([
-                "log",
+                "events",
+                "add",
                 "--agent", agent,
                 "--request-id", reqID("oc_todo_updated"),
                 "--kind", "todo_snapshot",
@@ -144,7 +159,7 @@ export const VybeBridgePlugin = async ({ client }) => {
     "chat.message": async (input, output) => {
       try {
         const sessionID = input.sessionID
-        const agent = stableAgent(sessionID)
+        const agent = stableAgent(sessionID, sessionProjects.get(sessionID))
 
         const prompt = extractUserPrompt(output.parts)
         if (!prompt) return
@@ -152,7 +167,8 @@ export const VybeBridgePlugin = async ({ client }) => {
         const truncated = prompt.length > 500 ? prompt.slice(0, 500) : prompt
 
         await runVybe([
-          "log",
+          "events",
+          "add",
           "--agent", agent,
           "--request-id", reqID("oc_user_prompt"),
           "--kind", "user_prompt",
@@ -177,7 +193,7 @@ export const VybeBridgePlugin = async ({ client }) => {
     "experimental.chat.system.transform": async (input, output) => {
       const existing = sessionPrompts.get(input.sessionID)
       if (!existing) {
-        await hydrateSessionPrompt(input.sessionID)
+        await hydrateSessionPrompt(input.sessionID, sessionProjects.get(input.sessionID))
       }
       const prompt = sessionPrompts.get(input.sessionID)
       if (!prompt || prompt.trim() === "") {
