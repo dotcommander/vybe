@@ -25,6 +25,8 @@ const (
 	EventKindTaskClaimed           = "task_claimed"
 	EventKindTaskClosed            = "task_closed"
 	EventKindTaskPriorityChanged   = "task_priority_changed"
+	EventKindRunCompleted          = "run_completed"
+	EventKindCheckpoint            = "checkpoint"
 )
 
 // Well-known agent event kinds. These are conventions, not enforced.

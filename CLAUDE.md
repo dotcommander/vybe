@@ -79,7 +79,7 @@ Assume **multiple concurrent agents and workers** operating on the same DB at on
   - Persist intent/checkpoints before side effects where possible, and always record completion/failure.
   - Resume must be deterministic: reconstruct from persisted state, not in-memory agent context.
 
-For comprehensive examples, see [Usage Examples](docs/usage-examples.md).
+For comprehensive examples, see [Usage Examples](docs/operator/usage-examples.md).
 
 ## Architecture
 
@@ -239,7 +239,7 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - DB path precedence: `--db-path` > `VYBE_DB_PATH` > `config.yaml: db_path` > `~/.config/vybe/vybe.db`
 - Agent identity: `--agent` flag or `VYBE_AGENT` env (required for most commands)
 - Idempotency: `--request-id` or `VYBE_REQUEST_ID` for safe retries
-- New features follow the idempotent action pattern: `store.*Tx` → `actions.RunIdempotent` → `commands` (see `docs/idempotent-action-pattern.md`)
+- New features follow the idempotent action pattern: `store.*Tx` → `actions.RunIdempotent` → `commands` (see `docs/contributor/idempotent-action-pattern.md`)
 - In `RunIdempotent*` closures, use `tx.Query*` not `db.Query*` — SQLite single-connection tests deadlock silently
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`

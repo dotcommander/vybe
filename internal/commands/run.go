@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dotcommander/vybe/internal/actions"
+	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/output"
 	"github.com/dotcommander/vybe/internal/store"
@@ -26,6 +29,7 @@ func NewRunCmd() *cobra.Command {
 		cooldown    string
 		dryRun      bool
 		command     string
+		postHook    string
 	)
 
 	cmd := &cobra.Command{
@@ -56,6 +60,14 @@ Safety rails:
 				return cmdErr(fmt.Errorf("invalid --cooldown: %w", err))
 			}
 
+			// Resolve post-hook: CLI flag > config file
+			hook := postHook
+			if hook == "" {
+				if s, err := app.LoadSettings(); err == nil && s.PostRunHook != "" {
+					hook = s.PostRunHook
+				}
+			}
+
 			opts := runOptions{
 				agentName:   agentName,
 				project:     project,
@@ -65,6 +77,7 @@ Safety rails:
 				cooldown:    cool,
 				dryRun:      dryRun,
 				command:     command,
+				postHook:    hook,
 			}
 
 			return runLoop(opts)
@@ -78,6 +91,9 @@ Safety rails:
 	cmd.Flags().StringVar(&cooldown, "cooldown", "5s", "Wait between tasks")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would run without spawning")
 	cmd.Flags().StringVar(&command, "command", "claude", "Command to spawn (receives prompt via -p flag)")
+	cmd.Flags().StringVar(&postHook, "post-hook", "", "Command to pipe run results JSON to on completion (fallback: config post_run_hook)")
+
+	cmd.AddCommand(newRunStatsCmd())
 
 	return cmd
 }
@@ -91,6 +107,7 @@ type runOptions struct {
 	cooldown    time.Duration
 	dryRun      bool
 	command     string
+	postHook    string
 }
 
 type taskResult struct {
@@ -101,6 +118,8 @@ type taskResult struct {
 }
 
 func runLoop(opts runOptions) error {
+	loopStart := time.Now()
+
 	var (
 		completed      int
 		failed         int
@@ -234,18 +253,93 @@ func runLoop(opts runOptions) error {
 		}
 	}
 
-	type resp struct {
-		Completed int          `json:"completed"`
-		Failed    int          `json:"failed"`
-		Total     int          `json:"total"`
-		Results   []taskResult `json:"results"`
-	}
-	return output.PrintSuccess(resp{
+	duration := time.Since(loopStart)
+
+	// Persist run results as event (non-fatal)
+	runResult := actions.RunResult{
 		Completed: completed,
 		Failed:    failed,
 		Total:     totalRun,
-		Results:   results,
-	})
+		Duration:  duration.Seconds(),
+	}
+	persistRequestID := fmt.Sprintf("run_result_%d", time.Now().UnixMilli())
+	if err := withDB(func(db *DB) error {
+		_, err := actions.PersistRunResultIdempotent(db, opts.agentName, persistRequestID, opts.project, runResult)
+		return err
+	}); err != nil {
+		slog.Warn("failed to persist run results", "error", err)
+	}
+
+	type resp struct {
+		Completed   int          `json:"completed"`
+		Failed      int          `json:"failed"`
+		Total       int          `json:"total"`
+		DurationSec float64      `json:"duration_sec"`
+		Results     []taskResult `json:"results"`
+	}
+	r := resp{
+		Completed:   completed,
+		Failed:      failed,
+		Total:       totalRun,
+		DurationSec: duration.Seconds(),
+		Results:     results,
+	}
+
+	// Execute post-run hook if configured (non-fatal)
+	if opts.postHook != "" {
+		resultsJSON, err := json.Marshal(r)
+		if err != nil {
+			slog.Warn("failed to marshal results for post-hook", "error", err)
+		} else {
+			if err := execPostRunHook(opts.postHook, resultsJSON); err != nil {
+				slog.Warn("post-run hook failed", "error", err, "hook", opts.postHook)
+			}
+		}
+	}
+
+	return output.PrintSuccess(r)
+}
+
+// execPostRunHook pipes run results JSON to an external command via stdin.
+func execPostRunHook(command string, resultsJSON []byte) error {
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Stdin = bytes.NewReader(resultsJSON)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("post-run hook %q: %w", command, err)
+	}
+	return nil
+}
+
+// newRunStatsCmd creates the "run stats" subcommand.
+func newRunStatsCmd() *cobra.Command {
+	var (
+		lastN   int
+		project string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show run dashboard with aggregate statistics",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agentName := resolveActorName(cmd, "")
+
+			return withDB(func(db *DB) error {
+				dash, err := actions.RunStats(db, agentName, project, lastN)
+				if err != nil {
+					return err
+				}
+				return output.PrintSuccess(dash)
+			})
+		},
+	}
+
+	cmd.Flags().IntVar(&lastN, "last", 7, "Number of recent runs to aggregate")
+	cmd.Flags().StringVar(&project, "project", "", "Project ID to filter runs")
+
+	return cmd
 }
 
 // buildAgentPrompt constructs the prompt sent to the spawned agent.

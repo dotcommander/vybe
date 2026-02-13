@@ -12,7 +12,8 @@ import (
 // Settings represents configuration loaded from config.yaml.
 // Field names match snake_case YAML keys.
 type Settings struct {
-	DBPath string `yaml:"db_path"`
+	DBPath      string `yaml:"db_path"`
+	PostRunHook string `yaml:"post_run_hook"`
 }
 
 var (

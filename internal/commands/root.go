@@ -69,6 +69,7 @@ func Execute(version string) error {
 	root.AddCommand(NewSessionCmd())
 	root.AddCommand(NewStatusCmd())
 	root.AddCommand(NewUpgradeCmd())
+	root.AddCommand(NewCheckpointCmd())
 	root.AddCommand(NewDoctorCmd())
 	root.AddCommand(newSchemaCmd(root))
 
