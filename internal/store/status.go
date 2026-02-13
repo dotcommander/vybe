@@ -6,15 +6,15 @@ import (
 )
 
 type StatusCounts struct {
-	Tasks         TaskStatusCounts `json:"tasks"`
-	Events        int              `json:"events"`
-	Memory        int              `json:"memory"`
-	Agents        int              `json:"agents"`
-	Projects      int              `json:"projects"`
-	EventsDetail  *EventsDetail    `json:"events_detail,omitempty"`
-	MemoryDetail  *MemoryDetail    `json:"memory_detail,omitempty"`
-	AgentsDetail  *AgentsDetail    `json:"agents_detail,omitempty"`
-	TasksDetail   *TasksDetail     `json:"tasks_detail,omitempty"`
+	Tasks        TaskStatusCounts `json:"tasks"`
+	Events       int              `json:"events"`
+	Memory       int              `json:"memory"`
+	Agents       int              `json:"agents"`
+	Projects     int              `json:"projects"`
+	EventsDetail *EventsDetail    `json:"events_detail,omitempty"`
+	MemoryDetail *MemoryDetail    `json:"memory_detail,omitempty"`
+	AgentsDetail *AgentsDetail    `json:"agents_detail,omitempty"`
+	TasksDetail  *TasksDetail     `json:"tasks_detail,omitempty"`
 }
 
 type TaskStatusCounts struct {

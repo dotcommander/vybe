@@ -136,8 +136,8 @@ func TestEnsureProjectByID_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, p1.ID, p2.ID)
-	assert.Equal(t, "myproject", p2.Name)          // Original name preserved
-	assert.NotEqual(t, "different-name", p2.Name)   // Second call's name ignored
+	assert.Equal(t, "myproject", p2.Name)         // Original name preserved
+	assert.NotEqual(t, "different-name", p2.Name) // Second call's name ignored
 }
 
 func TestEnsureProjectByID_EmptyID(t *testing.T) {
