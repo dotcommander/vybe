@@ -1,0 +1,106 @@
+package store
+
+import (
+	"database/sql"
+	"fmt"
+)
+
+type StatusCounts struct {
+	Tasks         TaskStatusCounts `json:"tasks"`
+	Events        int              `json:"events"`
+	Memory        int              `json:"memory"`
+	Agents        int              `json:"agents"`
+	Projects      int              `json:"projects"`
+	EventsDetail  *EventsDetail    `json:"events_detail,omitempty"`
+	MemoryDetail  *MemoryDetail    `json:"memory_detail,omitempty"`
+	AgentsDetail  *AgentsDetail    `json:"agents_detail,omitempty"`
+	TasksDetail   *TasksDetail     `json:"tasks_detail,omitempty"`
+}
+
+type TaskStatusCounts struct {
+	Pending    int `json:"pending"`
+	InProgress int `json:"in_progress"`
+	Completed  int `json:"completed"`
+	Blocked    int `json:"blocked"`
+}
+
+type EventsDetail struct {
+	Active   int `json:"active"`
+	Archived int `json:"archived"`
+}
+
+type MemoryDetail struct {
+	Active     int `json:"active"`
+	Stale      int `json:"stale"`
+	Superseded int `json:"superseded"`
+	Expired    int `json:"expired"`
+}
+
+type AgentsDetail struct {
+	Active7d int `json:"active_7d"`
+}
+
+type TasksDetail struct {
+	Total   int `json:"total"`
+	Unknown int `json:"unknown"`
+}
+
+// GetStatusCounts retrieves all status counts in a single atomic query with retry.
+func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
+	counts := &StatusCounts{}
+	var evActive, evArchived int
+	var memActive, memStale, memSuperseded, memExpired int
+	var agActive7d int
+	var taskTotal, taskUnknown int
+
+	err := RetryWithBackoff(func() error {
+		return db.QueryRow(`
+			SELECT
+				COALESCE((SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) FROM tasks), 0),
+				COALESCE((SELECT SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) FROM tasks), 0),
+				COALESCE((SELECT SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) FROM tasks), 0),
+				COALESCE((SELECT SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) FROM tasks), 0),
+				(SELECT COUNT(*) FROM events),
+				(SELECT COUNT(*) FROM memory),
+				(SELECT COUNT(*) FROM agent_state),
+				(SELECT COUNT(*) FROM projects),
+				(SELECT COUNT(*) FROM events WHERE archived_at IS NULL),
+				(SELECT COUNT(*) FROM events WHERE archived_at IS NOT NULL),
+				(SELECT COUNT(*) FROM memory WHERE superseded_by IS NULL AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)),
+				(SELECT COUNT(*) FROM memory WHERE superseded_by IS NULL AND confidence < 0.3 AND COALESCE(last_seen_at, created_at) < datetime('now', '-14 days')),
+				(SELECT COUNT(*) FROM memory WHERE superseded_by IS NOT NULL),
+				(SELECT COUNT(*) FROM memory WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP),
+				(SELECT COUNT(*) FROM agent_state WHERE last_active_at >= datetime('now', '-7 days')),
+				(SELECT COUNT(*) FROM tasks),
+				(SELECT COUNT(*) FROM tasks WHERE status NOT IN ('pending', 'in_progress', 'completed', 'blocked'))
+		`).Scan(
+			&counts.Tasks.Pending,
+			&counts.Tasks.InProgress,
+			&counts.Tasks.Completed,
+			&counts.Tasks.Blocked,
+			&counts.Events,
+			&counts.Memory,
+			&counts.Agents,
+			&counts.Projects,
+			&evActive,
+			&evArchived,
+			&memActive,
+			&memStale,
+			&memSuperseded,
+			&memExpired,
+			&agActive7d,
+			&taskTotal,
+			&taskUnknown,
+		)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status counts: %w", err)
+	}
+
+	counts.EventsDetail = &EventsDetail{Active: evActive, Archived: evArchived}
+	counts.MemoryDetail = &MemoryDetail{Active: memActive, Stale: memStale, Superseded: memSuperseded, Expired: memExpired}
+	counts.AgentsDetail = &AgentsDetail{Active7d: agActive7d}
+	counts.TasksDetail = &TasksDetail{Total: taskTotal, Unknown: taskUnknown}
+
+	return counts, nil
+}

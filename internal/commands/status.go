@@ -1,0 +1,129 @@
+package commands
+
+import (
+	"encoding/json"
+	"os"
+	"sort"
+
+	"github.com/dotcommander/vibe/internal/app"
+	"github.com/dotcommander/vibe/internal/output"
+	"github.com/dotcommander/vibe/internal/store"
+	"github.com/spf13/cobra"
+)
+
+func NewStatusCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show vibe installation status and system overview",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// 1. Resolve DB path
+			dbPath, dbSource, err := app.ResolveDBPathDetailed()
+			if err != nil {
+				return cmdErr(err)
+			}
+
+			// 2. Build response structure
+			type dbInfo struct {
+				Path      string `json:"path"`
+				Source    string `json:"source"`
+				OK        bool   `json:"ok"`
+				SizeBytes *int64 `json:"size_bytes,omitempty"`
+				Error     string `json:"error,omitempty"`
+			}
+
+			type hooksInfo struct {
+				Claude         bool            `json:"claude"`
+				ClaudeEvents   map[string]bool `json:"claude_events,omitempty"`
+				ClaudeSettings []string        `json:"claude_settings_paths,omitempty"`
+				OpenCode       bool            `json:"opencode"`
+			}
+
+			type resp struct {
+				DB     dbInfo              `json:"db"`
+				Hooks  hooksInfo           `json:"hooks"`
+				Counts *store.StatusCounts `json:"counts,omitempty"`
+			}
+
+			result := resp{
+				DB: dbInfo{
+					Path:   dbPath,
+					Source: dbSource,
+				},
+			}
+
+			// 3. Check hooks
+			result.Hooks.Claude, result.Hooks.ClaudeEvents, result.Hooks.ClaudeSettings = checkClaudeHook()
+			result.Hooks.OpenCode = checkOpenCodeHook()
+
+			// 4. Try to open DB
+			db, err := store.InitDBWithPath(dbPath)
+			if err != nil {
+				result.DB.OK = false
+				result.DB.Error = err.Error()
+			} else {
+				result.DB.OK = true
+				defer db.Close()
+
+				// 5. Get DB file size
+				if stat, err := os.Stat(dbPath); err == nil {
+					size := stat.Size()
+					result.DB.SizeBytes = &size
+				}
+
+				// 6. Get counts
+				if counts, err := store.GetStatusCounts(db); err == nil {
+					result.Counts = counts
+				}
+			}
+
+			return output.PrintSuccess(result)
+		},
+	}
+
+	return cmd
+}
+
+// checkClaudeHook checks if vibe hooks are installed in Claude settings.
+func checkClaudeHook() (bool, map[string]bool, []string) {
+	paths := []string{claudeSettingsPath(), projectClaudeSettingsPath()}
+	events := make(map[string]bool)
+	for _, name := range vibeHookEventNames() {
+		events[name] = false
+	}
+
+	foundPaths := make([]string, 0, len(paths))
+	installedAny := false
+
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		foundPaths = append(foundPaths, path)
+
+		var settings struct {
+			Hooks map[string][]any `json:"hooks"`
+		}
+		if err := json.Unmarshal(data, &settings); err != nil {
+			continue
+		}
+
+		for eventName, entries := range settings.Hooks {
+			if !hasVibeHook(entries) {
+				continue
+			}
+			installedAny = true
+			events[eventName] = true
+		}
+	}
+
+	sort.Strings(foundPaths)
+	return installedAny, events, foundPaths
+}
+
+// checkOpenCodeHook checks if the vibe bridge plugin exists in OpenCode.
+func checkOpenCodeHook() bool {
+	path := opencodePluginPath()
+	_, err := os.Stat(path)
+	return err == nil
+}

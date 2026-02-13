@@ -1,0 +1,120 @@
+package store
+
+import (
+	"database/sql"
+	"fmt"
+)
+
+// DeleteTaskTx deletes a task by ID inside an existing transaction.
+// Foreign key CASCADE handles cleanup of task_dependencies rows.
+// Before deleting, collects blocked dependents and unblocks any that
+// would have no remaining unresolved dependencies after the delete.
+// Guards against deleting tasks that are in_progress or claimed by another agent.
+// Returns error if the task does not exist.
+func DeleteTaskTx(tx *sql.Tx, agentName, taskID string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+
+	// Guard: refuse to delete a task that is actively owned by another agent.
+	var status string
+	var claimedBy sql.NullString
+	err := tx.QueryRow(`
+		SELECT status, claimed_by FROM tasks WHERE id = ?`, taskID).
+		Scan(&status, &claimedBy)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("task not found: %s", taskID)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to check task state: %w", err)
+	}
+
+	if status == "in_progress" {
+		// Only the owning agent (or unclaimed) can delete an in_progress task.
+		if claimedBy.Valid && claimedBy.String != "" && claimedBy.String != agentName {
+			return fmt.Errorf("cannot delete task %s: in_progress and claimed by %s", taskID, claimedBy.String)
+		}
+	}
+
+	// Refuse if claimed by another agent with a non-expired lease.
+	if claimedBy.Valid && claimedBy.String != "" && claimedBy.String != agentName {
+		var active bool
+		err = tx.QueryRow(`
+			SELECT claim_expires_at IS NOT NULL AND claim_expires_at > CURRENT_TIMESTAMP
+			FROM tasks WHERE id = ?`, taskID).Scan(&active)
+		if err != nil {
+			return fmt.Errorf("failed to check claim expiry: %w", err)
+		}
+		if active {
+			return fmt.Errorf("cannot delete task %s: claimed by %s", taskID, claimedBy.String)
+		}
+	}
+
+	// Collect blocked tasks that depend on this task BEFORE cascade delete
+	// removes the dependency rows.
+	blockedDeps, err := collectBlockedDependentsTx(tx, taskID)
+	if err != nil {
+		return fmt.Errorf("collect blocked dependents: %w", err)
+	}
+
+	result, err := tx.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to delete task: %w", err)
+	}
+
+	ra, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if ra == 0 {
+		return fmt.Errorf("task not found: %s", taskID)
+	}
+
+	// After CASCADE removed the dep rows, check each previously-blocked
+	// dependent. If it has no remaining unresolved deps, transition to pending.
+	for _, depID := range blockedDeps {
+		has, err := HasUnresolvedDependenciesTx(tx, depID)
+		if err != nil {
+			return fmt.Errorf("check unresolved deps for %s: %w", depID, err)
+		}
+		if !has {
+			_, err = tx.Exec(`
+				UPDATE tasks
+				SET status = 'pending', blocked_reason = NULL, version = version + 1
+				WHERE id = ? AND status = 'blocked'`,
+				depID)
+			if err != nil {
+				return fmt.Errorf("unblock dependent %s: %w", depID, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// collectBlockedDependentsTx returns IDs of tasks that depend on taskID
+// and are currently dependency-blocked (not failure-blocked).
+// Only these are eligible for auto-unblock when the dependency is removed.
+func collectBlockedDependentsTx(tx *sql.Tx, taskID string) ([]string, error) {
+	rows, err := tx.Query(`
+		SELECT td.task_id
+		FROM task_dependencies td
+		JOIN tasks t ON t.id = td.task_id
+		WHERE td.depends_on_task_id = ?
+		  AND t.status = 'blocked'
+		  AND (t.blocked_reason = 'dependency' OR t.blocked_reason IS NULL OR t.blocked_reason = '')`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
