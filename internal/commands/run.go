@@ -184,7 +184,7 @@ func runLoop(opts runOptions) error {
 		duration := time.Since(start)
 
 		// Check task status after agent finishes
-		var finalStatus string
+		var finalStatus models.TaskStatus
 		if err := withDB(func(db *DB) error {
 			task, err := store.GetTask(db, response.FocusTaskID)
 			if err != nil {
@@ -220,7 +220,7 @@ func runLoop(opts runOptions) error {
 			consecuteFails++
 			failed++
 		default:
-			result.Status = finalStatus
+			result.Status = string(finalStatus)
 			if finalStatus == "blocked" {
 				consecuteFails++
 				failed++

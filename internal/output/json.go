@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 )
 
@@ -11,6 +12,21 @@ type Response struct {
 	Success       bool        `json:"success"`
 	Data          interface{} `json:"data,omitempty"`
 	Error         string      `json:"error,omitempty"`
+}
+
+// Config holds output configuration
+type Config struct {
+	Writer io.Writer
+	Pretty bool
+}
+
+// DefaultConfig returns configuration using stdout and environment
+func DefaultConfig() Config {
+	pretty := os.Getenv("VYBE_PRETTY_JSON") == "1" || os.Getenv("VYBE_PRETTY_JSON") == "true"
+	return Config{
+		Writer: os.Stdout,
+		Pretty: pretty,
+	}
 }
 
 // Success wraps a successful response with data
@@ -31,15 +47,20 @@ func Error(err error) Response {
 	}
 }
 
-// Print prints a value as JSON to stdout
-func Print(v interface{}) error {
-	enc := json.NewEncoder(os.Stdout)
-	// Default to compact JSON to minimize token/output size for agent consumption.
-	// Enable pretty JSON for humans via env var: VYBE_PRETTY_JSON=1.
-	if os.Getenv("VYBE_PRETTY_JSON") == "1" || os.Getenv("VYBE_PRETTY_JSON") == "true" {
+// PrintWith prints a value as JSON to the configured writer
+func PrintWith(cfg Config, v interface{}) error {
+	enc := json.NewEncoder(cfg.Writer)
+	if cfg.Pretty {
 		enc.SetIndent("", "  ")
 	}
 	return enc.Encode(v)
+}
+
+// Print prints a value as JSON to stdout
+// Default to compact JSON to minimize token/output size for agent consumption.
+// Enable pretty JSON for humans via env var: VYBE_PRETTY_JSON=1.
+func Print(v interface{}) error {
+	return PrintWith(DefaultConfig(), v)
 }
 
 // PrintSuccess prints a success response

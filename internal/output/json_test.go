@@ -1,6 +1,7 @@
 package output
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -41,6 +42,28 @@ func TestSuccessAndError(t *testing.T) {
 	require.False(t, e.Success)
 	require.Nil(t, e.Data)
 	require.Equal(t, "boom", e.Error)
+}
+
+// Test PrintWith directly (no stdout capture needed)
+func TestPrintWith_CompactJSON(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := Config{Writer: &buf, Pretty: false}
+
+	err := PrintWith(cfg, map[string]string{"hello": "world"})
+	require.NoError(t, err)
+	require.Equal(t, "{\"hello\":\"world\"}\n", buf.String())
+}
+
+func TestPrintWith_PrettyJSON(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := Config{Writer: &buf, Pretty: true}
+
+	err := PrintWith(cfg, map[string]string{"hello": "world"})
+	require.NoError(t, err)
+
+	out := buf.String()
+	require.Contains(t, out, "\n  \"hello\": \"world\"\n")
+	require.True(t, strings.HasPrefix(out, "{\n"))
 }
 
 func TestPrint_DefaultCompactJSON(t *testing.T) {
@@ -88,4 +111,27 @@ func TestPrintSuccessAndPrintError(t *testing.T) {
 	require.Contains(t, errorOut, "\"schema_version\":\"v1\"")
 	require.Contains(t, errorOut, "\"success\":false")
 	require.Contains(t, errorOut, "\"error\":\"bad things\"")
+}
+
+func TestDefaultConfig(t *testing.T) {
+	t.Run("default compact", func(t *testing.T) {
+		t.Setenv("VYBE_PRETTY_JSON", "")
+		cfg := DefaultConfig()
+		require.Equal(t, os.Stdout, cfg.Writer)
+		require.False(t, cfg.Pretty)
+	})
+
+	t.Run("pretty enabled with 1", func(t *testing.T) {
+		t.Setenv("VYBE_PRETTY_JSON", "1")
+		cfg := DefaultConfig()
+		require.Equal(t, os.Stdout, cfg.Writer)
+		require.True(t, cfg.Pretty)
+	})
+
+	t.Run("pretty enabled with true", func(t *testing.T) {
+		t.Setenv("VYBE_PRETTY_JSON", "true")
+		cfg := DefaultConfig()
+		require.Equal(t, os.Stdout, cfg.Writer)
+		require.True(t, cfg.Pretty)
+	})
 }

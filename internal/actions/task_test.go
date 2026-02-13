@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 )
 
@@ -35,7 +36,7 @@ func TestTaskCreate(t *testing.T) {
 	assert.NotEmpty(t, task.ID)
 	assert.Equal(t, "Test Task", task.Title)
 	assert.Equal(t, "Test Description", task.Description)
-	assert.Equal(t, "pending", task.Status)
+	assert.Equal(t, models.TaskStatusPending, task.Status)
 	assert.Equal(t, 1, task.Version)
 }
 
@@ -89,7 +90,7 @@ func TestTaskSetStatus(t *testing.T) {
 	assert.Greater(t, eventID, int64(0))
 
 	// Verify status change
-	assert.Equal(t, "in_progress", task.Status)
+	assert.Equal(t, models.TaskStatusInProgress, task.Status)
 	assert.Equal(t, 2, task.Version)
 
 	// Verify event was created
@@ -167,7 +168,7 @@ func TestTaskSetStatusValidTransitions(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, task)
 				assert.Greater(t, eventID, int64(0))
-				assert.Equal(t, tt.status, task.Status)
+				assert.Equal(t, models.TaskStatus(tt.status), task.Status)
 			} else {
 				assert.Error(t, err)
 				assert.Nil(t, task)
@@ -218,8 +219,8 @@ func TestTaskSetStatusIdempotentParity(t *testing.T) {
 	idemUpdated, idemEventID, err := TaskSetStatusIdempotent(db, "test-agent", "req_status_parity", idemTask.ID, "in_progress", "")
 	require.NoError(t, err)
 
-	require.Equal(t, "in_progress", nonIdemUpdated.Status)
-	require.Equal(t, "in_progress", idemUpdated.Status)
+	require.Equal(t, models.TaskStatusInProgress, nonIdemUpdated.Status)
+	require.Equal(t, models.TaskStatusInProgress, idemUpdated.Status)
 	require.Equal(t, 2, nonIdemUpdated.Version)
 	require.Equal(t, 2, idemUpdated.Version)
 	require.Greater(t, nonIdemEventID, int64(0))
@@ -237,13 +238,13 @@ func TestTaskSetStatusConcurrency(t *testing.T) {
 	// First status change
 	task1, eventID1, err := TaskSetStatus(db, "test-agent", created.ID, "in_progress")
 	require.NoError(t, err)
-	assert.Equal(t, "in_progress", task1.Status)
+	assert.Equal(t, models.TaskStatusInProgress, task1.Status)
 	assert.Greater(t, eventID1, int64(0))
 
 	// Second status change (should succeed with retry)
 	task2, eventID2, err := TaskSetStatus(db, "test-agent", created.ID, "completed")
 	require.NoError(t, err)
-	assert.Equal(t, "completed", task2.Status)
+	assert.Equal(t, models.TaskStatusCompleted, task2.Status)
 	assert.Equal(t, 3, task2.Version)
 	assert.Greater(t, eventID2, eventID1)
 }
@@ -352,7 +353,7 @@ func TestTaskSetStatus_CompletedUnblocksInTransaction(t *testing.T) {
 	// Verify child is blocked
 	childTask, err := TaskGet(db, child.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "blocked", childTask.Status)
+	assert.Equal(t, models.TaskStatusBlocked, childTask.Status)
 
 	// Complete parent — child should be unblocked atomically in the same tx
 	_, _, err = TaskSetStatus(db, "test-agent", parent.ID, "completed")
@@ -361,7 +362,7 @@ func TestTaskSetStatus_CompletedUnblocksInTransaction(t *testing.T) {
 	// Verify child is now pending (unblocked inside the completion transaction)
 	childTask, err = TaskGet(db, child.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "pending", childTask.Status)
+	assert.Equal(t, models.TaskStatusPending, childTask.Status)
 }
 
 func TestTaskSetStatusIdempotent_CompletedUnblocksInTransaction(t *testing.T) {
@@ -385,7 +386,7 @@ func TestTaskSetStatusIdempotent_CompletedUnblocksInTransaction(t *testing.T) {
 	// Verify child is now pending
 	childTask, err := TaskGet(db, child.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "pending", childTask.Status)
+	assert.Equal(t, models.TaskStatusPending, childTask.Status)
 }
 
 func TestTaskRemoveDependencyIdempotentReplay(t *testing.T) {

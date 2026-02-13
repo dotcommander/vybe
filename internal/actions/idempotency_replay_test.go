@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 )
 
@@ -98,7 +99,7 @@ func TestTaskStartIdempotent_Replay(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, t1.ID, t2.ID)
-	require.Equal(t, "in_progress", t2.Status)
+	require.Equal(t, models.TaskStatusInProgress, t2.Status)
 	require.Equal(t, se1, se2)
 	require.Equal(t, fe1, fe2)
 
@@ -123,7 +124,7 @@ func TestTaskSetStatusIdempotent_Replay(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, t1.ID, t2.ID)
-	require.Equal(t, "blocked", t2.Status)
+	require.Equal(t, models.TaskStatusBlocked, t2.Status)
 	require.Equal(t, eid1, eid2)
 
 	var cnt int

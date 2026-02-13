@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -144,7 +145,7 @@ func TestTaskStartAndDependencyActions(t *testing.T) {
 
 	updated, statusEventID, focusEventID, err := TaskStart(db, "agent-a", a.ID)
 	require.NoError(t, err)
-	require.Equal(t, "in_progress", updated.Status)
+	require.Equal(t, models.TaskStatusInProgress, updated.Status)
 	require.GreaterOrEqual(t, statusEventID, int64(0))
 	require.Greater(t, focusEventID, int64(0))
 

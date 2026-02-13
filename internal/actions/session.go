@@ -362,7 +362,10 @@ func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*Sessi
 
 	var lessons []Lesson
 
-	runner := llm.NewRunner(agentName)
+	runner, runnerErr := llm.NewRunner(agentName)
+	if runnerErr != nil {
+		slog.Debug("LLM runner not available, falling back to rules", "error", runnerErr)
+	}
 	if runner != nil {
 		// Build extraction prompt from events (cap at ~8000 chars)
 		var b strings.Builder

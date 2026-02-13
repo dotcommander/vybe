@@ -3,6 +3,7 @@ package actions
 import (
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 )
 
@@ -86,7 +87,7 @@ func TestResumeInterruptionScenario(t *testing.T) {
 		t.Fatalf("Expected brief with task")
 	}
 
-	if response2.Brief.Task.Status != "in_progress" {
+	if response2.Brief.Task.Status != models.TaskStatusInProgress {
 		t.Errorf("Expected task status in_progress, got %s", response2.Brief.Task.Status)
 	}
 
@@ -188,7 +189,7 @@ func TestResumeWithMemoryContext(t *testing.T) {
 
 	// Check that agent memory is excluded
 	for _, mem := range response.Brief.RelevantMemory {
-		if mem.Scope == "agent" {
+		if mem.Scope == models.MemoryScopeAgent {
 			t.Errorf("Agent-scoped memory should not be in brief")
 		}
 	}
@@ -197,10 +198,10 @@ func TestResumeWithMemoryContext(t *testing.T) {
 	hasGlobal := false
 	hasTask := false
 	for _, mem := range response.Brief.RelevantMemory {
-		if mem.Scope == "global" && mem.Key == "api_url" {
+		if mem.Scope == models.MemoryScopeGlobal && mem.Key == "api_url" {
 			hasGlobal = true
 		}
-		if mem.Scope == "task" && mem.Key == "checkpoint" {
+		if mem.Scope == models.MemoryScopeTask && mem.Key == "checkpoint" {
 			hasTask = true
 		}
 	}
