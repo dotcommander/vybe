@@ -46,7 +46,7 @@ const (
 
 // Event represents a single event in the continuity log
 type Event struct {
-	ID        int64           `json:"id"`
+	ID int64 `json:"id"`
 	// Kind is one of the EventKind* constants defined in event_kinds.go.
 	// System events use predefined constants; agents may emit custom kinds up to 128 chars.
 	Kind      string          `json:"kind"`
@@ -91,22 +91,22 @@ func NewBlockedReasonFailure(reason string) BlockedReason {
 
 // Task represents a task in the system
 type Task struct {
-	ID              string     `json:"id"`
-	Title           string     `json:"title"`
-	Description     string     `json:"description"`
+	ID              string        `json:"id"`
+	Title           string        `json:"title"`
+	Description     string        `json:"description"`
 	Status          TaskStatus    `json:"status"`
 	Priority        int           `json:"priority"`
 	ProjectID       string        `json:"project_id,omitempty"`
 	BlockedReason   BlockedReason `json:"blocked_reason,omitempty"`
-	ClaimedBy       string     `json:"claimed_by,omitempty"`
-	ClaimedAt       *time.Time `json:"claimed_at,omitempty"`
-	ClaimExpiresAt  *time.Time `json:"claim_expires_at,omitempty"`
-	LastHeartbeatAt *time.Time `json:"last_heartbeat_at,omitempty"`
-	Attempt         int        `json:"attempt"`
-	DependsOn       []string   `json:"depends_on,omitempty"`
-	Version         int        `json:"version"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ClaimedBy       string        `json:"claimed_by,omitempty"`
+	ClaimedAt       *time.Time    `json:"claimed_at,omitempty"`
+	ClaimExpiresAt  *time.Time    `json:"claim_expires_at,omitempty"`
+	LastHeartbeatAt *time.Time    `json:"last_heartbeat_at,omitempty"`
+	Attempt         int           `json:"attempt"`
+	DependsOn       []string      `json:"depends_on,omitempty"`
+	Version         int           `json:"version"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
 }
 
 // IsClaimed returns true if the task has been claimed by an agent.
@@ -146,19 +146,19 @@ type AgentState struct {
 
 // Memory represents a key-value storage entry with scoping
 type Memory struct {
-	ID            int64      `json:"id"`
-	Key           string     `json:"key"`
-	Canonical     string     `json:"canonical_key,omitempty"`
-	Value         string     `json:"value"`
-	ValueType     string     `json:"value_type"`
+	ID            int64       `json:"id"`
+	Key           string      `json:"key"`
+	Canonical     string      `json:"canonical_key,omitempty"`
+	Value         string      `json:"value"`
+	ValueType     string      `json:"value_type"`
 	Scope         MemoryScope `json:"scope"`
-	ScopeID       string     `json:"scope_id"`
-	Confidence    float64    `json:"confidence,omitempty"`
-	LastSeenAt    *time.Time `json:"last_seen_at,omitempty"`
-	SourceEventID *int64     `json:"source_event_id,omitempty"`
-	SupersededBy  string     `json:"superseded_by,omitempty"`
-	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ScopeID       string      `json:"scope_id"`
+	Confidence    float64     `json:"confidence,omitempty"`
+	LastSeenAt    *time.Time  `json:"last_seen_at,omitempty"`
+	SourceEventID *int64      `json:"source_event_id,omitempty"`
+	SupersededBy  string      `json:"superseded_by,omitempty"`
+	ExpiresAt     *time.Time  `json:"expires_at,omitempty"`
+	CreatedAt     time.Time   `json:"created_at"`
 }
 
 // IsExpired returns true if the memory has an expiration time and it has passed.

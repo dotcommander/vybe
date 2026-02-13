@@ -246,7 +246,7 @@ func TestLimitedWriter(t *testing.T) {
 	// Overflow: write 20 bytes, only first 5 more fit
 	n, err = w.Write([]byte("world and then some!"))
 	require.NoError(t, err)
-	assert.Equal(t, 20, n) // reports full len
+	assert.Equal(t, 20, n)                        // reports full len
 	assert.Equal(t, "helloworld", w.buf.String()) // capped at 10
 }
 

@@ -25,8 +25,8 @@ func scanNullTime(nt sql.NullTime) *time.Time {
 
 // taskRowScanner encapsulates the common task row scanning logic.
 type taskRowScanner struct {
-	task                                   models.Task
-	projID, blockedReason, claimedBy       sql.NullString
+	task                                     models.Task
+	projID, blockedReason, claimedBy         sql.NullString
 	claimedAt, claimExpiresAt, lastHeartbeat sql.NullTime
 }
 
