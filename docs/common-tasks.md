@@ -1,12 +1,14 @@
-# Vybe Usage Examples
+# Common Tasks
 
-Copy/paste recipes for common `vybe` workflows.
+Purpose: copy/paste recipes for common `vybe` workflows.
 
 Assumes:
 
 - `VYBE_AGENT` is set
 - `jq` is installed
 - mutating commands include `--request-id`
+
+Policy owner for machine I/O and retry behavior: `connect-assistant.md`.
 
 ## 1) Initialize agent state
 
@@ -128,6 +130,6 @@ vybe hook uninstall --opencode
 
 ## More details
 
-- `agent-install.md` for the full install and loop guide
-- `../integrator/custom-assistant.md` for custom integration contracts
-- `../../README.md` for the shortest onboarding path
+- `setup.md` for install and baseline loop
+- `connect-assistant.md` for custom integration contracts
+- `../README.md` for the shortest onboarding path

@@ -44,6 +44,8 @@ Desktop.ini
 
 # Archives
 docs/archive/
+docs/audits/
+docs/audit-*.md
 
 # Temporary files
 tmp/

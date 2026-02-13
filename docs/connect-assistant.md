@@ -1,4 +1,4 @@
-# Custom Assistant Integration Contract
+# Connect an Assistant
 
 Use this to connect any coding assistant (CLI, IDE, web agent, plugin host) to `vybe`.
 
@@ -116,6 +116,6 @@ Examples:
 
 ## Related docs
 
-- Claude hooks -> see `../../README.md` and `../operator/agent-install.md`
+- Claude hooks -> see `../README.md` and `setup.md`
 - OpenCode bridge installer -> `vybe hook install --opencode`
-- OpenCode example -> `../../examples/opencode/opencode-vybe-plugin.ts`
+- OpenCode example -> `../examples/opencode/opencode-vybe-plugin.ts`

@@ -1,12 +1,8 @@
 # vybe
 
-`vybe` is a CLI that gives AI coding agents persistent working state.
-It is designed for autonomous execution, with no human intervention required in the task loop.
-Setup is quick, non-intrusive, and does not require changing your existing project architecture.
-If you do not want it, uninstall is one command: `vybe hook uninstall` (or `vybe hook uninstall --opencode`).
-It saves tasks, event history, memory, and artifacts in SQLite so agents can restart and continue from where they stopped.
-
-![vybe CLI screenshot](docs/vybe.png)
+`vybe` is a CLI that gives coding agents durable continuity across sessions.
+It stores task state, event history, memory, and artifacts in SQLite.
+Agents can crash, restart, or change context and still resume deterministically.
 
 ## Why install vybe
 
@@ -62,6 +58,4 @@ vybe hook uninstall --opencode # OpenCode
 
 ## Advanced docs
 
-Deeper usage, contracts, and contributor internals are routed in `docs/README.md`.
-
-Architecture and internal design notes are in `CLAUDE.md`.
+For setup, common tasks, assistant connection, and implementation guides, go to `docs/README.md`.

@@ -1,23 +1,22 @@
 # Vybe Docs
 
-Use this file as a role router.
+Purpose: find the next thing to do in under 30 seconds.
 
-## Start here
+## Pick what you need
 
-1. `../README.md`
-2. `operator/agent-install.md`
-
-## Role routes
-
-| Audience | Start file | Use it for |
+| I need to... | Start file | |
 | --- | --- | --- |
-| Operator | `operator/agent-install.md` | Install, bootstrap, and run the core loop |
-| Operator | `operator/usage-examples.md` | Copy/paste workflow commands |
-| Integrator | `integrator/custom-assistant.md` | Assistant/plugin integration contract |
-| Contributor | `contributor/idempotent-action-pattern.md` | Add mutating commands safely |
-| Contributor | `contributor/schemaflow-status.md` | Understand `vybe status` count sources |
-| Contributor | `contributor/testing/important-features-matrix.md` | Coverage ownership and update rule |
+| install and run my first loop | `setup.md` | quickest path to first success |
+| copy commands for common work | `common-tasks.md` | ready-to-run recipes |
+| connect vybe to my assistant/plugin | `connect-assistant.md` | integration contract and mapping |
+
+## First success path
+
+1. [`../README.md`](../README.md)
+2. [`setup.md`](setup.md)
+3. [`common-tasks.md`](common-tasks.md)
 
 ## Historical material
 
-- `audits/` contains point-in-time snapshots and is not part of onboarding.
+- Audit snapshots are local-only artifacts and are excluded from this repository.
+- Internal maintainer/LLM notes live in `.work/docs-internal/` and are excluded from this repository.

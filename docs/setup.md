@@ -1,8 +1,8 @@
-# Agent Install
+# Setup
 
-Use this guide to connect an autonomous agent to `vybe` with minimal setup.
+Purpose: connect one autonomous agent and run the baseline loop.
 
-For custom plugin/assistant lifecycle mapping, see `../integrator/custom-assistant.md`.
+For assistant/plugin contract details, use `connect-assistant.md`.
 
 ## Prerequisites
 
@@ -45,6 +45,8 @@ if [ -n "$TASK_ID" ]; then
 fi
 ```
 
+If your worker pool has multiple concurrent agents, use the claim-based loop below.
+
 ## Claim-based loop (multi-agent queues)
 
 ```bash
@@ -65,14 +67,22 @@ fi
 
 ## Required operating rules
 
-1. Parse success JSON from `stdout` (`{schema_version, success, data}`).
-2. Parse structured errors from `stderr`.
-3. Include `--request-id` on every mutating command.
-4. Reuse the same `--request-id` for retries.
-5. Keep a stable agent identity (`--agent` or `VYBE_AGENT`).
+- Include `--request-id` on every mutating command.
+- Keep a stable agent identity (`--agent` or `VYBE_AGENT`).
+- For full machine I/O and idempotency policy, see `connect-assistant.md`.
+
+## Verification
+
+Run this after bootstrap:
+
+```bash
+vybe status
+vybe resume --agent "$VYBE_AGENT" --request-id "verify_resume_1"
+```
+
+Pass condition: both commands return success JSON and `resume` returns a packet.
 
 ## Related docs
 
-- `usage-examples.md` for more command recipes
-- `../integrator/custom-assistant.md` for full integration contract
-- `../contributor/idempotent-action-pattern.md` for contributor implementation details
+- `common-tasks.md` for copy/paste recipes
+- `connect-assistant.md` for full integration contract
