@@ -1,6 +1,6 @@
 # Custom Assistant Integration Contract
 
-Use this to connect any coding assistant (CLI, IDE, web agent, plugin host) to `vibe`.
+Use this to connect any coding assistant (CLI, IDE, web agent, plugin host) to `vybe`.
 
 Design target: minimal coupling, deterministic behavior, easy retries.
 
@@ -16,7 +16,7 @@ Design target: minimal coupling, deterministic behavior, easy retries.
 
 ### Identity
 
-- Always use stable identity via `--agent` or `VIBE_AGENT`.
+- Always use stable identity via `--agent` or `VYBE_AGENT`.
 - Recommended shape: `<assistant>-<workspace-or-session-prefix>`.
 
 ### Idempotency
@@ -37,7 +37,7 @@ Design target: minimal coupling, deterministic behavior, easy retries.
 - Pass workspace context at resume time:
 
 ```bash
-vibe resume --agent "$AGENT" --request-id "$REQ" --project "$WORKSPACE"
+vybe resume --agent "$AGENT" --request-id "$REQ" --project "$WORKSPACE"
 ```
 
 - Keep resume/task/memory operations aligned to active project.
@@ -49,25 +49,25 @@ vibe resume --agent "$AGENT" --request-id "$REQ" --project "$WORKSPACE"
 On new session (or restored session first turn):
 
 ```bash
-vibe resume --agent "$AGENT" --request-id "$REQ" --project "$WORKSPACE"
+vybe resume --agent "$AGENT" --request-id "$REQ" --project "$WORKSPACE"
 ```
 
 Inject `.data.prompt` (or `.data.brief`) into assistant system/session context.
 
 ### Task Sync
 
-- create -> `vibe task create ...`
-- start/in_progress -> `vibe task start ...` (specific task) or
-  `vibe task claim ...` (server-side next-eligible selection)
-- complete/blocked -> `vibe task close --outcome done|blocked --summary "..."` or
-  `vibe task set-status ...` (low-level)
+- create -> `vybe task create ...`
+- start/in_progress -> `vybe task start ...` (specific task) or
+  `vybe task claim ...` (server-side next-eligible selection)
+- complete/blocked -> `vybe task close --outcome done|blocked --summary "..."` or
+  `vybe task set-status ...` (low-level)
 
 ### Progress Log
 
 At meaningful checkpoints:
 
 ```bash
-vibe log --agent "$AGENT" --request-id "$REQ" \
+vybe log --agent "$AGENT" --request-id "$REQ" \
   --kind progress --task "$TASK_ID" --msg "..."
 ```
 
@@ -76,7 +76,7 @@ vibe log --agent "$AGENT" --request-id "$REQ" \
 Persist stable facts/decisions:
 
 ```bash
-vibe memory set --agent "$AGENT" --request-id "$REQ" \
+vybe memory set --agent "$AGENT" --request-id "$REQ" \
   --key ... --value ... --scope task --scope-id "$TASK_ID"
 ```
 
@@ -87,15 +87,15 @@ Use project scope for cross-task facts.
 Persist output files:
 
 ```bash
-vibe artifact add --agent "$AGENT" --request-id "$REQ" \
+vybe artifact add --agent "$AGENT" --request-id "$REQ" \
   --task "$TASK_ID" --path <file>
 ```
 
 ## Optional Event Mappings
 
-- Commit event -> `vibe log --kind commit --metadata ...`
-- Delegated subagent start/finish -> `vibe log --kind subtask_* ...`
-- Session idle -> `vibe memory compact` then `vibe memory gc`
+- Commit event -> `vybe log --kind commit --metadata ...`
+- Delegated subagent start/finish -> `vybe log --kind subtask_* ...`
+- Session idle -> `vybe memory compact` then `vybe memory gc`
 
 ## Request-ID Template
 
@@ -112,13 +112,12 @@ Examples:
 
 1. New session can answer "what were we working on?" from injected resume context.
 2. Replaying same write with same `--request-id` does not duplicate events.
-3. Task updates are visible in `vibe task list`.
+3. Task updates are visible in `vybe task list`.
 4. Memory from one session appears in next resume/brief.
 5. Assistant handles write failures by reading `stderr` JSON and retrying safely.
 
 ## Reference Integrations
 
 - Claude hooks -> see `README.md` and `docs/agent-install.md`
-- OpenCode bridge installer -> `vibe hook install --opencode`
-- OpenCode examples -> `examples/opencode/opencode-vibe-plugin.ts`,
-  `examples/opencode/opencode-plugin-setup.md`
+- OpenCode bridge installer -> `vybe hook install --opencode`
+- OpenCode example -> `examples/opencode/opencode-vybe-plugin.ts`

@@ -1,18 +1,10 @@
-# Schema Flow: `vibe status` Counts
+# Schema Flow: `vybe status` Counts
 
-This file documents the five count buckets returned by `vibe status` and how they map to storage, triggers, and code paths.
-
-## Live sanity snapshot
-
-- `tasks`: 12 total, all `completed`
-- `events`: 32,176 total, 32,176 non-archived, 0 archived
-- `memory`: 1 total, 1 active, 0 stale
-- `agents`: 20 total, 20 active in last 7d
-- `projects`: 2 total
+This file documents the five count buckets returned by `vybe status` and how they map to storage, triggers, and code paths.
 
 ## Where counts come from
 
-`vibe status` calls `store.GetStatusCounts()` and reads these raw table counts in one query:
+`vybe status` calls `store.GetStatusCounts()` and reads these raw table counts in one query:
 
 - task status buckets from `tasks.status`
 - `COUNT(*)` from `events`
@@ -30,7 +22,7 @@ Code:
 ### 1) `tasks`
 
 - **Stores**: mutable work items (`id`, `title`, `description`, `status`, `priority`, `project_id`, claim fields, version/timestamps).
-- **What triggers writes**: `vibe task create`, `start`, `claim`, `close`, `set-status`, dependency operations, delete/GC paths.
+- **What triggers writes**: `vybe task create`, `start`, `claim`, `close`, `set-status`, dependency operations, delete/GC paths.
 - **Primary code paths that call it**:
   - commands: `internal/commands/task.go`
   - actions: `internal/actions/task.go`, `internal/actions/task_delete.go`
@@ -42,10 +34,10 @@ Code:
 
 - **Stores**: append-only continuity log (`kind`, `agent_name`, optional `project_id`/`task_id`, `message`, `metadata`, `created_at`, optional `archived_at`).
 - **What triggers writes**:
-  - explicit logging (`vibe log`)
+  - explicit logging (`vybe log`)
   - side effects from most mutating operations (task/project/memory/artifact/focus actions append events)
-  - ingest flow (`vibe ingest history`) creates `user_prompt` events
-  - compression flow (`vibe events summarize`) archives ranges and writes `events_summary`
+  - ingest flow (`vybe ingest history`) creates `user_prompt` events
+  - compression flow (`vybe events summarize`) archives ranges and writes `events_summary`
 - **Primary code paths that call it**:
   - commands: `internal/commands/log.go`, `internal/commands/events.go`, `internal/commands/ingest.go`
   - store APIs: `internal/store/events.go`, `internal/store/events_query.go`
@@ -57,10 +49,10 @@ Code:
 
 - **Stores**: scoped key/value knowledge (`scope`, `scope_id`, `key`, `value`, `value_type`) plus quality lifecycle fields (`canonical_key`, `confidence`, `last_seen_at`, `source_event_id`, `superseded_by`, `expires_at`).
 - **What triggers writes**:
-  - `vibe memory set` upsert/reinforcement
-  - `vibe memory compact` summary + supersede marks
-  - `vibe memory gc` deletes expired/superseded rows
-  - `vibe memory delete`
+  - `vybe memory set` upsert/reinforcement
+  - `vybe memory compact` summary + supersede marks
+  - `vybe memory gc` deletes expired/superseded rows
+  - `vybe memory delete`
 - **Primary code paths that call it**:
   - commands: `internal/commands/memory.go`
   - actions: `internal/actions/memory.go`
@@ -72,11 +64,11 @@ Code:
 
 - **Stores**: per-agent cursor/focus runtime state (`last_seen_event_id`, `focus_task_id`, `focus_project_id`, `version`, `last_active_at`).
 - **What triggers writes**:
-  - `vibe agent init`
-  - `vibe agent focus`
-  - `vibe resume` cursor/focus atomic updates
-  - `vibe task start` (sets focus as part of start flow)
-  - `vibe task claim` (sets focus as part of claim-next flow)
+  - `vybe agent init`
+  - `vybe agent focus`
+  - `vybe resume` cursor/focus atomic updates
+  - `vybe task start` (sets focus as part of start flow)
+  - `vybe task claim` (sets focus as part of claim-next flow)
 - **Primary code paths that call it**:
   - commands: `internal/commands/agent.go`, `internal/commands/resume.go`
   - store: `internal/store/agent_state.go`, `internal/store/resume.go`, `internal/store/task_start.go`
@@ -86,7 +78,7 @@ Code:
 ### 5) `projects`
 
 - **Stores**: project identities and metadata (`id`, `name`, `metadata`, `created_at`).
-- **What triggers writes**: `vibe project create` and `vibe project delete`.
+- **What triggers writes**: `vybe project create` and `vybe project delete`.
 - **Primary code paths that call it**:
   - commands: `internal/commands/project.go`
   - actions: `internal/actions/project.go`, `internal/actions/project_delete.go`

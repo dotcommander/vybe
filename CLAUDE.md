@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Durable continuity for AI coding agents. Vibe gives autonomous agents crash-safe task tracking, append-only event logs, scoped memory, deterministic resume/brief, and artifact linking — all backed by SQLite. Agents pick up exactly where they left off across sessions without human intervention.
+Durable continuity for AI coding agents. Vybe gives autonomous agents crash-safe task tracking, append-only event logs, scoped memory, deterministic resume/brief, and artifact linking — all backed by SQLite. Agents pick up exactly where they left off across sessions without human intervention.
 
 ## Global CLI Tool
 
@@ -10,33 +10,33 @@ This is a **global CLI tool** installed system-wide.
 
 | Path | Purpose |
 |------|---------|
-| `~/.config/vibe/config.yaml` | User settings |
-| `~/.config/vibe/vibe.db` | Runtime state (SQLite) |
+| `~/.config/vybe/config.yaml` | User settings |
+| `~/.config/vybe/vybe.db` | Runtime state (SQLite) |
 
 ### Build & Install
 
 ```bash
-go build -o vibe ./cmd/vibe
+go build -o vybe ./cmd/vybe
 
 # Option 1: Standard install
-go install ./cmd/vibe
+go install ./cmd/vybe
 
 # Option 2: Symlink (keeps binary in project, linked to ~/go/bin)
-ln -sf "$(pwd)/vibe" ~/go/bin/vibe
+ln -sf "$(pwd)/vybe" ~/go/bin/vybe
 ```
 
 ### Config Loading
 
 Config is loaded from (in order, first found wins):
-1. `~/.config/vibe/config.yaml`
-2. `/etc/vibe/config.yaml`
+1. `~/.config/vybe/config.yaml`
+2. `/etc/vybe/config.yaml`
 3. `./config.yaml` (current directory; lowest priority)
-4. Environment variables (prefix: `VIBE_`)
+4. Environment variables (prefix: `VYBE_`)
 
 Relevant keys:
 
 - `db_path` (in config.yaml)
-- `VIBE_DB_PATH` (env override)
+- `VYBE_DB_PATH` (env override)
 - `--db-path` (CLI override; highest priority)
 
 ### State Persistence
@@ -79,14 +79,12 @@ Assume **multiple concurrent agents and workers** operating on the same DB at on
   - Persist intent/checkpoints before side effects where possible, and always record completion/failure.
   - Resume must be deterministic: reconstruct from persisted state, not in-memory agent context.
 
-For comprehensive examples, see:
-- [Crash recovery scenarios](docs/usage-examples.md#3-crash-recovery-scenarios)
-- [Concurrent agent coordination patterns](docs/usage-examples.md#4-concurrent-agent-scenarios)
+For comprehensive examples, see [Usage Examples](docs/usage-examples.md).
 
 ## Architecture
 
 ```
-cmd/vibe/main.go
+cmd/vybe/main.go
   ↓
 internal/commands/     # Cobra CLI layer (parse flags, call actions)
   ↓
@@ -145,8 +143,8 @@ When `focus_project_id` is set, project-scoped memory is filtered to that projec
 When unset, all project-scoped memory is included (legacy behavior).
 
 **Resume vs Brief:**
-- `vibe resume`: Fetch deltas + build brief + advance cursor atomically
-- `vibe brief`: Build brief without cursor advancement (idempotent reads)
+- `vybe resume`: Fetch deltas + build brief + advance cursor atomically
+- `vybe brief`: Build brief without cursor advancement (idempotent reads)
 
 ## Database Schema
 
@@ -167,7 +165,7 @@ When unset, all project-scoped memory is included (legacy behavior).
 ## Verification Commands
 
 ```bash
-gofmt -w ./cmd/vibe ./internal
+gofmt -w ./cmd/vybe ./internal
 go test ./...
 go vet ./...
 go build ./...
@@ -189,93 +187,62 @@ go build ./...
   - `agent_name` max 128 chars
   - `message` max 4096 chars
   - `metadata` max 16384 chars + must be valid JSON when present
-- Expired memory is cleaned via `vibe memory gc` but has no automatic scheduled cleanup
+- Expired memory is cleaned via `vybe memory gc` but has no automatic scheduled cleanup
 - Task status transitions are intentionally unrestricted for agent flexibility (any status → any status). The `blocked_reason` column distinguishes dependency blocks (`"dependency"`) from failure blocks (`"failure:<reason>"`); resume Rule 1.5 uses this to decide whether to keep or skip a blocked focus task
 
-## Vibe Integration (Claude Code)
+## Vybe Integration (Claude Code)
 
-Claude Code is integrated with vibe via hooks. The system automatically:
-- **SessionStart**: Runs `vibe resume` and injects focus task + memory into context
+Claude Code is integrated with vybe via hooks. The system automatically:
+- **SessionStart**: Runs `vybe resume` and injects focus task + memory into context
 - **UserPromptSubmit**: Logs user prompts for cross-session continuity
 - **PostToolUseFailure**: Logs failed tool calls for recovery context
 - **TaskCompleted**: Logs task completion lifecycle signals
 - **PreCompact/SessionEnd**: Performs memory checkpoint (`memory compact` + `memory gc`)
-- **SessionEnd**: Extracts session retrospective via `vibe hook retrospective`
-- **Agent delegation**: Logs spawned agents as vibe events
-- **Commits**: Logs git commits as vibe events
+- **SessionEnd**: Extracts session retrospective via `vybe hook retrospective`
+- **Agent delegation**: Logs spawned agents as vybe events
+- **Commits**: Logs git commits as vybe events
 
 ### Proactive Usage
 
-When working on multi-step tasks, proactively use vibe for durable state:
+When working on multi-step tasks, proactively use vybe for durable state:
 
 ```bash
 # Store discoveries that should persist across sessions
-vibe memory set --agent=claude --key=<key> --value=<value> --scope=task --scope-id=<task_id> --request-id=mem_$(date +%s)
+vybe memory set --agent=claude --key=<key> --value=<value> --scope=task --scope-id=<task_id> --request-id=mem_$(date +%s)
 
 # Log significant progress
-vibe log --agent=claude --kind=progress --task=<task_id> --msg="<what happened>" --request-id=evt_$(date +%s)
+vybe log --agent=claude --kind=progress --task=<task_id> --msg="<what happened>" --request-id=evt_$(date +%s)
 
 # Link output files to tasks
-vibe artifact add --agent=claude --task=<id> --path=<path> --request-id=art_$(date +%s)
+vybe artifact add --agent=claude --task=<id> --path=<path> --request-id=art_$(date +%s)
 ```
 
 ### After Plan Approval
 
-When a plan is approved via ExitPlanMode, create vibe tasks for each implementation step:
+When a plan is approved via ExitPlanMode, create vybe tasks for each implementation step:
 
 ```bash
-vibe task create --agent=claude --title="Step 1: ..." --desc="..." --request-id=plan_step_1_$(date +%s)
-vibe task create --agent=claude --title="Step 2: ..." --desc="..." --request-id=plan_step_2_$(date +%s)
+vybe task create --agent=claude --title="Step 1: ..." --desc="..." --request-id=plan_step_1_$(date +%s)
+vybe task create --agent=claude --title="Step 2: ..." --desc="..." --request-id=plan_step_2_$(date +%s)
 ```
 
 ### Focus Task
 
-The focus task from `vibe resume` is your primary work item. When starting work:
+The focus task from `vybe resume` is your primary work item. When starting work:
 1. Check the brief for context (task, memory, events, artifacts)
-2. Use `vibe task start` to claim and mark in_progress
+2. Use `vybe task start` to claim and mark in_progress
 3. Log progress events as you work
 4. Set status to completed when done — next resume auto-advances to next task
 
 ## Operational Context
 
-- DB path precedence: `--db-path` > `VIBE_DB_PATH` > `config.yaml: db_path` > `~/.config/vibe/vibe.db`
-- Config lookup (first found wins): `~/.config/vibe/config.yaml`, `/etc/vibe/config.yaml`, `./config.yaml` (lowest priority)
-- Agent identity: `--agent` flag or `VIBE_AGENT` env (required for most commands)
-- Output format: JSON only (default)
-- Idempotency: `--request-id` or `VIBE_REQUEST_ID` for safe retries
-- JSON envelope contract is versioned via `schema_version` (current: `v1`) in success/error wrapper responses
-- Reusable idempotent write pattern exists in `store.RunIdempotent[T]`; keep create SQL in `store/*Tx` helpers and call them from actions to avoid schema leakage
-- Command wiring lives in `internal/commands/root.go`; tutorial `greet` command/action were removed to keep CLI surface minimal
-- Conflict-aware idempotent retries use `store.RunIdempotentWithRetry[T]` (for CAS/version-conflict paths like resume/task status)
-- In `RunIdempotent*` operation closures, avoid `db.Query*` calls while a tx is open; use `tx.Query*` to prevent sqlite in-memory single-connection stalls during tests
-- Store transaction primitives are centralized in `store/tx.go` via `Querier` and `Transact`; action-layer SQL should remain zero (tests excluded)
-- Manual `db.Begin` wrappers in store were collapsed to `Transact`; remaining direct `db.Begin` usage should be limited to `store/tx.go` and explicit idempotency tests
-- Event metadata in `models.Event` is `json.RawMessage` and hydrated via `store.decodeEventMetadata`; event/list/resume outputs now emit native JSON objects instead of escaped JSON strings
-- Task status enums are documented directly in Cobra help text (`task`, `task set-status`, `task list`, and `--status` flag) to keep agent usage aligned with valid values: pending, in_progress, completed, blocked
-- `brief` output includes `approx_tokens`, estimated from recent event message chars using `ceil(total_message_chars/4)` for context-budget planning
-- CLI error paths now emit structured JSON logs to stderr via stdlib `log/slog` JSON handler (configured in `commands.Execute`); command errors use `slog.Error` with machine-parseable fields
-- Task status validation errors include machine-parseable recovery hints (`field`, `invalid_value`, `valid_options`) in structured stderr logs for autonomous self-correction
-- `vibe schema` emits machine-readable argument schemas (flags/types/defaults/required/enum hints) for command introspection
-- Event compression flow exists via `vibe events summarize`: archives event ID ranges (`archived_at`) and appends `events_summary`; list/tail/resume/fetchRecent exclude archived events by default
-- Project-isolated event streams: events/artifacts now carry `project_id`; resume deltas use active `focus_project_id` with `(project_id = focus OR project_id IS NULL)` filtering, and `DetermineFocusTask` is strict to project scope when focus project is set
-- `task remove-dependency` action paths now use `store.RemoveTaskDependencyTx` so dependency delete + event append share one transaction/idempotency envelope
-- `resume --project` and `run --project` now scope and persist `focus_project_id` inside resume's idempotent state update (`UpdateAgentStateAtomicWithProject*`), avoiding separate pre-resume focus mutations
-- Project focus writes now self-heal missing agent state (`INSERT OR IGNORE`) and validate project existence inside the store transaction, so idempotent replays are checked before mutable validation
-- `events tail --jsonl --once` now emits raw event JSONL lines (not wrapped envelope), matching streaming contract and usage examples
-- Root `--version` now emits standard JSON success envelope with `data.version` for machine-first consistency
-- Phase A memory quality fields are live: `memory` rows now carry `canonical_key`, `confidence`, `last_seen_at`, `source_event_id`, and `superseded_by`; canonical-key dedupe/reinforcement is applied through `vibe memory set` with idempotent eventing (`memory_upserted` / `memory_reinforced`)
-- Phase B routes `memory set` through canonical upsert semantics at the action layer, preserving command interface while deduping by canonical key
-- Phase C adds `vibe memory compact` (summary compaction + supersede markers) and `vibe memory gc` (expired/superseded cleanup) with idempotent eventing (`memory_compacted`, `memory_gc`)
-- Phase D brief memory retrieval now excludes superseded entries, filters stale low-confidence noise, and orders by confidence then recency (`COALESCE(last_seen_at, created_at)`)
-- Important feature coverage matrix is tracked in `docs/testing/important-features-matrix.md`; high-value integration tests now exercise idempotent wrappers and tx helpers (`StartTaskAndFocus*`, `AddArtifactIdempotent`, `DeleteMemoryWithEventIdempotent`, `FetchRecentUserPrompts`, `UpdateAgentStateAtomic*`) to keep continuity-critical paths under explicit regression tests
-- OpenCode manual example assets are now grouped under `examples/opencode/` (`opencode-vibe-plugin.ts`, `opencode-plugin-setup.md`); docs should not reference legacy root-level `examples/opencode-*.md|ts` paths
-- Skill example moved under `examples/vibe-skill-patterns/SKILL.md`; update any legacy root-level references to avoid broken links
-- Claude Code hooks reference uses snake_case common input fields (`session_id`, `hook_event_name`) and SessionStart `source` matcher values (`startup|resume|clear|compact`); avoid relying on camelCase fields in hook stdin parsers
-- README canonical product statement: vibe is an agents-only continuity CLI for tasks, events, memory, and deterministic resume/brief so agents recover exactly after session loss/crash
-- Zero-HITL posture is part of core product identity (no prompts/confirmations; machine-first JSON I/O), not just implementation detail
-- Current top-level command surface (from `vibe --help`): `agent`, `artifact`, `brief`, `events`, `hook`, `ingest`, `log`, `memory`, `project`, `resume`, `run`, `schema`, `session`, `status`, `task`, `upgrade`
-- High-signal operator path remains: `resume`/`brief` for context, `task` for lifecycle, `log` + `events` for timeline, `memory` for durable scoped facts, `artifact` for file linkage, `schema` for machine introspection
-- Task claiming primitives (`claimed_by`, `claimed_at`, `claim_expires_at`, `ClaimTaskTx`, `ReleaseExpiredClaims`) are now exposed via `vibe task claim` (server-side next-eligible selection + claim + in_progress + focus in one tx) and `vibe task close` (atomic status + summary event + claim release); store layer in `task_claim_next.go` and `task_close.go`; shared `setAgentFocusTx` extracted in `task_start.go`; new event kinds: `task_claimed`, `task_closed`
-- Task JSON hydration is centralized in `internal/store/tasks.go` (`CreateTaskTx`, `getTaskByQuerier`, `ListTasks`); adding task columns requires updating all three SELECT+Scan paths to keep command/action outputs consistent
-- Task priority management: `task set-priority` (CAS update + `task_priority_changed` event via `UpdateTaskPriorityWithEventTx`); `task list --priority N` filters by exact priority; `ListTasks` now takes `priorityFilter int` (-1 = no filter) and orders by `priority DESC, created_at DESC`
-- Pipeline visibility commands: `task next` (agent pipeline via `FetchPipelineTasks`), `task unlocks` (dependency unlock via `FetchUnlockedByCompletion`), `task stats` (status counts via `GetTaskStatusCounts`); all read-only, no idempotency needed
+- DB path precedence: `--db-path` > `VYBE_DB_PATH` > `config.yaml: db_path` > `~/.config/vybe/vybe.db`
+- Agent identity: `--agent` flag or `VYBE_AGENT` env (required for most commands)
+- Idempotency: `--request-id` or `VYBE_REQUEST_ID` for safe retries
+- New features follow the idempotent action pattern: `store.*Tx` → `actions.RunIdempotent` → `commands` (see `docs/idempotent-action-pattern.md`)
+- In `RunIdempotent*` closures, use `tx.Query*` not `db.Query*` — SQLite single-connection tests deadlock silently
+- Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
+- Command wiring: `internal/commands/root.go`
+- Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
+- Command surface: `agent`, `artifact`, `brief`, `events`, `hook`, `ingest`, `log`, `memory`, `project`, `resume`, `run`, `schema`, `session`, `status`, `task`, `upgrade`
+- Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`

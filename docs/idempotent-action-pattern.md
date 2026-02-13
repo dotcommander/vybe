@@ -1,6 +1,6 @@
 # The Idempotent Action Pattern
 
-Developer specification for adding new functionality to vibe without breaking
+Developer specification for adding new functionality to vybe without breaking
 data consistency or resume capabilities.
 
 **Source:** Cross-model architecture review (Gemini assessment, Feb 2026)
