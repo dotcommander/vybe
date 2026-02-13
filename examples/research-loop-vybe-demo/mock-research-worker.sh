@@ -42,7 +42,7 @@ if [[ -z "$TASK_ID" ]]; then
   exit 0
 fi
 
-vybe log \
+vybe events add \
   --agent "$VYBE_AGENT" \
   --request-id "$(rid log_start)" \
   --kind research_started \
@@ -84,7 +84,7 @@ vybe artifact add \
   --type text/markdown >/dev/null
 
 if [[ "$TITLE" == *"BLOCKED_DEMO"* ]]; then
-  vybe log \
+  vybe events add \
     --agent "$VYBE_AGENT" \
     --request-id "$(rid log_block)" \
     --kind research_blocked \
@@ -100,7 +100,7 @@ if [[ "$TITLE" == *"BLOCKED_DEMO"* ]]; then
   exit 0
 fi
 
-vybe log \
+vybe events add \
   --agent "$VYBE_AGENT" \
   --request-id "$(rid log_done)" \
   --kind research_finished \

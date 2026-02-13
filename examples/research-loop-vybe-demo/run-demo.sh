@@ -23,7 +23,7 @@ if [[ -z "$PROJECT_ID" ]]; then
   exit 1
 fi
 
-vybe run \
+vybe loop \
   --agent "$VYBE_AGENT" \
   --project "$PROJECT_ID" \
   --max-tasks 10 \
