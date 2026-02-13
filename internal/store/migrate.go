@@ -54,7 +54,7 @@ func RunMigrations(db *sql.DB) error {
 }
 
 // reconcileCanonicalKeys re-normalizes all canonical_key values using the runtime
-// normalizeMemoryKey function, then resolves any collisions among active rows.
+// NormalizeMemoryKey function, then resolves any collisions among active rows.
 // Runs inside a single transaction for crash safety.
 func reconcileCanonicalKeys(db *sql.DB) error {
 	return Transact(db, func(tx *sql.Tx) error {
@@ -78,7 +78,7 @@ func reconcileCanonicalKeys(db *sql.DB) error {
 				rows.Close()
 				return fmt.Errorf("scan memory row: %w", err)
 			}
-			correct := normalizeMemoryKey(key)
+			correct := NormalizeMemoryKey(key)
 			if !canonical.Valid || canonical.String != correct {
 				updates = append(updates, update{id: id, newCanonical: correct})
 			}

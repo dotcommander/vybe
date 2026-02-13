@@ -33,7 +33,7 @@ func beginIdempotencyTx(tx *sql.Tx, agentName, requestID, command string) (exist
 	if err == nil {
 		return "", false, nil
 	}
-	if !isUniqueConstraintErr(err) {
+	if !IsUniqueConstraintErr(err) {
 		return "", false, fmt.Errorf("failed to insert idempotency row: %w", err)
 	}
 
@@ -80,7 +80,8 @@ func completeIdempotencyTx(tx *sql.Tx, agentName, requestID, resultJSON string) 
 	return nil
 }
 
-// isUniqueConstraintErr checks for SQLite unique constraint violations.
+// IsUniqueConstraintErr checks for SQLite unique constraint violations.
+// Exported for use by batch operations in actions layer.
 //
 // Detection relies on modernc.org/sqlite error message format (v1.45+):
 //
@@ -88,7 +89,7 @@ func completeIdempotencyTx(tx *sql.Tx, agentName, requestID, resultJSON string) 
 //
 // If modernc changes its error format in a major version bump, update
 // the string match below.
-func isUniqueConstraintErr(err error) bool {
+func IsUniqueConstraintErr(err error) bool {
 	if err == nil {
 		return false
 	}

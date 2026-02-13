@@ -182,3 +182,64 @@ func TestPersistLessons(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, eventIDs, 1)
 }
+
+func TestPersistLessons_Batch(t *testing.T) {
+	db, cleanup := setupTestDBWithCleanup(t)
+	defer cleanup()
+
+	lessons := []Lesson{
+		{Type: "correction", Key: "lesson_1", Value: "value 1", Scope: "global"},
+		{Type: "preference", Key: "lesson_2", Value: "value 2", Scope: "global"},
+		{Type: "pattern", Key: "lesson_3", Value: "value 3", Scope: "global"},
+		{Type: "knowledge", Key: "lesson_4", Value: "value 4", Scope: "global"},
+	}
+
+	eventIDs, err := persistLessons(db, "test-agent", "req_batch", "", lessons)
+	require.NoError(t, err)
+	require.Len(t, eventIDs, 4, "all 4 lessons should be persisted")
+
+	// Verify all lessons exist in memory
+	mem1, err := store.GetMemory(db, "lesson_1", "global", "")
+	require.NoError(t, err)
+	require.NotNil(t, mem1)
+	require.Equal(t, "value 1", mem1.Value)
+
+	mem2, err := store.GetMemory(db, "lesson_2", "global", "")
+	require.NoError(t, err)
+	require.NotNil(t, mem2)
+	require.Equal(t, "value 2", mem2.Value)
+}
+
+func TestPersistLessons_Idempotent(t *testing.T) {
+	db, cleanup := setupTestDBWithCleanup(t)
+	defer cleanup()
+
+	lessons := []Lesson{
+		{Type: "correction", Key: "lesson_idem", Value: "value", Scope: "global"},
+	}
+
+	// First call
+	eventIDs1, err := persistLessons(db, "test-agent", "req_idem", "", lessons)
+	require.NoError(t, err)
+	require.Len(t, eventIDs1, 1)
+
+	// Second call with same request ID should return same result
+	eventIDs2, err := persistLessons(db, "test-agent", "req_idem", "", lessons)
+	require.NoError(t, err)
+	require.Len(t, eventIDs2, 1)
+	require.Equal(t, eventIDs1[0], eventIDs2[0], "idempotent call should return same event ID")
+}
+
+func TestPersistLessons_SkipsEmptyKeys(t *testing.T) {
+	db, cleanup := setupTestDBWithCleanup(t)
+	defer cleanup()
+
+	lessons := []Lesson{
+		{Type: "correction", Key: "", Value: "no key", Scope: "global"},
+		{Type: "preference", Key: "valid_key", Value: "has key", Scope: "global"},
+	}
+
+	eventIDs, err := persistLessons(db, "test-agent", "req_skip", "", lessons)
+	require.NoError(t, err)
+	require.Len(t, eventIDs, 1, "only lesson with valid key should be persisted")
+}

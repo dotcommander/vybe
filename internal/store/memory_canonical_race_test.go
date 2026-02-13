@@ -30,8 +30,8 @@ func TestMemoryCanonicalRace(t *testing.T) {
 	)
 
 	// Both keys should normalize to the same canonical key
-	canonical := normalizeMemoryKey(key1)
-	require.Equal(t, canonical, normalizeMemoryKey(key2), "test precondition: keys must normalize to same canonical form")
+	canonical := NormalizeMemoryKey(key1)
+	require.Equal(t, canonical, NormalizeMemoryKey(key2), "test precondition: keys must normalize to same canonical form")
 
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
@@ -106,7 +106,7 @@ func TestMemoryCanonicalUniqueness(t *testing.T) {
 	memories, err := ListMemory(db, scope, scopeID)
 	require.NoError(t, err)
 
-	canonical := normalizeMemoryKey("test_key")
+	canonical := NormalizeMemoryKey("test_key")
 	count := 0
 	for _, mem := range memories {
 		if mem.Canonical == canonical {
@@ -157,7 +157,7 @@ func TestMemoryCanonicalSupersededAllowed(t *testing.T) {
 	memories, err := ListMemoryWithOptions(db, scope, scopeID, MemoryReadOptions{IncludeSuperseded: true})
 	require.NoError(t, err)
 
-	canonical := normalizeMemoryKey("test_key")
+	canonical := NormalizeMemoryKey("test_key")
 	supersededCount := 0
 	activeCount := 0
 
@@ -182,7 +182,7 @@ func TestMemoryCanonicalCrossScope(t *testing.T) {
 	defer cleanup()
 
 	const key = "shared_key"
-	canonical := normalizeMemoryKey(key)
+	canonical := NormalizeMemoryKey(key)
 
 	// Insert in global scope
 	_, _, _, _, err := UpsertMemoryWithEventIdempotent(

@@ -390,7 +390,7 @@ func TestNormalizeMemoryKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			assert.Equal(t, tt.want, normalizeMemoryKey(tt.in))
+			assert.Equal(t, tt.want, NormalizeMemoryKey(tt.in))
 		})
 	}
 }

@@ -16,7 +16,7 @@ func MemorySet(db *sql.DB, agentName, key, value, valueType, scope, scopeID stri
 	if agentName == "" {
 		return 0, fmt.Errorf("agent name is required")
 	}
-	requestID := fmt.Sprintf("memory_set_%d", time.Now().UnixNano())
+	requestID := fmt.Sprintf("memset_%s_%s_%s_%d", scope, scopeID, key, time.Now().UnixNano())
 	result, err := MemoryUpsertIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, nil, nil)
 	if err != nil {
 		return 0, err

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
@@ -169,9 +170,12 @@ func TaskSetStatus(db *sql.DB, agentName, taskID, status string) (*models.Task, 
 			}
 			eventID = lastEventID
 
-			// Release claim if task is completed or blocked (best-effort, ignore error)
+			// Release claim if task is completed or blocked (best-effort, log on error)
 			if status == completedStatus || status == "blocked" {
-				_ = store.ReleaseTaskClaimTx(tx, agentName, taskID)
+				if releaseErr := store.ReleaseTaskClaimTx(tx, agentName, taskID); releaseErr != nil {
+					slog.Warn("failed to release task claim",
+						"task", taskID, "agent", agentName, "error", releaseErr)
+				}
 			}
 
 			// Unblock dependent tasks atomically if this task is now completed
@@ -252,9 +256,12 @@ func TaskSetStatusIdempotent(db *sql.DB, agentName, requestID, taskID, status, b
 				return idemResult{}, err
 			}
 
-			// Release claim if task is completed or blocked (best-effort, ignore error)
+			// Release claim if task is completed or blocked (best-effort, log on error)
 			if status == completedStatus || status == "blocked" {
-				_ = store.ReleaseTaskClaimTx(tx, agentName, taskID)
+				if releaseErr := store.ReleaseTaskClaimTx(tx, agentName, taskID); releaseErr != nil {
+					slog.Warn("failed to release task claim",
+						"task", taskID, "agent", agentName, "error", releaseErr)
+				}
 			}
 
 			// Unblock dependent tasks atomically if this task is now completed

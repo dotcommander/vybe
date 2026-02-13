@@ -148,8 +148,14 @@ func sanitizeKey(s string) string {
 	return s
 }
 
-// persistLessons stores extracted lessons as memory entries via idempotent upsert.
+// persistLessons stores extracted lessons as memory entries via idempotent batch upsert.
+// All lessons are persisted in a single transaction. Returns (eventIDs, error).
+// On failure, all upserts are rolled back; no partial writes.
 func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, lessons []Lesson) ([]int64, error) {
+	if len(lessons) == 0 {
+		return nil, nil
+	}
+
 	// Confidence mapping by lesson type
 	confidenceMap := map[string]float64{
 		"correction": 0.9,
@@ -158,17 +164,26 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 		"knowledge":  0.5,
 	}
 
-	var eventIDs []int64
-	for i, lesson := range lessons {
-		conf, ok := confidenceMap[lesson.Type]
-		if !ok {
-			conf = 0.5
-		}
+	// Validate and prepare lessons upfront (fail fast before transaction)
+	type preparedLesson struct {
+		key        string
+		value      string
+		scope      string
+		scopeID    string
+		confidence float64
+	}
+	prepared := make([]preparedLesson, 0, len(lessons))
 
+	for _, lesson := range lessons {
 		key := truncate(lesson.Key, 64)
 		value := truncate(lesson.Value, 256)
 		if key == "" {
-			continue
+			continue // skip empty keys
+		}
+
+		conf, ok := confidenceMap[lesson.Type]
+		if !ok {
+			conf = 0.5
 		}
 
 		scope := lesson.Scope
@@ -179,20 +194,147 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 			scope = "global"
 		}
 
-		reqID := fmt.Sprintf("%s_lesson_%d", requestIDPrefix, i)
-		upsertResult, err := MemoryUpsertIdempotent(
-			db, agentName, reqID,
-			key, value, "string",
-			scope, scopeID, nil, &conf, nil,
-		)
-		if err != nil {
-			slog.Warn("retrospective memory upsert failed", "error", err, "key", lesson.Key)
-			continue
-		}
-		eventIDs = append(eventIDs, upsertResult.EventID)
+		prepared = append(prepared, preparedLesson{
+			key:        key,
+			value:      value,
+			scope:      scope,
+			scopeID:    scopeID,
+			confidence: conf,
+		})
 	}
 
-	return eventIDs, nil
+	if len(prepared) == 0 {
+		return nil, nil
+	}
+
+	// Batch upsert in single idempotent transaction
+	type batchResult struct {
+		EventIDs []int64 `json:"event_ids"`
+	}
+
+	r, err := store.RunIdempotent(db, agentName, requestIDPrefix, "lessons.batch_upsert", func(tx *sql.Tx) (batchResult, error) {
+		eventIDs := make([]int64, 0, len(prepared))
+
+		for _, pl := range prepared {
+			canonicalKey := store.NormalizeMemoryKey(pl.key)
+			if canonicalKey == "" {
+				return batchResult{}, fmt.Errorf("key %q normalizes to empty canonical key", pl.key)
+			}
+
+			taskID := ""
+			if pl.scope == "task" {
+				taskID = pl.scopeID
+			}
+
+			// Lookup existing memory
+			var (
+				existingID         int64
+				existingValue      string
+				existingValueType  string
+				existingConfidence float64
+			)
+
+			err := tx.QueryRow(`
+				SELECT id, value, value_type, confidence
+				FROM memory
+				WHERE scope = ? AND scope_id = ? AND canonical_key = ?
+				  AND superseded_by IS NULL
+				ORDER BY created_at DESC
+				LIMIT 1
+			`, pl.scope, pl.scopeID, canonicalKey).Scan(&existingID, &existingValue, &existingValueType, &existingConfidence)
+
+			reinforced := false
+			newConfidence := pl.confidence
+
+			if err == sql.ErrNoRows {
+				// Insert new memory
+				_, execErr := tx.Exec(`
+					INSERT INTO memory (
+						key, canonical_key, value, value_type, scope, scope_id,
+						expires_at, confidence, last_seen_at, source_event_id
+					)
+					VALUES (?, ?, ?, 'string', ?, ?, NULL, ?, CURRENT_TIMESTAMP, NULL)
+				`, pl.key, canonicalKey, pl.value, pl.scope, pl.scopeID, newConfidence)
+
+				if execErr != nil {
+					// Race condition: retry lookup
+					if store.IsUniqueConstraintErr(execErr) {
+						retryErr := tx.QueryRow(`
+							SELECT id, value, value_type, confidence
+							FROM memory
+							WHERE scope = ? AND scope_id = ? AND canonical_key = ?
+							  AND superseded_by IS NULL
+							ORDER BY created_at DESC
+							LIMIT 1
+						`, pl.scope, pl.scopeID, canonicalKey).Scan(&existingID, &existingValue, &existingValueType, &existingConfidence)
+						if retryErr != nil {
+							return batchResult{}, fmt.Errorf("failed to lookup canonical memory after race: %w", retryErr)
+						}
+						// Fall through to update path
+						reinforced = existingValue == pl.value && existingValueType == "string"
+						if reinforced {
+							newConfidence = store.ClampConfidence(existingConfidence + 0.05)
+						} else {
+							newConfidence = existingConfidence
+						}
+					} else {
+						return batchResult{}, fmt.Errorf("failed to insert memory: %w", execErr)
+					}
+				} else {
+					// Insert succeeded, log event
+					goto logEvent
+				}
+			} else if err != nil {
+				return batchResult{}, fmt.Errorf("failed to lookup canonical memory: %w", err)
+			} else {
+				// Update existing memory
+				reinforced = existingValue == pl.value && existingValueType == "string"
+				if reinforced {
+					newConfidence = store.ClampConfidence(existingConfidence + 0.05)
+				} else {
+					newConfidence = existingConfidence
+				}
+			}
+
+			// Update path (shared by race retry and normal existing-key path)
+			_, err = tx.Exec(`
+				UPDATE memory
+				SET key = ?,
+				    canonical_key = ?,
+				    value = ?,
+				    value_type = 'string',
+				    expires_at = NULL,
+				    confidence = ?,
+				    last_seen_at = CURRENT_TIMESTAMP
+				WHERE id = ?
+			`, pl.key, canonicalKey, pl.value, newConfidence, existingID)
+			if err != nil {
+				return batchResult{}, fmt.Errorf("failed to update memory: %w", err)
+			}
+
+		logEvent:
+			// Log event
+			eventKind := models.EventKindMemoryUpserted
+			if reinforced {
+				eventKind = models.EventKindMemoryReinforced
+			}
+
+			eventID, err := store.InsertEventTx(tx, eventKind, agentName, taskID, fmt.Sprintf("Memory upserted: %s", pl.key), "")
+			if err != nil {
+				return batchResult{}, fmt.Errorf("failed to append event: %w", err)
+			}
+
+			eventIDs = append(eventIDs, eventID)
+		}
+
+		return batchResult{EventIDs: eventIDs}, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return r.EventIDs, nil
 }
 
 // SessionRetrospective analyzes session events and extracts durable lessons as memory.

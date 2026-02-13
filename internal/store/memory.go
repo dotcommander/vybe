@@ -29,7 +29,9 @@ type compactionCandidate struct {
 	CreatedAt  time.Time
 }
 
-func normalizeMemoryKey(key string) string {
+// NormalizeMemoryKey converts a key to a canonical form for matching and deduplication.
+// Exported for use by batch operations in actions layer.
+func NormalizeMemoryKey(key string) string {
 	normalized := strings.ToLower(strings.TrimSpace(key))
 	normalized = memoryKeyWhitespace.ReplaceAllString(normalized, "_")
 
@@ -49,7 +51,9 @@ func normalizeMemoryKey(key string) string {
 	return clean
 }
 
-func clampConfidence(v float64) float64 {
+// ClampConfidence ensures confidence values are in [0, 1] range.
+// Exported for use by batch operations in actions layer.
+func ClampConfidence(v float64) float64 {
 	if v < 0 {
 		return 0
 	}
@@ -77,7 +81,7 @@ func SetMemory(db *sql.DB, key, value, valueType, scope, scopeID string, expires
 		return err
 	}
 
-	canonicalKey := normalizeMemoryKey(key)
+	canonicalKey := NormalizeMemoryKey(key)
 
 	return RetryWithBackoff(func() error {
 		query := `
@@ -113,7 +117,7 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 		return 0, false, 0, "", err
 	}
 
-	canonicalKey := normalizeMemoryKey(key)
+	canonicalKey := NormalizeMemoryKey(key)
 	if canonicalKey == "" {
 		return 0, false, 0, "", fmt.Errorf("key cannot normalize to empty canonical key")
 	}
@@ -154,7 +158,7 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 
 		newConfidence := 0.5
 		if confidence != nil {
-			newConfidence = clampConfidence(*confidence)
+			newConfidence = ClampConfidence(*confidence)
 		}
 
 		if err == sql.ErrNoRows {
@@ -168,7 +172,7 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 			if execErr != nil {
 				// Race condition: another agent inserted the same canonical_key
 				// Retry the lookup+update path
-				if isUniqueConstraintErr(execErr) {
+				if IsUniqueConstraintErr(execErr) {
 					retryErr := tx.QueryRow(`
 						SELECT id, value, value_type, confidence
 						FROM memory
@@ -184,7 +188,7 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 					reinforced = existingValue == value && existingValueType == valueType
 					if confidence == nil {
 						if reinforced {
-							newConfidence = clampConfidence(existingConfidence + 0.05)
+							newConfidence = ClampConfidence(existingConfidence + 0.05)
 						} else {
 							newConfidence = existingConfidence
 						}
@@ -200,7 +204,7 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 			reinforced = existingValue == value && existingValueType == valueType
 			if confidence == nil {
 				if reinforced {
-					newConfidence = clampConfidence(existingConfidence + 0.05)
+					newConfidence = ClampConfidence(existingConfidence + 0.05)
 				} else {
 					newConfidence = existingConfidence
 				}
@@ -436,7 +440,7 @@ func CompactMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, scope, s
 
 		// Build summary
 		summaryBytes := buildCompactionSummary(victims)
-		summaryCanonical := normalizeMemoryKey(memoryCompactionSummaryKey)
+		summaryCanonical := NormalizeMemoryKey(memoryCompactionSummaryKey)
 
 		// Insert summary row
 		_, execErr := tx.Exec(`
@@ -765,7 +769,7 @@ func TouchMemoryIdempotent(db *sql.DB, agentName, requestID, key, scope, scopeID
 			return idemResult{}, fmt.Errorf("failed to read memory for touch: %w", err)
 		}
 
-		newConfidence := clampConfidence(currentConfidence + confidenceBump)
+		newConfidence := ClampConfidence(currentConfidence + confidenceBump)
 		_, err = tx.Exec(`
 			UPDATE memory
 			SET last_seen_at = CURRENT_TIMESTAMP, confidence = ?

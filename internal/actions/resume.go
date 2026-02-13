@@ -316,7 +316,7 @@ func ResumeWithOptions(db *sql.DB, agentName string, opts ResumeOptions) (*Resum
 	// Claim first, then update agent state — if claim fails due to contention,
 	// clear focus so we never return a task the agent doesn't own.
 	effectiveFocus := pkt.focusTaskID
-	if pkt.newCursor > pkt.oldCursor || pkt.focusTaskID != pkt.oldFocusID || pkt.focusProjectID != state.FocusProjectID {
+	if pkt.newCursor > pkt.oldCursor || pkt.focusTaskID != pkt.oldFocusID || pkt.focusProjectID != state.FocusProjectID || pkt.focusTaskID != "" {
 		err = store.Transact(db, func(tx *sql.Tx) error {
 			// Try claim before persisting focus — contention clears focus.
 			if effectiveFocus != "" {
@@ -341,11 +341,16 @@ func ResumeWithOptions(db *sql.DB, agentName string, opts ResumeOptions) (*Resum
 		}
 	}
 
-	// Reflect contention outcome in packet so response + prompt are consistent.
+	// After transaction, if focus changed due to contention, rebuild brief with authoritative focus.
 	if effectiveFocus != pkt.focusTaskID {
 		pkt.focusTaskID = effectiveFocus
-		if pkt.brief != nil {
-			pkt.brief.Task = nil
+		// Rebuild brief with corrected focus instead of just nulling the task.
+		newBrief, briefErr := store.BuildBrief(db, effectiveFocus, pkt.focusProjectID, agentName)
+		if briefErr != nil {
+			slog.Warn("failed to rebuild brief after contention", "error", briefErr)
+			pkt.brief = &store.BriefPacket{} // Empty brief, not stale brief
+		} else {
+			pkt.brief = newBrief
 		}
 	}
 
@@ -435,6 +440,17 @@ func ResumeWithOptionsIdempotent(db *sql.DB, agentName, requestID string, opts R
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// After transaction, if focus changed due to contention, rebuild brief with authoritative focus.
+	if persisted.FocusTaskID != pkt.focusTaskID {
+		newBrief, briefErr := store.BuildBrief(db, persisted.FocusTaskID, persisted.FocusProjectID, agentName)
+		if briefErr != nil {
+			slog.Warn("failed to rebuild brief after contention", "error", briefErr)
+			persisted.Brief = &store.BriefPacket{} // Empty brief, not stale brief
+		} else {
+			persisted.Brief = newBrief
+		}
 	}
 
 	return &persisted, nil
