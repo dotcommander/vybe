@@ -3,8 +3,8 @@ package commands
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/dotcommander/vibe/internal/app"
-	"github.com/dotcommander/vibe/internal/output"
+	"github.com/dotcommander/vybe/internal/app"
+	"github.com/dotcommander/vybe/internal/output"
 )
 
 func NewDBCmd() *cobra.Command {

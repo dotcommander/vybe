@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 )
 
 // Memory quality thresholds used by fetchRelevantMemory to filter noise.

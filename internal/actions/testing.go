@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 // setupTestDBWithCleanup creates a test DB with automatic cleanup.

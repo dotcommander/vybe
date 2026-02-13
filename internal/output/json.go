@@ -35,8 +35,8 @@ func Error(err error) Response {
 func Print(v interface{}) error {
 	enc := json.NewEncoder(os.Stdout)
 	// Default to compact JSON to minimize token/output size for agent consumption.
-	// Enable pretty JSON for humans via env var: VIBE_PRETTY_JSON=1.
-	if os.Getenv("VIBE_PRETTY_JSON") == "1" || os.Getenv("VIBE_PRETTY_JSON") == "true" {
+	// Enable pretty JSON for humans via env var: VYBE_PRETTY_JSON=1.
+	if os.Getenv("VYBE_PRETTY_JSON") == "1" || os.Getenv("VYBE_PRETTY_JSON") == "true" {
 		enc.SetIndent("", "  ")
 	}
 	return enc.Encode(v)

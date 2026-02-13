@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 // ProjectCreate atomically inserts a project and logs a project_created event.

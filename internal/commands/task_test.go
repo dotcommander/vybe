@@ -45,8 +45,8 @@ func TestTaskStartCmd_RequiresIDBeforeActorResolution(t *testing.T) {
 
 func TestTaskCreateCmd_RequiresTitleWhenIdentityPresent(t *testing.T) {
 	cmd := newTaskCreateCmd()
-	t.Setenv("VIBE_AGENT", "agent-1")
-	t.Setenv("VIBE_REQUEST_ID", "req-1")
+	t.Setenv("VYBE_AGENT", "agent-1")
+	t.Setenv("VYBE_REQUEST_ID", "req-1")
 
 	err := cmd.RunE(cmd, nil)
 	require.EqualError(t, err, "--title is required")
@@ -55,8 +55,8 @@ func TestTaskCreateCmd_RequiresTitleWhenIdentityPresent(t *testing.T) {
 func TestTaskSetStatusCmd_RequiresIDAndStatus(t *testing.T) {
 	t.Run("missing id", func(t *testing.T) {
 		cmd := newTaskSetStatusCmd()
-		t.Setenv("VIBE_AGENT", "agent-1")
-		t.Setenv("VIBE_REQUEST_ID", "req-1")
+		t.Setenv("VYBE_AGENT", "agent-1")
+		t.Setenv("VYBE_REQUEST_ID", "req-1")
 		require.NoError(t, cmd.Flags().Set("status", "pending"))
 
 		err := cmd.RunE(cmd, nil)
@@ -65,8 +65,8 @@ func TestTaskSetStatusCmd_RequiresIDAndStatus(t *testing.T) {
 
 	t.Run("missing status", func(t *testing.T) {
 		cmd := newTaskSetStatusCmd()
-		t.Setenv("VIBE_AGENT", "agent-1")
-		t.Setenv("VIBE_REQUEST_ID", "req-1")
+		t.Setenv("VYBE_AGENT", "agent-1")
+		t.Setenv("VYBE_REQUEST_ID", "req-1")
 		require.NoError(t, cmd.Flags().Set("id", "task-1"))
 
 		err := cmd.RunE(cmd, nil)
@@ -126,8 +126,8 @@ func TestTaskCreateCmd_DefinesFlags(t *testing.T) {
 func TestTaskSetPriority_RequiredFlags(t *testing.T) {
 	t.Run("missing id", func(t *testing.T) {
 		cmd := newTaskSetPriorityCmd()
-		t.Setenv("VIBE_AGENT", "agent-1")
-		t.Setenv("VIBE_REQUEST_ID", "req-1")
+		t.Setenv("VYBE_AGENT", "agent-1")
+		t.Setenv("VYBE_REQUEST_ID", "req-1")
 
 		err := cmd.RunE(cmd, nil)
 		require.EqualError(t, err, "--id is required")
@@ -145,7 +145,7 @@ func TestTaskSetPriority_RequiredFlags(t *testing.T) {
 
 	t.Run("missing request-id", func(t *testing.T) {
 		cmd := newTaskSetPriorityCmd()
-		t.Setenv("VIBE_AGENT", "agent-1")
+		t.Setenv("VYBE_AGENT", "agent-1")
 		require.NoError(t, cmd.Flags().Set("id", "task-1"))
 		require.NoError(t, cmd.Flags().Set("priority", "5"))
 

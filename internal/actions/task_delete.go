@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 // TaskDeleteIdempotent deletes a task and appends a task_deleted event, idempotent on request_id.

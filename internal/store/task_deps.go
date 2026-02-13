@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 )
 
 // AddTaskDependency adds a dependency relationship between two tasks.

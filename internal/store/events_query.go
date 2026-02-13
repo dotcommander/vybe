@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 )
 
 type ListEventsParams struct {

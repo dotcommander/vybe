@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 func TestTaskCreateIdempotent_Replay(t *testing.T) {

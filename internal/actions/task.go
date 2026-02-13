@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 const completedStatus = "completed"

@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dotcommander/vibe/internal/actions"
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/output"
+	"github.com/dotcommander/vybe/internal/actions"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/output"
 )
 
 func NewArtifactCmd() *cobra.Command {

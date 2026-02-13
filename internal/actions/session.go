@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dotcommander/vibe/internal/llm"
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/llm"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 // SessionDigestResult contains a read-only summary of session activity.

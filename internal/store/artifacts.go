@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 )
 
 func GenerateArtifactID() string {

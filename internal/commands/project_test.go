@@ -29,8 +29,8 @@ func TestProjectCreateCmd_RequiresIdentity(t *testing.T) {
 
 func TestProjectCreateCmd_RequiresName(t *testing.T) {
 	cmd := newProjectCreateCmd()
-	t.Setenv("VIBE_AGENT", "agent-1")
-	t.Setenv("VIBE_REQUEST_ID", "req-1")
+	t.Setenv("VYBE_AGENT", "agent-1")
+	t.Setenv("VYBE_REQUEST_ID", "req-1")
 
 	err := cmd.RunE(cmd, nil)
 	require.Error(t, err)

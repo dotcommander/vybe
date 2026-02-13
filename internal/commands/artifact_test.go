@@ -30,8 +30,8 @@ func TestArtifactAddCmd_RequiresIdentity(t *testing.T) {
 func TestArtifactAddCmd_RequiresTaskAndPath(t *testing.T) {
 	t.Run("missing task", func(t *testing.T) {
 		cmd := newArtifactAddCmd()
-		t.Setenv("VIBE_AGENT", "agent-1")
-		t.Setenv("VIBE_REQUEST_ID", "req-1")
+		t.Setenv("VYBE_AGENT", "agent-1")
+		t.Setenv("VYBE_REQUEST_ID", "req-1")
 		require.NoError(t, cmd.Flags().Set("path", "/tmp/file"))
 
 		err := cmd.RunE(cmd, nil)
@@ -40,8 +40,8 @@ func TestArtifactAddCmd_RequiresTaskAndPath(t *testing.T) {
 
 	t.Run("missing path", func(t *testing.T) {
 		cmd := newArtifactAddCmd()
-		t.Setenv("VIBE_AGENT", "agent-1")
-		t.Setenv("VIBE_REQUEST_ID", "req-1")
+		t.Setenv("VYBE_AGENT", "agent-1")
+		t.Setenv("VYBE_REQUEST_ID", "req-1")
 		require.NoError(t, cmd.Flags().Set("task", "task-1"))
 
 		err := cmd.RunE(cmd, nil)

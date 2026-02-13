@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dotcommander/vibe/internal/app"
+	"github.com/dotcommander/vybe/internal/app"
 	_ "modernc.org/sqlite"
 )
 
 // defaultBusyTimeoutMS is the SQLite busy_timeout in milliseconds.
-// Override with VIBE_BUSY_TIMEOUT_MS for environments with high contention.
+// Override with VYBE_BUSY_TIMEOUT_MS for environments with high contention.
 const defaultBusyTimeoutMS = 5000
 
 // InitDB initializes the database connection with SQLite + WAL mode
@@ -45,7 +45,7 @@ func InitDBWithPath(dbPath string) (*sql.DB, error) {
 	db.SetMaxIdleConns(1)
 
 	busyTimeout := defaultBusyTimeoutMS
-	if v := os.Getenv("VIBE_BUSY_TIMEOUT_MS"); v != "" {
+	if v := os.Getenv("VYBE_BUSY_TIMEOUT_MS"); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
 			busyTimeout = parsed
 		}

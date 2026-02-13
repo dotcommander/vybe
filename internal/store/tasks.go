@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 )
 
 // CreateTask creates a new task with the given title and description.

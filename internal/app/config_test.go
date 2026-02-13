@@ -14,7 +14,7 @@ func TestConfigDir_UsesHomeDirectory(t *testing.T) {
 
 	dir, err := ConfigDir()
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(home, ".config", "vibe"), dir)
+	require.Equal(t, filepath.Join(home, ".config", "vybe"), dir)
 }
 
 func TestEnsureConfigDir_CreatesDefaultConfigOnlyWhenMissing(t *testing.T) {

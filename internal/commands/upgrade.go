@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/dotcommander/vibe/internal/output"
+	"github.com/dotcommander/vybe/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +14,7 @@ import (
 func NewUpgradeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "upgrade",
-		Short: "Upgrade vibe to the latest version",
+		Short: "Upgrade vybe to the latest version",
 		Long:  `Pulls latest from git and runs go install. Requires git and go on PATH.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate required external tools before attempting upgrade.
@@ -39,8 +39,8 @@ func findSourceDir() string {
 	// Check common locations
 	home, _ := os.UserHomeDir()
 	candidates := []string{
-		home + "/go/src/vibe",
-		home + "/src/vibe",
+		home + "/go/src/vybe",
+		home + "/src/vybe",
 	}
 
 	for _, dir := range candidates {
@@ -65,7 +65,7 @@ func upgradeViaGitPull(srcDir string) error {
 	}
 
 	// Build and install
-	install := exec.Command("go", "install", "./cmd/vibe")
+	install := exec.Command("go", "install", "./cmd/vybe")
 	install.Dir = srcDir
 	install.Stdout = os.Stderr
 	install.Stderr = os.Stderr
@@ -90,7 +90,7 @@ func upgradeViaGitPull(srcDir string) error {
 }
 
 func upgradeViaGoInstall() error {
-	install := exec.Command("go", "install", "github.com/dotcommander/vibe/cmd/vibe@latest")
+	install := exec.Command("go", "install", "github.com/dotcommander/vybe/cmd/vybe@latest")
 	install.Stdout = os.Stderr
 	install.Stderr = os.Stderr
 	if err := install.Run(); err != nil {
@@ -102,7 +102,7 @@ func upgradeViaGoInstall() error {
 		Method string `json:"method"`
 	}
 	return output.PrintSuccess(result{
-		Source: "github.com/dotcommander/vibe@latest",
+		Source: "github.com/dotcommander/vybe@latest",
 		Method: "go install",
 	})
 }

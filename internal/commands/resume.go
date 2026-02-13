@@ -1,8 +1,8 @@
 package commands
 
 import (
-	"github.com/dotcommander/vibe/internal/actions"
-	"github.com/dotcommander/vibe/internal/output"
+	"github.com/dotcommander/vybe/internal/actions"
+	"github.com/dotcommander/vybe/internal/output"
 	"github.com/spf13/cobra"
 )
 

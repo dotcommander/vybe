@@ -44,7 +44,7 @@ func TestSuccessAndError(t *testing.T) {
 }
 
 func TestPrint_DefaultCompactJSON(t *testing.T) {
-	t.Setenv("VIBE_PRETTY_JSON", "")
+	t.Setenv("VYBE_PRETTY_JSON", "")
 
 	out := captureStdout(t, func() {
 		err := Print(map[string]string{"hello": "world"})
@@ -57,7 +57,7 @@ func TestPrint_DefaultCompactJSON(t *testing.T) {
 func TestPrint_PrettyJSONEnabled(t *testing.T) {
 	for _, value := range []string{"1", "true"} {
 		t.Run(value, func(t *testing.T) {
-			t.Setenv("VIBE_PRETTY_JSON", value)
+			t.Setenv("VYBE_PRETTY_JSON", value)
 
 			out := captureStdout(t, func() {
 				err := Print(map[string]string{"hello": "world"})
@@ -71,7 +71,7 @@ func TestPrint_PrettyJSONEnabled(t *testing.T) {
 }
 
 func TestPrintSuccessAndPrintError(t *testing.T) {
-	t.Setenv("VIBE_PRETTY_JSON", "")
+	t.Setenv("VYBE_PRETTY_JSON", "")
 
 	successOut := captureStdout(t, func() {
 		err := PrintSuccess(map[string]int{"count": 2})

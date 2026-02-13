@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 func ArtifactAdd(db *sql.DB, agentName, taskID, filePath, contentType string) (*models.Artifact, int64, error) {

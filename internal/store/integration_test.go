@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dotcommander/vibe/internal/app"
+	"github.com/dotcommander/vybe/internal/app"
 )
 
 // TestInitDBIntegration tests that the database can be initialized at the actual config path
@@ -19,7 +19,7 @@ func TestInitDBIntegration(t *testing.T) {
 	t.Cleanup(func() {
 		// Note: In production, we don't want to delete the database
 		// This cleanup is only for integration tests
-		if os.Getenv("VIBE_TEST_CLEANUP") == "true" {
+		if os.Getenv("VYBE_TEST_CLEANUP") == "true" {
 			os.Remove(configPath)
 			os.Remove(configPath + "-shm")
 			os.Remove(configPath + "-wal")

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/output"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/output"
+	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +20,7 @@ import (
 func NewIngestCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ingest",
-		Short: "Ingest external data sources into vibe",
+		Short: "Ingest external data sources into vybe",
 		Long:  "Import events from external tools (Claude Code history, etc.)",
 	}
 
@@ -104,7 +104,7 @@ func newIngestHistoryCmd() *cobra.Command {
 				return output.PrintSuccess(resp)
 			}
 
-			// Ingest into vibe
+			// Ingest into vybe
 			var imported, skipped int
 			if err := withDB(func(db *DB) error {
 				for i := 0; i < len(entries.items); i += batchSize {

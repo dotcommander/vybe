@@ -41,15 +41,15 @@ func getDBPathOverride() string {
 
 // LoadSettings loads configuration once using the documented lookup order.
 // Lookup order (first found wins):
-// 1) ~/.config/vibe/config.yaml
-// 2) /etc/vibe/config.yaml
+// 1) ~/.config/vybe/config.yaml
+// 2) /etc/vybe/config.yaml
 // 3) ./config.yaml (lowest priority; allows repo-local overrides if desired)
 // Environment variables are handled separately.
 func LoadSettings() (Settings, error) {
 	settingsOnce.Do(func() {
 		settings = Settings{}
 
-		// 1) User config (~/.config/vibe/config.yaml)
+		// 1) User config (~/.config/vybe/config.yaml)
 		dir, err := ConfigDir()
 		if err != nil {
 			settingsErr = err
@@ -64,7 +64,7 @@ func LoadSettings() (Settings, error) {
 		}
 
 		// 2) /etc
-		if s, err := loadSettingsFile(filepath.Join(string(os.PathSeparator), "etc", "vibe", "config.yaml")); err == nil {
+		if s, err := loadSettingsFile(filepath.Join(string(os.PathSeparator), "etc", "vybe", "config.yaml")); err == nil {
 			settings = s
 			return
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {

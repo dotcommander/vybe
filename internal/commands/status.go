@@ -5,16 +5,16 @@ import (
 	"os"
 	"sort"
 
-	"github.com/dotcommander/vibe/internal/app"
-	"github.com/dotcommander/vibe/internal/output"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/app"
+	"github.com/dotcommander/vybe/internal/output"
+	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
 )
 
 func NewStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show vibe installation status and system overview",
+		Short: "Show vybe installation status and system overview",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// 1. Resolve DB path
 			dbPath, dbSource, err := app.ResolveDBPathDetailed()
@@ -35,7 +35,7 @@ func NewStatusCmd() *cobra.Command {
 				Claude         bool            `json:"claude"`
 				ClaudeEvents   map[string]bool `json:"claude_events,omitempty"`
 				ClaudeSettings []string        `json:"claude_settings_paths,omitempty"`
-				OpenCode       bool            `json:"opencode"`
+				OpenCode       opencodeDetail  `json:"opencode"`
 			}
 
 			type resp struct {
@@ -53,7 +53,7 @@ func NewStatusCmd() *cobra.Command {
 
 			// 3. Check hooks
 			result.Hooks.Claude, result.Hooks.ClaudeEvents, result.Hooks.ClaudeSettings = checkClaudeHook()
-			result.Hooks.OpenCode = checkOpenCodeHook()
+			result.Hooks.OpenCode = checkOpenCodeHookDetail()
 
 			// 4. Try to open DB
 			db, err := store.InitDBWithPath(dbPath)
@@ -83,11 +83,11 @@ func NewStatusCmd() *cobra.Command {
 	return cmd
 }
 
-// checkClaudeHook checks if vibe hooks are installed in Claude settings.
+// checkClaudeHook checks if vybe hooks are installed in Claude settings.
 func checkClaudeHook() (bool, map[string]bool, []string) {
 	paths := []string{claudeSettingsPath(), projectClaudeSettingsPath()}
 	events := make(map[string]bool)
-	for _, name := range vibeHookEventNames() {
+	for _, name := range vybeHookEventNames() {
 		events[name] = false
 	}
 
@@ -109,7 +109,7 @@ func checkClaudeHook() (bool, map[string]bool, []string) {
 		}
 
 		for eventName, entries := range settings.Hooks {
-			if !hasVibeHook(entries) {
+			if !hasVybeHook(entries) {
 				continue
 			}
 			installedAny = true
@@ -121,9 +121,22 @@ func checkClaudeHook() (bool, map[string]bool, []string) {
 	return installedAny, events, foundPaths
 }
 
-// checkOpenCodeHook checks if the vibe bridge plugin exists in OpenCode.
-func checkOpenCodeHook() bool {
+type opencodeDetail struct {
+	Installed bool   `json:"installed"`
+	Path      string `json:"path"`
+	Status    string `json:"status"` // "current", "modified", "missing"
+}
+
+// checkOpenCodeHookDetail checks vybe bridge plugin status in OpenCode.
+func checkOpenCodeHookDetail() opencodeDetail {
 	path := opencodePluginPath()
-	_, err := os.Stat(path)
-	return err == nil
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return opencodeDetail{Path: path, Status: "missing"}
+	}
+	status := "modified"
+	if string(data) == opencodeBridgePluginSource {
+		status = "current"
+	}
+	return opencodeDetail{Installed: true, Path: path, Status: status}
 }

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dotcommander/vibe/internal/actions"
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/output"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/actions"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/output"
+	"github.com/dotcommander/vybe/internal/store"
 
 	"github.com/spf13/cobra"
 )
@@ -249,13 +249,13 @@ func runLoop(opts runOptions) error {
 }
 
 // buildAgentPrompt constructs the prompt sent to the spawned agent.
-// It wraps vibe's resume prompt with autonomous-mode rules.
-// The resume prompt already contains VIBE CONTEXT and VIBE COMMANDS sections,
+// It wraps vybe's resume prompt with autonomous-mode rules.
+// The resume prompt already contains VYBE CONTEXT and VYBE COMMANDS sections,
 // so this only adds behavioral instructions — no duplicate commands.
 func buildAgentPrompt(r *actions.ResumeResponse) string {
 	var b strings.Builder
 
-	// Vibe's resume prompt has: task details, memory, events, and commands
+	// Vybe's resume prompt has: task details, memory, events, and commands
 	b.WriteString(r.Prompt)
 
 	// Autonomous behavior rules — tells the agent HOW to work, not WHAT commands to run
@@ -310,7 +310,7 @@ func spawnAgent(command, prompt, project string, timeout time.Duration) int {
 	}
 }
 
-// markTaskBlocked sets a task to blocked status via vibe and records the failure reason.
+// markTaskBlocked sets a task to blocked status via vybe and records the failure reason.
 func markTaskBlocked(agentName, taskID, reason string) {
 	_ = withDB(func(db *DB) error {
 		requestID := fmt.Sprintf("block_%s_%d", taskID, time.Now().UnixMilli())

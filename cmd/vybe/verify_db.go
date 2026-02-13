@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 func main() {

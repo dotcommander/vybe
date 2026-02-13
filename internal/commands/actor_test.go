@@ -18,7 +18,7 @@ func newActorTestCmd(t *testing.T) *cobra.Command {
 
 func TestResolveActorName_Precedence(t *testing.T) {
 	cmd := newActorTestCmd(t)
-	t.Setenv("VIBE_AGENT", "env-agent")
+	t.Setenv("VYBE_AGENT", "env-agent")
 	require.NoError(t, cmd.Flags().Set("actor", "legacy-actor"))
 	require.NoError(t, cmd.Flags().Set("agent", "global-agent"))
 	require.NoError(t, cmd.Flags().Set("worker", "per-cmd-agent"))
@@ -29,7 +29,7 @@ func TestResolveActorName_Precedence(t *testing.T) {
 
 func TestResolveActorName_UsesEnvFallback(t *testing.T) {
 	cmd := newActorTestCmd(t)
-	t.Setenv("VIBE_AGENT", "env-agent")
+	t.Setenv("VYBE_AGENT", "env-agent")
 
 	got := resolveActorName(cmd, "worker")
 	require.Equal(t, "env-agent", got)
@@ -37,7 +37,7 @@ func TestResolveActorName_UsesEnvFallback(t *testing.T) {
 
 func TestRequireActorName_ErrorWhenMissing(t *testing.T) {
 	cmd := newActorTestCmd(t)
-	t.Setenv("VIBE_AGENT", "")
+	t.Setenv("VYBE_AGENT", "")
 
 	got, err := requireActorName(cmd, "worker")
 	require.Error(t, err)

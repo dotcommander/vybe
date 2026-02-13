@@ -46,7 +46,7 @@ func TestNormalizeEnumParts(t *testing.T) {
 }
 
 func TestBuildCommandSchema_CollectsFlagsAndRequired(t *testing.T) {
-	root := &cobra.Command{Use: "vibe"}
+	root := &cobra.Command{Use: "vybe"}
 	root.PersistentFlags().String("agent", "", "Agent name (required)")
 
 	child := &cobra.Command{Use: "task", Short: "Task operations"}
@@ -56,7 +56,7 @@ func TestBuildCommandSchema_CollectsFlagsAndRequired(t *testing.T) {
 	root.AddCommand(child)
 
 	schema := buildCommandSchema(child)
-	require.Equal(t, "vibe task", schema.Command)
+	require.Equal(t, "vybe task", schema.Command)
 	require.Equal(t, "Task operations", schema.Description)
 
 	props := schema.ArgsSchema["properties"].(map[string]any)
@@ -74,7 +74,7 @@ func TestBuildCommandSchema_CollectsFlagsAndRequired(t *testing.T) {
 }
 
 func TestCollectCommandSchemas_FiltersRootSchemaAndHidden(t *testing.T) {
-	root := &cobra.Command{Use: "vibe"}
+	root := &cobra.Command{Use: "vybe"}
 	schemaCmd := &cobra.Command{Use: "schema"}
 	visible := &cobra.Command{Use: "task", Short: "Task"}
 	hidden := &cobra.Command{Use: "secret", Hidden: true}
@@ -85,5 +85,5 @@ func TestCollectCommandSchemas_FiltersRootSchemaAndHidden(t *testing.T) {
 	collectCommandSchemas(root, &out)
 
 	require.Len(t, out, 1)
-	require.Equal(t, "vibe task", out[0].Command)
+	require.Equal(t, "vybe task", out[0].Command)
 }

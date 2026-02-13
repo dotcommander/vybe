@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 const (
@@ -128,11 +128,11 @@ func buildResumeResponse(agentName string, pkt *resumePacket) *ResumeResponse {
 }
 
 // buildPrompt generates the context prompt injected into agent sessions.
-// Vibe owns this text so hooks just pass it through.
+// Vybe owns this text so hooks just pass it through.
 //
 // This prompt is consumed by LLM agents, including small/weak models.
 // Clarity rules:
-//   - Explain what vibe is (one sentence)
+//   - Explain what vybe is (one sentence)
 //   - Use exact, copy-pasteable commands with real values pre-filled
 //   - Mark replaceable parts with UPPER_SNAKE_CASE and explicit instructions
 //   - Number the commands so models can reference them
@@ -141,8 +141,8 @@ func buildResumeResponse(agentName string, pkt *resumePacket) *ResumeResponse {
 func buildPrompt(agentName string, brief *store.BriefPacket, recentPrompts []*models.Event) string {
 	var b strings.Builder
 
-	// Header: what vibe is
-	b.WriteString("== VIBE (task tracker) ==\n")
+	// Header: what vybe is
+	b.WriteString("== VYBE (task tracker) ==\n")
 
 	// --- Context section: read this ---
 	if brief != nil && brief.Task != nil {
@@ -239,19 +239,19 @@ func buildPrompt(agentName string, brief *store.BriefPacket, recentPrompts []*mo
 		b.WriteString("Copy-paste these commands exactly. Only replace UPPER_CASE words.\n\n")
 
 		fmt.Fprintf(&b, "1. DONE — when you finish the task:\n")
-		fmt.Fprintf(&b, "   vibe task set-status --agent=%s --request-id=done_$RANDOM --id=%s --status=completed\n\n", agentName, t.ID)
+		fmt.Fprintf(&b, "   vybe task set-status --agent=%s --request-id=done_$RANDOM --id=%s --status=completed\n\n", agentName, t.ID)
 
 		fmt.Fprintf(&b, "2. STUCK — if you cannot complete the task:\n")
-		fmt.Fprintf(&b, "   vibe task set-status --agent=%s --request-id=block_$RANDOM --id=%s --status=blocked\n\n", agentName, t.ID)
+		fmt.Fprintf(&b, "   vybe task set-status --agent=%s --request-id=block_$RANDOM --id=%s --status=blocked\n\n", agentName, t.ID)
 
 		fmt.Fprintf(&b, "3. LOG — to record progress (replace YOUR_MESSAGE):\n")
-		fmt.Fprintf(&b, "   vibe log --agent=%s --request-id=log_$RANDOM --kind=progress --task=%s --msg=\"YOUR_MESSAGE\"\n\n", agentName, t.ID)
+		fmt.Fprintf(&b, "   vybe log --agent=%s --request-id=log_$RANDOM --kind=progress --task=%s --msg=\"YOUR_MESSAGE\"\n\n", agentName, t.ID)
 
 		fmt.Fprintf(&b, "4. SAVE — to save a note for future sessions (replace YOUR_KEY and YOUR_VALUE):\n")
-		fmt.Fprintf(&b, "   vibe memory set --agent=%s --request-id=mem_$RANDOM --key=YOUR_KEY --value=\"YOUR_VALUE\" --scope=task --scope-id=%s\n\n", agentName, t.ID)
+		fmt.Fprintf(&b, "   vybe memory set --agent=%s --request-id=mem_$RANDOM --key=YOUR_KEY --value=\"YOUR_VALUE\" --scope=task --scope-id=%s\n\n", agentName, t.ID)
 
 		fmt.Fprintf(&b, "5. THINK — after interpreting what the user wants, capture your reasoning:\n")
-		fmt.Fprintf(&b, "   vibe log --agent=%s --request-id=reason_$RANDOM --kind=reasoning --task=%s --msg=\"INTENT_SUMMARY\" --metadata='{\"intent\":\"...\",\"approach\":\"...\",\"files\":[...]}'\n\n", agentName, t.ID)
+		fmt.Fprintf(&b, "   vybe log --agent=%s --request-id=reason_$RANDOM --kind=reasoning --task=%s --msg=\"INTENT_SUMMARY\" --metadata='{\"intent\":\"...\",\"approach\":\"...\",\"files\":[...]}'\n\n", agentName, t.ID)
 
 		b.WriteString("$RANDOM is a bash variable that generates a unique number. Do not replace it.\n")
 	}

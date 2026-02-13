@@ -1,6 +1,6 @@
 package models
 
-// System event kinds emitted by vibe's store and action layers.
+// System event kinds emitted by vybe's store and action layers.
 // Agents may also emit freeform kinds (e.g., "progress", "reasoning", "note")
 // but these are not defined as constants since they're agent-controlled.
 const (

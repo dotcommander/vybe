@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 )
 
 // GenerateProjectID generates a project ID using pattern: proj_<unix_nano>_<random_hex>.

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/dotcommander/vibe/internal/app"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/app"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 // DB is an alias so command code doesn't need to import database/sql.

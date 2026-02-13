@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 )
 
 type AgentCursorFocus struct {

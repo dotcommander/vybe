@@ -3,7 +3,7 @@ package actions
 import (
 	"testing"
 
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 // TestResumeInterruptionScenario simulates an agent being interrupted and resuming later

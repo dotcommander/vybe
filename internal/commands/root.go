@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dotcommander/vibe/internal/app"
-	"github.com/dotcommander/vibe/internal/output"
+	"github.com/dotcommander/vybe/internal/app"
+	"github.com/dotcommander/vybe/internal/output"
 )
 
 // Execute runs the CLI application.
@@ -16,7 +16,7 @@ func Execute(version string) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
 	root := &cobra.Command{
-		Use:           "vibe",
+		Use:           "vybe",
 		Short:         "Agent continuity primitives (tasks, events, memory, resume/brief)",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -48,11 +48,11 @@ func Execute(version string) error {
 	}
 
 	root.PersistentFlags().String("db-path", "", "Override database path")
-	root.PersistentFlags().StringP("agent", "a", "", "Agent name (default: $VIBE_AGENT)")
+	root.PersistentFlags().StringP("agent", "a", "", "Agent name (default: $VYBE_AGENT)")
 	root.PersistentFlags().String("actor", "", "Deprecated: use --agent")
 	_ = root.PersistentFlags().MarkDeprecated("actor", "use --agent")
-	root.PersistentFlags().String("request-id", "", "Idempotency key for mutating operations (default: $VIBE_REQUEST_ID)")
-	root.Flags().BoolP("version", "v", false, "version for vibe")
+	root.PersistentFlags().String("request-id", "", "Idempotency key for mutating operations (default: $VYBE_REQUEST_ID)")
+	root.Flags().BoolP("version", "v", false, "version for vybe")
 
 	root.AddCommand(NewAgentCmd())
 	root.AddCommand(NewEventsCmd())

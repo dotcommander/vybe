@@ -47,41 +47,38 @@ func TestResolveTargetFlags_BothTrue(t *testing.T) {
 	require.True(t, opencode)
 }
 
-func TestHasVibeHook(t *testing.T) {
-	require.False(t, hasVibeHook(nil))
+func TestHasVybeHook(t *testing.T) {
+	require.False(t, hasVybeHook(nil))
 
 	entries := []any{
 		map[string]any{
 			"hooks": []any{
-				map[string]any{"command": "vibe hook session-start"},
+				map[string]any{"command": "vybe hook session-start"},
 			},
 		},
 	}
-	require.True(t, hasVibeHook(entries))
+	require.True(t, hasVybeHook(entries))
 
 	// Malformed entries should not panic.
-	require.False(t, hasVibeHook([]any{"not-a-map"}))
-	require.False(t, hasVibeHook([]any{map[string]any{"hooks": "not-a-slice"}}))
+	require.False(t, hasVybeHook([]any{"not-a-map"}))
+	require.False(t, hasVybeHook([]any{map[string]any{"hooks": "not-a-slice"}}))
 }
 
-func TestIsVibeHookCommand(t *testing.T) {
-	require.True(t, isVibeHookCommand("vibe hook session-start"))
-	require.True(t, isVibeHookCommand("/usr/local/bin/vibe hook checkpoint"))
-	require.True(t, isVibeHookCommand("/Applications/Vibe.app/Contents/MacOS/vibe hook task-completed"))
-	// Note: quoted paths with spaces (e.g. '"/path/with spaces/vibe" hook prompt')
-	// are not handled by isVibeHookCommand — strings.Fields doesn't parse shell quoting.
-	// This is acceptable since paths with spaces are uncommon for Go binaries.
+func TestIsVybeHookCommand(t *testing.T) {
+	require.True(t, isVybeHookCommand("vybe hook session-start"))
+	require.True(t, isVybeHookCommand("/usr/local/bin/vybe hook checkpoint"))
+	require.True(t, isVybeHookCommand(`"/Users/someone/go/bin/vybe" hook task-completed`))
 
-	require.False(t, isVibeHookCommand("echo vibe hook session-start"))
-	require.False(t, isVibeHookCommand("/usr/local/bin/not-vibe hook session-start"))
-	require.False(t, isVibeHookCommand("vibe status"))
-	require.False(t, isVibeHookCommand(""))
-	require.False(t, isVibeHookCommand("vibe hook unknown-subcommand"))
-	require.True(t, isVibeHookCommand("vibe hook retrospective"))
+	require.False(t, isVybeHookCommand("echo vybe hook session-start"))
+	require.False(t, isVybeHookCommand("/usr/local/bin/not-vybe hook session-start"))
+	require.False(t, isVybeHookCommand("vybe status"))
+	require.False(t, isVybeHookCommand(""))
+	require.False(t, isVybeHookCommand("vybe hook unknown-subcommand"))
+	require.True(t, isVybeHookCommand("vybe hook retrospective"))
 }
 
-func TestVibeHookEventNames_ContainsTaskCompleted(t *testing.T) {
-	events := vibeHookEventNames()
+func TestVybeHookEventNames_ContainsTaskCompleted(t *testing.T) {
+	events := vybeHookEventNames()
 	require.Contains(t, events, "TaskCompleted")
 	require.Contains(t, events, "SessionStart")
 	require.Contains(t, events, "PostToolUseFailure")
@@ -91,13 +88,13 @@ func TestHookEntryEqual(t *testing.T) {
 	a := map[string]any{
 		"matcher": "",
 		"hooks": []any{
-			map[string]any{"type": "command", "command": "vibe hook prompt", "timeout": float64(2000)},
+			map[string]any{"type": "command", "command": "vybe hook prompt", "timeout": float64(2000)},
 		},
 	}
 	b := map[string]any{
 		"matcher": "",
 		"hooks": []any{
-			map[string]any{"type": "command", "command": "vibe hook prompt", "timeout": float64(2000)},
+			map[string]any{"type": "command", "command": "vybe hook prompt", "timeout": float64(2000)},
 		},
 	}
 	require.True(t, hookEntryEqual(a, b))
@@ -106,7 +103,7 @@ func TestHookEntryEqual(t *testing.T) {
 	c := map[string]any{
 		"matcher": "",
 		"hooks": []any{
-			map[string]any{"type": "command", "command": "vibe hook prompt", "timeout": float64(3000)},
+			map[string]any{"type": "command", "command": "vybe hook prompt", "timeout": float64(3000)},
 		},
 	}
 	require.False(t, hookEntryEqual(a, c))
@@ -115,27 +112,27 @@ func TestHookEntryEqual(t *testing.T) {
 	d := map[string]any{
 		"matcher": "startup",
 		"hooks": []any{
-			map[string]any{"type": "command", "command": "vibe hook prompt", "timeout": float64(2000)},
+			map[string]any{"type": "command", "command": "vybe hook prompt", "timeout": float64(2000)},
 		},
 	}
 	require.False(t, hookEntryEqual(a, d))
 }
 
-func TestUpsertVibeHookEntry(t *testing.T) {
+func TestUpsertVybeHookEntry(t *testing.T) {
 	newEntry := map[string]any{
 		"matcher": "",
 		"hooks": []any{
-			map[string]any{"type": "command", "command": "vibe hook prompt", "timeout": float64(2000)},
+			map[string]any{"type": "command", "command": "vybe hook prompt", "timeout": float64(2000)},
 		},
 	}
 
 	// Fresh install (nil existing)
-	entries, outcome := upsertVibeHookEntry(nil, newEntry)
+	entries, outcome := upsertVybeHookEntry(nil, newEntry)
 	require.Equal(t, hookInstalled, outcome)
 	require.Len(t, entries, 1)
 
 	// Skip (identical entry already present)
-	entries, outcome = upsertVibeHookEntry(entries, newEntry)
+	entries, outcome = upsertVybeHookEntry(entries, newEntry)
 	require.Equal(t, hookSkipped, outcome)
 	require.Len(t, entries, 1)
 
@@ -143,23 +140,23 @@ func TestUpsertVibeHookEntry(t *testing.T) {
 	updatedEntry := map[string]any{
 		"matcher": "",
 		"hooks": []any{
-			map[string]any{"type": "command", "command": "vibe hook prompt", "timeout": float64(3000)},
+			map[string]any{"type": "command", "command": "vybe hook prompt", "timeout": float64(3000)},
 		},
 	}
-	entries, outcome = upsertVibeHookEntry(entries, updatedEntry)
+	entries, outcome = upsertVybeHookEntry(entries, updatedEntry)
 	require.Equal(t, hookUpdated, outcome)
 	require.Len(t, entries, 1)
 
-	// Non-vibe entries are preserved
-	nonVibe := map[string]any{
+	// Non-vybe entries are preserved
+	nonVybe := map[string]any{
 		"hooks": []any{
 			map[string]any{"type": "command", "command": "other-tool do-thing"},
 		},
 	}
-	mixed := []any{nonVibe, entries[0]}
-	entries, outcome = upsertVibeHookEntry(mixed, updatedEntry)
+	mixed := []any{nonVybe, entries[0]}
+	entries, outcome = upsertVybeHookEntry(mixed, updatedEntry)
 	require.Equal(t, hookSkipped, outcome)
-	require.Len(t, entries, 2) // non-vibe + vibe
+	require.Len(t, entries, 2) // non-vybe + vybe
 }
 
 func TestReadSettings_AndWriteSettings(t *testing.T) {

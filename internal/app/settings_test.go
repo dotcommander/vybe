@@ -21,7 +21,7 @@ func TestLoadSettings_PrefersUserConfigOverLocal(t *testing.T) {
 	require.NoError(t, os.Chdir(workdir))
 	t.Cleanup(func() { _ = os.Chdir(oldwd) })
 
-	userConfigPath := filepath.Join(home, ".config", "vibe", "config.yaml")
+	userConfigPath := filepath.Join(home, ".config", "vybe", "config.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(userConfigPath), 0o755))
 	require.NoError(t, os.WriteFile(userConfigPath, []byte("db_path: /tmp/from-user.db\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(workdir, "config.yaml"), []byte("db_path: /tmp/from-local.db\n"), 0o600))
@@ -58,7 +58,7 @@ func TestLoadSettings_InvalidYAMLReturnsError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	userConfigPath := filepath.Join(home, ".config", "vibe", "config.yaml")
+	userConfigPath := filepath.Join(home, ".config", "vybe", "config.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(userConfigPath), 0o755))
 	require.NoError(t, os.WriteFile(userConfigPath, []byte("db_path: ["), 0o600))
 

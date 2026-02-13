@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/dotcommander/vibe/internal/commands"
+	"github.com/dotcommander/vybe/internal/commands"
 )
 
 // version is set via ldflags: -X main.version=v1.0.0

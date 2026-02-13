@@ -10,16 +10,16 @@ import (
 // GetDBPath resolves the database path.
 // Order of precedence:
 // 1) CLI override (e.g. --db-path)
-// 2) Environment variable: VIBE_DB_PATH
+// 2) Environment variable: VYBE_DB_PATH
 // 3) config.yaml: db_path
-// 4) Default: ~/.config/vibe/vibe.db
-// Returns an absolute path to vibe.db and ensures the parent directory exists.
+// 4) Default: ~/.config/vybe/vybe.db
+// Returns an absolute path to vybe.db and ensures the parent directory exists.
 func GetDBPath() (string, error) {
 	if override := getDBPathOverride(); override != "" {
 		return EnsureDBDir(override)
 	}
 
-	if envPath := os.Getenv("VIBE_DB_PATH"); envPath != "" {
+	if envPath := os.Getenv("VYBE_DB_PATH"); envPath != "" {
 		return EnsureDBDir(envPath)
 	}
 
@@ -35,7 +35,7 @@ func GetDBPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to determine config directory: %w", err)
 	}
-	return EnsureDBDir(filepath.Join(configDir, "vibe.db"))
+	return EnsureDBDir(filepath.Join(configDir, "vybe.db"))
 }
 
 // ResolveDBPathDetailed returns the resolved DB path along with the source of that decision.
@@ -46,9 +46,9 @@ func ResolveDBPathDetailed() (path string, source string, err error) {
 		return resolvedPath, "cli(--db-path)", ensureErr
 	}
 
-	if envPath := os.Getenv("VIBE_DB_PATH"); envPath != "" {
+	if envPath := os.Getenv("VYBE_DB_PATH"); envPath != "" {
 		resolvedPath, ensureErr := EnsureDBDir(envPath)
-		return resolvedPath, "env(VIBE_DB_PATH)", ensureErr
+		return resolvedPath, "env(VYBE_DB_PATH)", ensureErr
 	}
 
 	dir, err := ConfigDir()
@@ -59,7 +59,7 @@ func ResolveDBPathDetailed() (path string, source string, err error) {
 	// Config file order must match LoadSettings.
 	configPaths := []string{
 		filepath.Join(dir, "config.yaml"),
-		filepath.Join(string(os.PathSeparator), "etc", "vibe", "config.yaml"),
+		filepath.Join(string(os.PathSeparator), "etc", "vybe", "config.yaml"),
 		"config.yaml",
 	}
 
@@ -83,8 +83,8 @@ func ResolveDBPathDetailed() (path string, source string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("failed to determine config directory: %w", err)
 	}
-	resolved, err := EnsureDBDir(filepath.Join(configDir, "vibe.db"))
-	return resolved, "default(~/.config/vibe/vibe.db)", err
+	resolved, err := EnsureDBDir(filepath.Join(configDir, "vybe.db"))
+	return resolved, "default(~/.config/vybe/vybe.db)", err
 }
 
 func EnsureDBDir(dbPath string) (string, error) {

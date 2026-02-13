@@ -40,8 +40,8 @@ func TestEventsTailCmd_RequiresAgentUnlessAll(t *testing.T) {
 func TestEventsSummarizeCmd_ValidationErrors(t *testing.T) {
 	t.Run("missing from-id", func(t *testing.T) {
 		cmd := newEventsSummarizeCmd()
-		t.Setenv("VIBE_AGENT", "agent-1")
-		t.Setenv("VIBE_REQUEST_ID", "req-1")
+		t.Setenv("VYBE_AGENT", "agent-1")
+		t.Setenv("VYBE_REQUEST_ID", "req-1")
 
 		err := cmd.RunE(cmd, nil)
 		require.Error(t, err)
@@ -50,8 +50,8 @@ func TestEventsSummarizeCmd_ValidationErrors(t *testing.T) {
 
 	t.Run("missing to-id", func(t *testing.T) {
 		cmd := newEventsSummarizeCmd()
-		t.Setenv("VIBE_AGENT", "agent-1")
-		t.Setenv("VIBE_REQUEST_ID", "req-1")
+		t.Setenv("VYBE_AGENT", "agent-1")
+		t.Setenv("VYBE_REQUEST_ID", "req-1")
 		require.NoError(t, cmd.Flags().Set("from-id", "1"))
 
 		err := cmd.RunE(cmd, nil)
@@ -61,8 +61,8 @@ func TestEventsSummarizeCmd_ValidationErrors(t *testing.T) {
 
 	t.Run("missing summary", func(t *testing.T) {
 		cmd := newEventsSummarizeCmd()
-		t.Setenv("VIBE_AGENT", "agent-1")
-		t.Setenv("VIBE_REQUEST_ID", "req-1")
+		t.Setenv("VYBE_AGENT", "agent-1")
+		t.Setenv("VYBE_REQUEST_ID", "req-1")
 		require.NoError(t, cmd.Flags().Set("from-id", "1"))
 		require.NoError(t, cmd.Flags().Set("to-id", "2"))
 

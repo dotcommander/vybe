@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 )
 
 var memoryKeyWhitespace = regexp.MustCompile(`\s+`)

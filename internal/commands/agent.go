@@ -3,9 +3,9 @@ package commands
 import (
 	"fmt"
 
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/output"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/output"
+	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
 )
 

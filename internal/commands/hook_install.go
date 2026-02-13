@@ -10,28 +10,28 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dotcommander/vibe/internal/output"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/output"
+	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
 )
 
-const opencodeBridgePluginFilename = "vibe-bridge.js"
+const opencodeBridgePluginFilename = "vybe-bridge.js"
 
-// opencodeBridgePluginSource is the embedded JS bridge installed by `vibe hook install`.
+// opencodeBridgePluginSource is the embedded JS bridge installed by `vybe hook install`.
 // This is the runtime artifact (plain JS, no type imports).
 //
-// The canonical TypeScript version lives at examples/opencode/opencode-vibe-plugin.ts
+// The canonical TypeScript version lives at examples/opencode/opencode-vybe-plugin.ts
 // and serves as documentation/reference. When adding features, update the TS
 // version first, then backport to the embedded JS source.
 //
 //go:embed opencode_bridge_plugin.js
 var opencodeBridgePluginSource string
 
-const vibeCommandFallback = "vibe"
+const vybeCommandFallback = "vybe"
 
 var (
-	vibeHooksOnce  sync.Once
-	vibeHooksCache map[string]hookEntry
+	vybeHooksOnce  sync.Once
+	vybeHooksCache map[string]hookEntry
 )
 
 type hookHandler struct {
@@ -70,41 +70,41 @@ func resolveClaudeSettingsPath(projectScoped bool) string {
 	return claudeSettingsPath()
 }
 
-func vibeExecutable() string {
+func vybeExecutable() string {
 	exe, err := os.Executable()
 	if err != nil || strings.TrimSpace(exe) == "" {
-		return vibeCommandFallback
+		return vybeCommandFallback
 	}
 	return exe
 }
 
-// buildVibeHookCommand constructs the hook command string for settings.json.
+// buildVybeHookCommand constructs the hook command string for settings.json.
 // Subcommands are hardcoded string literals (not user input) so concatenation is safe.
-func buildVibeHookCommand(subcommand string) string {
-	exe := vibeExecutable()
-	if exe == vibeCommandFallback {
-		return fmt.Sprintf("vibe hook %s", subcommand)
+func buildVybeHookCommand(subcommand string) string {
+	exe := vybeExecutable()
+	if exe == vybeCommandFallback {
+		return fmt.Sprintf("vybe hook %s", subcommand)
 	}
 	// Quote the executable path so hook commands are robust with spaces.
 	return fmt.Sprintf("%q hook %s", exe, subcommand)
 }
 
-// vibeHooks returns the hook definitions for settings.json.
-// Cached via sync.Once since buildVibeHookCommand resolves the executable path.
-func vibeHooks() map[string]hookEntry {
-	vibeHooksOnce.Do(func() {
-		vibeHooksCache = buildVibeHooks()
+// vybeHooks returns the hook definitions for settings.json.
+// Cached via sync.Once since buildVybeHookCommand resolves the executable path.
+func vybeHooks() map[string]hookEntry {
+	vybeHooksOnce.Do(func() {
+		vybeHooksCache = buildVybeHooks()
 	})
-	return vibeHooksCache
+	return vybeHooksCache
 }
 
-func buildVibeHooks() map[string]hookEntry {
+func buildVybeHooks() map[string]hookEntry {
 	return map[string]hookEntry{
 		"SessionStart": {
 			Matcher: "startup|resume|compact",
 			Hooks: []hookHandler{{
 				Type:    "command",
-				Command: buildVibeHookCommand("session-start"),
+				Command: buildVybeHookCommand("session-start"),
 				Timeout: 3000,
 			}},
 		},
@@ -112,7 +112,7 @@ func buildVibeHooks() map[string]hookEntry {
 			Matcher: "",
 			Hooks: []hookHandler{{
 				Type:    "command",
-				Command: buildVibeHookCommand("prompt"),
+				Command: buildVybeHookCommand("prompt"),
 				Timeout: 2000,
 			}},
 		},
@@ -120,7 +120,7 @@ func buildVibeHooks() map[string]hookEntry {
 			Matcher: "",
 			Hooks: []hookHandler{{
 				Type:    "command",
-				Command: buildVibeHookCommand("tool-failure"),
+				Command: buildVybeHookCommand("tool-failure"),
 				Timeout: 2000,
 			}},
 		},
@@ -128,7 +128,7 @@ func buildVibeHooks() map[string]hookEntry {
 			Matcher: "",
 			Hooks: []hookHandler{{
 				Type:    "command",
-				Command: buildVibeHookCommand("checkpoint"),
+				Command: buildVybeHookCommand("checkpoint"),
 				Timeout: 4000,
 			}},
 		},
@@ -137,12 +137,12 @@ func buildVibeHooks() map[string]hookEntry {
 			Hooks: []hookHandler{
 				{
 					Type:    "command",
-					Command: buildVibeHookCommand("checkpoint"),
+					Command: buildVybeHookCommand("checkpoint"),
 					Timeout: 4000,
 				},
 				{
 					Type:    "command",
-					Command: buildVibeHookCommand("retrospective"),
+					Command: buildVybeHookCommand("retrospective"),
 					Timeout: 15000,
 				},
 			},
@@ -151,16 +151,16 @@ func buildVibeHooks() map[string]hookEntry {
 			Matcher: "",
 			Hooks: []hookHandler{{
 				Type:    "command",
-				Command: buildVibeHookCommand("task-completed"),
+				Command: buildVybeHookCommand("task-completed"),
 				Timeout: 2000,
 			}},
 		},
 	}
 }
 
-func vibeHookEventNames() []string {
-	events := make([]string, 0, len(vibeHooks()))
-	for name := range vibeHooks() {
+func vybeHookEventNames() []string {
+	events := make([]string, 0, len(vybeHooks()))
+	for name := range vybeHooks() {
 		events = append(events, name)
 	}
 	sort.Strings(events)
@@ -201,8 +201,8 @@ func writeSettings(path string, settings map[string]any) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// hasVibeHook checks if a hooks array already contains a vibe hook command.
-func hasVibeHook(entries []any) bool {
+// hasVybeHook checks if a hooks array already contains a vybe hook command.
+func hasVybeHook(entries []any) bool {
 	for _, entry := range entries {
 		entryMap, ok := entry.(map[string]any)
 		if !ok {
@@ -218,7 +218,7 @@ func hasVibeHook(entries []any) bool {
 				continue
 			}
 			cmd, _ := hMap["command"].(string)
-			if isVibeHookCommand(cmd) {
+			if isVybeHookCommand(cmd) {
 				return true
 			}
 		}
@@ -226,7 +226,7 @@ func hasVibeHook(entries []any) bool {
 	return false
 }
 
-func isVibeHookCommand(command string) bool {
+func isVybeHookCommand(command string) bool {
 	cmd := strings.TrimSpace(command)
 	if cmd == "" {
 		return false
@@ -237,7 +237,7 @@ func isVibeHookCommand(command string) bool {
 	}
 
 	execToken := strings.Trim(parts[0], "\"'")
-	if filepath.Base(execToken) != "vibe" {
+	if filepath.Base(execToken) != "vybe" {
 		return false
 	}
 	if parts[1] != "hook" {
@@ -270,12 +270,12 @@ const (
 	hookSkipped
 )
 
-// upsertVibeHookEntry replaces any existing vibe hook entry or appends a new one.
-// Non-vibe entries are preserved. Returns the updated slice and the outcome.
-func upsertVibeHookEntry(existing []any, newEntry map[string]any) ([]any, installOutcome) {
+// upsertVybeHookEntry replaces any existing vybe hook entry or appends a new one.
+// Non-vybe entries are preserved. Returns the updated slice and the outcome.
+func upsertVybeHookEntry(existing []any, newEntry map[string]any) ([]any, installOutcome) {
 	var kept []any
-	hadVibe := false
-	matchingVibe := false
+	hadVybe := false
+	matchingVybe := false
 
 	for _, currentEntry := range existing {
 		entryObj, ok := currentEntry.(map[string]any)
@@ -288,33 +288,33 @@ func upsertVibeHookEntry(existing []any, newEntry map[string]any) ([]any, instal
 			kept = append(kept, currentEntry)
 			continue
 		}
-		isVibe := false
+		isVybe := false
 		for _, h := range hooks {
 			hMap, ok := h.(map[string]any)
 			if !ok {
 				continue
 			}
 			cmd, _ := hMap["command"].(string)
-			if isVibeHookCommand(cmd) {
-				isVibe = true
+			if isVybeHookCommand(cmd) {
+				isVybe = true
 				break
 			}
 		}
-		if isVibe {
-			hadVibe = true
+		if isVybe {
+			hadVybe = true
 			if hookEntryEqual(entryObj, newEntry) {
-				matchingVibe = true
+				matchingVybe = true
 			}
-			continue // strip old vibe entry; re-appended below
+			continue // strip old vybe entry; re-appended below
 		}
 		kept = append(kept, currentEntry)
 	}
 
 	entries := append(kept, newEntry)
-	if matchingVibe {
+	if matchingVybe {
 		return entries, hookSkipped
 	}
-	if hadVibe {
+	if hadVybe {
 		return entries, hookUpdated
 	}
 	return entries, hookInstalled
@@ -344,7 +344,7 @@ func resolveTargetFlags(cmd *cobra.Command, claudeFlag, opencodeFlag string) (cl
 func newHookInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Install vibe hooks for Claude and/or OpenCode",
+		Short: "Install vybe hooks for Claude and/or OpenCode",
 		Long: `Installs Claude Code hooks and/or an OpenCode bridge plugin.
 Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -389,14 +389,14 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 				var updated []string
 				var skipped []string
 
-				for eventName, entry := range vibeHooks() {
+				for eventName, entry := range vybeHooks() {
 					existing, _ := hooksObj[eventName].([]any)
 
 					entryJSON, _ := json.Marshal(entry)
 					var entryMap map[string]any
 					_ = json.Unmarshal(entryJSON, &entryMap)
 
-					entries, outcome := upsertVibeHookEntry(existing, entryMap)
+					entries, outcome := upsertVybeHookEntry(existing, entryMap)
 					hooksObj[eventName] = entries
 
 					switch outcome {
@@ -483,7 +483,7 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 				}
 			}
 			if len(parts) > 0 {
-				resp.Message = strings.Join(parts, "; ") + ". Run 'vibe status' to verify."
+				resp.Message = strings.Join(parts, "; ") + ". Run 'vybe status' to verify."
 			}
 
 			return output.PrintSuccess(resp)
@@ -501,7 +501,7 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 func newHookUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove vibe hooks for Claude and/or OpenCode",
+		Short: "Remove vybe hooks for Claude and/or OpenCode",
 		Long:  `Removes Claude Code hook entries and/or OpenCode bridge plugin.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			uninstallClaude, uninstallOpenCode, err := resolveTargetFlags(cmd, "claude", "opencode")
@@ -539,7 +539,7 @@ func newHookUninstallCmd() *cobra.Command {
 				} else {
 					var removed []string
 
-					for _, eventName := range vibeHookEventNames() {
+					for _, eventName := range vybeHookEventNames() {
 						entries, ok := hooksObj[eventName].([]any)
 						if !ok {
 							continue
@@ -558,20 +558,20 @@ func newHookUninstallCmd() *cobra.Command {
 								continue
 							}
 
-							isVibe := false
+							isVybe := false
 							for _, h := range hooks {
 								hMap, ok := h.(map[string]any)
 								if !ok {
 									continue
 								}
 								cmd, _ := hMap["command"].(string)
-								if isVibeHookCommand(cmd) {
-									isVibe = true
+								if isVybeHookCommand(cmd) {
+									isVybe = true
 									break
 								}
 							}
 
-							if !isVibe {
+							if !isVybe {
 								kept = append(kept, entry)
 							}
 						}

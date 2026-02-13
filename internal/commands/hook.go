@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/dotcommander/vibe/internal/actions"
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/actions"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -211,15 +211,15 @@ func appendEventWithFocusTask(db *DB, agentName, requestID, kind, projectID, tas
 //
 // Usage:
 //
-//	vibe hook install
+//	vybe hook install
 func newHookSessionStartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "session-start",
-		Short: "SessionStart hook — injects vibe context into Claude Code",
-		Long: `Reads hook input from stdin (Claude Code provides cwd), calls vibe resume
+		Short: "SessionStart hook — injects vybe context into Claude Code",
+		Long: `Reads hook input from stdin (Claude Code provides cwd), calls vybe resume
 internally, and outputs additionalContext for the model.
 
-Register via 'vibe hook install'.
+Register via 'vybe hook install'.
 This runs alongside any existing SessionStart hooks — no conflicts.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -270,15 +270,15 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 //
 // Usage:
 //
-//	vibe hook install
+//	vybe hook install
 func newHookPromptCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "prompt",
-		Short: "UserPromptSubmit hook — logs user prompts to vibe",
+		Short: "UserPromptSubmit hook — logs user prompts to vybe",
 		Long: `Reads hook input from stdin (Claude Code provides cwd and prompt),
-logs the prompt as a user_prompt event in vibe.
+logs the prompt as a user_prompt event in vybe.
 
-Register via 'vibe hook install'.`,
+Register via 'vybe hook install'.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -317,7 +317,7 @@ Register via 'vibe hook install'.`,
 func newHookToolFailureCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:           "tool-failure",
-		Short:         "PostToolUseFailure hook — logs failed tool calls to vibe",
+		Short:         "PostToolUseFailure hook — logs failed tool calls to vybe",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -399,7 +399,7 @@ func newHookCheckpointCmd() *cobra.Command {
 func newHookTaskCompletedCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:           "task-completed",
-		Short:         "TaskCompleted hook — logs completion signals to vibe",
+		Short:         "TaskCompleted hook — logs completion signals to vybe",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

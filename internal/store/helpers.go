@@ -3,7 +3,7 @@ package store
 import (
 	"database/sql"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 )
 
 // GetAgentState loads agent state by name

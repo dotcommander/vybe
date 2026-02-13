@@ -21,9 +21,9 @@ func TestGetDBPath_PrioritizesCLIOverride(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("VIBE_DB_PATH", filepath.Join(home, "env", "vibe.db"))
+	t.Setenv("VYBE_DB_PATH", filepath.Join(home, "env", "vybe.db"))
 
-	overridePath := filepath.Join(home, "cli", "vibe.db")
+	overridePath := filepath.Join(home, "cli", "vybe.db")
 	SetDBPathOverride(overridePath)
 
 	resolved, err := GetDBPath()
@@ -38,8 +38,8 @@ func TestGetDBPath_UsesEnvWithoutOverride(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	envPath := filepath.Join(home, "env", "vibe.db")
-	t.Setenv("VIBE_DB_PATH", envPath)
+	envPath := filepath.Join(home, "env", "vybe.db")
+	t.Setenv("VYBE_DB_PATH", envPath)
 
 	resolved, err := GetDBPath()
 	require.NoError(t, err)
@@ -53,18 +53,18 @@ func TestResolveDBPathDetailed_ReportsSourceForEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	envPath := filepath.Join(home, "env", "vibe.db")
-	t.Setenv("VIBE_DB_PATH", envPath)
+	envPath := filepath.Join(home, "env", "vybe.db")
+	t.Setenv("VYBE_DB_PATH", envPath)
 
 	resolved, source, err := ResolveDBPathDetailed()
 	require.NoError(t, err)
 	require.Equal(t, envPath, resolved)
-	require.Equal(t, "env(VIBE_DB_PATH)", source)
+	require.Equal(t, "env(VYBE_DB_PATH)", source)
 }
 
 func TestEnsureDBDir_CreatesParentDirectories(t *testing.T) {
 	base := t.TempDir()
-	dbPath := filepath.Join(base, "nested", "deep", "vibe.db")
+	dbPath := filepath.Join(base, "nested", "deep", "vybe.db")
 
 	resolved, err := EnsureDBDir(dbPath)
 	require.NoError(t, err)

@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dotcommander/vibe/internal/models"
-	"github.com/dotcommander/vibe/internal/output"
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/models"
+	"github.com/dotcommander/vybe/internal/output"
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 func NewEventsCmd() *cobra.Command {
@@ -43,7 +43,7 @@ func newEventsListCmd() *cobra.Command {
 				agentName = ""
 			}
 			if !all && agentName == "" {
-				return cmdErr(fmt.Errorf("agent is required unless --all is set (set --agent or VIBE_AGENT)"))
+				return cmdErr(fmt.Errorf("agent is required unless --all is set (set --agent or VYBE_AGENT)"))
 			}
 
 			var events []*models.Event
@@ -124,7 +124,7 @@ func newEventsTailCmd() *cobra.Command {
 				agentName = ""
 			}
 			if !all && agentName == "" {
-				return cmdErr(fmt.Errorf("agent is required unless --all is set (set --agent or VIBE_AGENT)"))
+				return cmdErr(fmt.Errorf("agent is required unless --all is set (set --agent or VYBE_AGENT)"))
 			}
 
 			// Default to agent cursor (if available) to avoid dumping history.

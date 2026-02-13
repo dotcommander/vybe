@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"github.com/dotcommander/vibe/internal/models"
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/require"
 )
 

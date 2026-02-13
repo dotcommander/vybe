@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dotcommander/vibe/internal/output"
+	"github.com/dotcommander/vybe/internal/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -35,7 +35,7 @@ func newSchemaCmd(root *cobra.Command) *cobra.Command {
 }
 
 func collectCommandSchemas(cmd *cobra.Command, out *[]commandArgSchema) {
-	if cmd.Name() != "" && cmd.Name() != "vibe" && cmd.Name() != "schema" && !cmd.Hidden {
+	if cmd.Name() != "" && cmd.Name() != "vybe" && cmd.Name() != "schema" && !cmd.Hidden {
 		*out = append(*out, buildCommandSchema(cmd))
 	}
 

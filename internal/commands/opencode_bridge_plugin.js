@@ -3,29 +3,29 @@ function reqID(prefix) {
 }
 
 function stableAgent(sessionID) {
-  const envAgent = process.env.VIBE_AGENT
+  const envAgent = process.env.VYBE_AGENT
   if (envAgent && envAgent.trim() !== "") return envAgent.trim()
   if (sessionID && sessionID.length >= 8) return "opencode-" + sessionID.slice(0, 8)
   return "opencode-agent"
 }
 
-async function runVibe(args) {
-  const proc = Bun.spawn({ cmd: ["vibe", ...args], stdout: "pipe", stderr: "pipe" })
+async function runVybe(args) {
+  const proc = Bun.spawn({ cmd: ["vybe", ...args], stdout: "pipe", stderr: "pipe" })
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ])
-  if (code !== 0) throw new Error((stderr || stdout || "vibe failed").trim())
+  if (code !== 0) throw new Error((stderr || stdout || "vybe failed").trim())
   return { stdout, stderr }
 }
 
-async function runVibeJSON(args) {
-  const out = await runVibe(args)
+async function runVybeJSON(args) {
+  const out = await runVybe(args)
   try {
     return JSON.parse(out.stdout)
   } catch (e) {
-    throw new Error("vibe returned invalid JSON: " + out.stdout.slice(0, 200))
+    throw new Error("vybe returned invalid JSON: " + out.stdout.slice(0, 200))
   }
 }
 
@@ -41,7 +41,7 @@ function extractUserPrompt(parts) {
   return texts.join("\n").trim()
 }
 
-export const VibeBridgePlugin = async ({ client }) => {
+export const VybeBridgePlugin = async ({ client }) => {
   const sessionPrompts = new Map()
   const todoTimers = new Map()
   const todoPending = new Map()
@@ -58,7 +58,7 @@ export const VibeBridgePlugin = async ({ client }) => {
       args.push("--project", projectDir)
     }
 
-    const resume = await runVibeJSON(args)
+    const resume = await runVybeJSON(args)
     const prompt = String(resume?.data?.prompt ?? "")
     if (prompt.trim() !== "") {
       sessionPrompts.set(sessionID, prompt)
@@ -74,9 +74,9 @@ export const VibeBridgePlugin = async ({ client }) => {
           await hydrateSessionPrompt(info.id, info.directory)
           await client.app.log({
             body: {
-              service: "vibe-bridge",
+              service: "vybe-bridge",
               level: "info",
-              message: "session.created -> vibe resume",
+              message: "session.created -> vybe resume",
               extra: { sessionID: info.id, agent },
             },
           })
@@ -105,7 +105,7 @@ export const VibeBridgePlugin = async ({ client }) => {
             if (!latestTodos) return
             try {
               const agent = stableAgent(sessionID)
-              await runVibe([
+              await runVybe([
                 "log",
                 "--agent", agent,
                 "--request-id", reqID("oc_todo_updated"),
@@ -120,9 +120,9 @@ export const VibeBridgePlugin = async ({ client }) => {
             } catch (err) {
               await client.app.log({
                 body: {
-                  service: "vibe-bridge",
+                  service: "vybe-bridge",
                   level: "warn",
-                  message: "vibe bridge todo debounce flush failed",
+                  message: "vybe bridge todo debounce flush failed",
                   extra: { error: err instanceof Error ? err.message : String(err) },
                 },
               })
@@ -132,9 +132,9 @@ export const VibeBridgePlugin = async ({ client }) => {
       } catch (err) {
         await client.app.log({
           body: {
-            service: "vibe-bridge",
+            service: "vybe-bridge",
             level: "warn",
-            message: "vibe bridge hook failed",
+            message: "vybe bridge hook failed",
             extra: { error: err instanceof Error ? err.message : String(err) },
           },
         })
@@ -151,7 +151,7 @@ export const VibeBridgePlugin = async ({ client }) => {
 
         const truncated = prompt.length > 500 ? prompt.slice(0, 500) : prompt
 
-        await runVibe([
+        await runVybe([
           "log",
           "--agent", agent,
           "--request-id", reqID("oc_user_prompt"),
@@ -165,9 +165,9 @@ export const VibeBridgePlugin = async ({ client }) => {
       } catch (err) {
         await client.app.log({
           body: {
-            service: "vibe-bridge",
+            service: "vybe-bridge",
             level: "warn",
-            message: "vibe bridge chat.message failed",
+            message: "vybe bridge chat.message failed",
             extra: { error: err instanceof Error ? err.message : String(err) },
           },
         })
@@ -184,7 +184,7 @@ export const VibeBridgePlugin = async ({ client }) => {
         return
       }
 
-      output.system.push("## Vibe Resume Context\n" + prompt)
+      output.system.push("## Vybe Resume Context\n" + prompt)
     },
   }
 }

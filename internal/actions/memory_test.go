@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dotcommander/vibe/internal/store"
+	"github.com/dotcommander/vybe/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

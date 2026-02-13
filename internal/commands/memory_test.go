@@ -22,8 +22,8 @@ func TestNewMemoryCmd_HasExpectedSubcommands(t *testing.T) {
 
 func TestMemorySetCmd_InvalidExpiresInReturnsPrintedError(t *testing.T) {
 	cmd := newMemorySetCmd()
-	t.Setenv("VIBE_AGENT", "agent-1")
-	t.Setenv("VIBE_REQUEST_ID", "req-1")
+	t.Setenv("VYBE_AGENT", "agent-1")
+	t.Setenv("VYBE_REQUEST_ID", "req-1")
 	require.NoError(t, cmd.Flags().Set("key", "k"))
 	require.NoError(t, cmd.Flags().Set("value", "v"))
 	require.NoError(t, cmd.Flags().Set("expires-in", "bad-duration"))
@@ -36,8 +36,8 @@ func TestMemorySetCmd_InvalidExpiresInReturnsPrintedError(t *testing.T) {
 
 func TestMemoryCompactCmd_InvalidMaxAgeReturnsPrintedError(t *testing.T) {
 	cmd := newMemoryCompactCmd()
-	t.Setenv("VIBE_AGENT", "agent-1")
-	t.Setenv("VIBE_REQUEST_ID", "req-1")
+	t.Setenv("VYBE_AGENT", "agent-1")
+	t.Setenv("VYBE_REQUEST_ID", "req-1")
 	require.NoError(t, cmd.Flags().Set("max-age", "???"))
 
 	err := cmd.RunE(cmd, nil)
