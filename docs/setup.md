@@ -35,12 +35,12 @@ RESUME_JSON="$(vybe resume --agent "$VYBE_AGENT" --request-id "$(req_id)")"
 TASK_ID="$(echo "$RESUME_JSON" | jq -r '.data.focus_task_id // ""')"
 
 if [ -n "$TASK_ID" ]; then
-  vybe log --agent "$VYBE_AGENT" --request-id "$(req_id)" \
+  vybe events add --agent "$VYBE_AGENT" --request-id "$(req_id)" \
     --kind progress --task "$TASK_ID" --msg "working" >/dev/null
 
   # Do work...
 
-  vybe task close --agent "$VYBE_AGENT" --request-id "$(req_id)" \
+  vybe task complete --agent "$VYBE_AGENT" --request-id "$(req_id)" \
     --id "$TASK_ID" --outcome done --summary "Completed" >/dev/null
 fi
 ```
@@ -60,7 +60,7 @@ TASK_ID="$(echo "$CLAIM" | jq -r '.data.task.id // ""')"
 
 if [ -n "$TASK_ID" ]; then
   # Do work...
-  vybe task close --agent "$VYBE_AGENT" --request-id "$(req_id)" \
+  vybe task complete --agent "$VYBE_AGENT" --request-id "$(req_id)" \
     --id "$TASK_ID" --outcome done --summary "Completed" >/dev/null
 fi
 ```
@@ -86,3 +86,4 @@ Pass condition: both commands return success JSON and `resume` returns a packet.
 
 - `common-tasks.md` for copy/paste recipes
 - `connect-assistant.md` for full integration contract
+- `command-reference.md` for complete command/subcommand map

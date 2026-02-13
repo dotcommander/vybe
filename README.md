@@ -1,7 +1,7 @@
 # vybe
 
 `vybe` is a CLI that gives coding agents durable continuity across sessions.
-It stores task state, event history, memory, and artifacts in SQLite.
+It stores task state, event logs, memory, and artifacts in SQLite.
 Agents can crash, restart, or change context and still resume deterministically.
 
 ## Why install vybe
@@ -44,7 +44,7 @@ vybe task create --request-id task_1 --title "Ship feature" --desc "Implement X"
 vybe resume --request-id resume_1
 
 # close when done
-vybe task close --request-id close_1 --id <TASK_ID> --outcome done --summary "Finished"
+vybe task complete --request-id close_1 --id <TASK_ID> --outcome done --summary "Finished"
 ```
 
 If a session crashes, run `vybe resume` and keep going.
@@ -58,4 +58,4 @@ vybe hook uninstall --opencode # OpenCode
 
 ## Advanced docs
 
-For setup, common tasks, assistant connection, and implementation guides, go to `docs/README.md`.
+For setup, common tasks, assistant connection, implementation guides, and the full command map, go to `docs/README.md`.

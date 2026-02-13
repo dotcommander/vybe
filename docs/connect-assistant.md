@@ -55,9 +55,9 @@ Inject `.data.prompt` (or `.data.brief`) into assistant system/session context.
 ### Task Sync
 
 - create -> `vybe task create ...`
-- start/in_progress -> `vybe task start ...` (specific task) or
+- begin/in_progress -> `vybe task begin ...` (specific task) or
   `vybe task claim ...` (server-side next-eligible selection)
-- complete/blocked -> `vybe task close --outcome done|blocked --summary "..."` or
+- complete/blocked -> `vybe task complete --outcome done|blocked --summary "..."` or
   `vybe task set-status ...` (low-level)
 
 ### Progress Log
@@ -65,7 +65,7 @@ Inject `.data.prompt` (or `.data.brief`) into assistant system/session context.
 At meaningful checkpoints:
 
 ```bash
-vybe log --agent "$AGENT" --request-id "$REQ" \
+vybe events add --agent "$AGENT" --request-id "$REQ" \
   --kind progress --task "$TASK_ID" --msg "..."
 ```
 
@@ -91,8 +91,8 @@ vybe artifact add --agent "$AGENT" --request-id "$REQ" \
 
 ## Optional mappings
 
-- Commit event -> `vybe log --kind commit --metadata ...`
-- Delegated subagent start/finish -> `vybe log --kind subtask_* ...`
+- Commit event -> `vybe events add --kind commit --metadata ...`
+- Delegated subagent start/finish -> `vybe events add --kind subtask_* ...`
 - Session idle -> `vybe memory compact` then `vybe memory gc`
 
 ## Request-ID Template
@@ -119,3 +119,4 @@ Examples:
 - Claude hooks -> see `../README.md` and `setup.md`
 - OpenCode bridge installer -> `vybe hook install --opencode`
 - OpenCode example -> `../examples/opencode/opencode-vybe-plugin.ts`
+- Full command/subcommand map -> `command-reference.md`

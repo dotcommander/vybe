@@ -49,6 +49,24 @@ State is persisted in SQLite and managed through the CLI commands (tasks, events
 
 Humans may read logs for debugging, but the product is not designed around human interaction.
 
+## Documentation Scope (Blocking)
+
+- `docs/` is for **vybe users** only (operators and integrators using the tool).
+- Do not place work-in-progress notes, temporary writeups, local-dev scratch files, refactor journals, or historical snapshots in `docs/`.
+- Historical/audit/scratch material must stay outside tracked docs (for example in `.work/`), and must not be staged for commit.
+- Contributor implementation process belongs in `CLAUDE.md` and code comments/tests where needed, not user docs.
+
+### Scratch and Internal Artifacts (Blocking)
+
+- Use `.work/` for local non-user artifacts.
+- Preferred local structure:
+  - `.work/scratch/` for in-progress notes
+  - `.work/audits/` for audit outputs
+  - `.work/refactors/` for refactor/implementation journals
+  - `.work/archive/` for local historical snapshots
+- Use `/tmp/vybe-*` only for ephemeral one-run artifacts that can be safely lost.
+- Never stage `.work/**` or `/tmp` artifacts for commit.
+
 ### Non-Negotiables (Agents-Only)
 
 - **No human-in-the-loop requirements.**
@@ -211,7 +229,7 @@ When working on multi-step tasks, proactively use vybe for durable state:
 vybe memory set --agent=claude --key=<key> --value=<value> --scope=task --scope-id=<task_id> --request-id=mem_$(date +%s)
 
 # Log significant progress
-vybe log --agent=claude --kind=progress --task=<task_id> --msg="<what happened>" --request-id=evt_$(date +%s)
+vybe events add --agent=claude --kind=progress --task=<task_id> --msg="<what happened>" --request-id=evt_$(date +%s)
 
 # Link output files to tasks
 vybe artifact add --agent=claude --task=<id> --path=<path> --request-id=art_$(date +%s)
@@ -230,7 +248,7 @@ vybe task create --agent=claude --title="Step 2: ..." --desc="..." --request-id=
 
 The focus task from `vybe resume` is your primary work item. When starting work:
 1. Check the brief for context (task, memory, events, artifacts)
-2. Use `vybe task start` to claim and mark in_progress
+2. Use `vybe task begin` to claim and mark in_progress
 3. Log progress events as you work
 4. Set status to completed when done — next resume auto-advances to next task
 
@@ -244,5 +262,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`
 - Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
-- Command surface: `agent`, `artifact`, `brief`, `events`, `hook`, `ingest`, `log`, `memory`, `project`, `resume`, `run`, `schema`, `session`, `status`, `task`, `upgrade`
+- Command surface: `agent`, `artifact`, `brief`, `events` (add, list, tail, summarize), `hook`, `ingest`, `loop`, `memory`, `project`, `resume`, `schema`, `session`, `snapshot`, `status` (--check), `task` (begin, complete, ...), `upgrade`
 - Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`
+- **After code changes**: rebuild binary and update symlink: `go build -o vybe ./cmd/vybe && ln -sf "$(pwd)/vybe" ~/go/bin/vybe`

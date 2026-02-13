@@ -37,7 +37,7 @@ TASK_ID=$(vybe task create \
   --desc "Process items 1-1000" \
   | jq -r '.data.task.id')
 
-vybe task start --agent "$AGENT" --request-id "task_start_1" --id "$TASK_ID"
+vybe task begin --agent "$AGENT" --request-id "task_start_1" --id "$TASK_ID"
 ```
 
 ## 3) Resume after restart/crash
@@ -62,10 +62,10 @@ set -euo pipefail
 AGENT="${VYBE_AGENT:-worker-001}"
 TASK_ID="$1"
 
-vybe log --agent "$AGENT" --request-id "log_progress_1" \
+vybe events add --agent "$AGENT" --request-id "log_progress_1" \
   --kind progress --task "$TASK_ID" --msg "Processed 500/1000 items"
 
-vybe task close --agent "$AGENT" --request-id "task_close_1" \
+vybe task complete --agent "$AGENT" --request-id "task_close_1" \
   --id "$TASK_ID" --outcome done --summary "Completed"
 ```
 
@@ -111,7 +111,7 @@ CLAIM=$(vybe task claim --agent "$AGENT" --request-id "claim_1" --ttl-minutes 10
 TASK_ID=$(echo "$CLAIM" | jq -r '.data.task.id // ""')
 
 if [ -n "$TASK_ID" ]; then
-  vybe task close --agent "$AGENT" --request-id "close_1" \
+  vybe task complete --agent "$AGENT" --request-id "close_1" \
     --id "$TASK_ID" --outcome done --summary "Processed successfully"
 fi
 ```
@@ -132,4 +132,5 @@ vybe hook uninstall --opencode
 
 - `setup.md` for install and baseline loop
 - `connect-assistant.md` for custom integration contracts
+- `command-reference.md` for full command/subcommand coverage
 - `../README.md` for the shortest onboarding path
