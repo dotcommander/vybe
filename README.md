@@ -1,13 +1,10 @@
 # vybe
 
-Agents-only CLI for autonomous continuity: tasks, events, memory,
-and deterministic resume/brief.
-
-Designed for zero human-in-the-loop workflows:
-
-- no prompts
-- no confirmations
-- machine-first JSON I/O
+`vybe` is a CLI that gives AI coding agents persistent working state.
+It is designed for autonomous execution, with no human intervention required in the task loop.
+Setup is quick, non-intrusive, and does not require changing your existing project architecture.
+If you do not want it, uninstall is one command: `vybe hook uninstall` (or `vybe hook uninstall --opencode`).
+It saves tasks, event history, memory, and artifacts in SQLite so agents can restart and continue from where they stopped.
 
 ![vybe CLI screenshot](docs/vybe.png)
 
