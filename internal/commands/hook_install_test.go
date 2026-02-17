@@ -75,13 +75,30 @@ func TestIsVybeHookCommand(t *testing.T) {
 	require.False(t, isVybeHookCommand(""))
 	require.False(t, isVybeHookCommand("vybe hook unknown-subcommand"))
 	require.True(t, isVybeHookCommand("vybe hook retrospective"))
+	require.True(t, isVybeHookCommand("vybe hook tool-success"))
+	require.True(t, isVybeHookCommand("vybe hook subagent-stop"))
+	require.True(t, isVybeHookCommand("vybe hook subagent-start"))
+	require.True(t, isVybeHookCommand("vybe hook stop"))
 }
 
-func TestVybeHookEventNames_ContainsTaskCompleted(t *testing.T) {
+func TestVybeHookEventNames_ContainsAllEvents(t *testing.T) {
 	events := vybeHookEventNames()
-	require.Contains(t, events, "TaskCompleted")
-	require.Contains(t, events, "SessionStart")
-	require.Contains(t, events, "PostToolUseFailure")
+	expected := []string{
+		"SessionStart",
+		"UserPromptSubmit",
+		"PostToolUseFailure",
+		"PostToolUse",
+		"PreCompact",
+		"SessionEnd",
+		"TaskCompleted",
+		"SubagentStop",
+		"SubagentStart",
+		"Stop",
+	}
+	for _, e := range expected {
+		require.Contains(t, events, e, "missing hook event: %s", e)
+	}
+	require.Len(t, events, len(expected), "unexpected number of hook events")
 }
 
 func TestHookEntryEqual(t *testing.T) {
