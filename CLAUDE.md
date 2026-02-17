@@ -1,5 +1,3 @@
-# CLAUDE.md
-
 ## Purpose
 
 Durable continuity for AI coding agents. Vybe gives autonomous agents crash-safe task tracking, append-only event logs, scoped memory, deterministic resume/brief, and artifact linking — all backed by SQLite. Agents pick up exactly where they left off across sessions without human intervention.
@@ -18,10 +16,10 @@ This is a **global CLI tool** installed system-wide.
 ```bash
 go build -o vybe ./cmd/vybe
 
-# Option 1: Standard install
+#-Option 1: Standard install
 go install ./cmd/vybe
 
-# Option 2: Symlink (keeps binary in project, linked to ~/go/bin)
+#-Option 2: Symlink (keeps binary in project, linked to ~/go/bin)
 ln -sf "$(pwd)/vybe" ~/go/bin/vybe
 ```
 
@@ -48,6 +46,30 @@ State is persisted in SQLite and managed through the CLI commands (tasks, events
 **Agents-Only CLI** - Continuity primitives for autonomous agents.
 
 Humans may read logs for debugging, but the product is not designed around human interaction.
+
+### What Vybe Is
+
+- Agent memory system (memories, compaction, GC, reinforcement, retrospectives)
+- Multi-agent coordination (agent state, focus tasks, claims, heartbeats, dependencies)
+- Claude Code hook integration (10 hook events, bidirectional context injection)
+- Event stream (structured log of agent activity — prompts, tool calls, spawns, completions)
+- Idempotent operations (request ID deduplication across all mutations)
+- Session continuity (resume with context, auto-summarization)
+
+### What Vybe Is Not
+
+- Not a human issue tracker (no tags, epics, comments, kanban, search-by-keyword)
+- Not a project management tool (no dashboards, no reporting)
+- Not a general-purpose CLI tool (hooks are hidden, output is JSON for machine consumption)
+
+### Why Not
+
+- Agents know their task IDs — they don't need search
+- Agents emit structured metadata — they don't need tags
+- Events ARE the comment stream — no separate comment entity needed
+- Projects are the only grouping level — no epics hierarchy
+- Dependencies (blocks/blockedBy) model all task relationships — no subtask entity needed
+- Every mutation is idempotent — agents retry freely without side effects
 
 ## Documentation Scope (Blocking)
 
@@ -225,13 +247,13 @@ Claude Code is integrated with vybe via hooks. The system automatically:
 When working on multi-step tasks, proactively use vybe for durable state:
 
 ```bash
-# Store discoveries that should persist across sessions
+#-Store discoveries that should persist across sessions
 vybe memory set --agent=claude --key=<key> --value=<value> --scope=task --scope-id=<task_id> --request-id=mem_$(date +%s)
 
-# Log significant progress
+#-Log significant progress
 vybe events add --agent=claude --kind=progress --task=<task_id> --msg="<what happened>" --request-id=evt_$(date +%s)
 
-# Link output files to tasks
+#-Link output files to tasks
 vybe artifact add --agent=claude --task=<id> --path=<path> --request-id=art_$(date +%s)
 ```
 
