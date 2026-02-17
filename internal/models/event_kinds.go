@@ -35,9 +35,12 @@ const (
 	EventKindUserPrompt    = "user_prompt"
 	EventKindReasoning     = "reasoning"
 	EventKindToolFailure   = "tool_failure"
+	EventKindToolSuccess   = "tool_success"
 	EventKindProgress      = "progress"
 	EventKindNote          = "note"
 	EventKindTaskCompleted = "task_completed"
 	EventKindCommit        = "commit"
-	EventKindAgentSpawned  = "agent_spawned"
+	EventKindAgentSpawned   = "agent_spawned"
+	EventKindAgentCompleted = "agent_completed"
+	EventKindHeartbeat      = "heartbeat"
 )

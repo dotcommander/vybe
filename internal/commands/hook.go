@@ -40,9 +40,13 @@ func NewHookCmd() *cobra.Command {
 		newHookSessionStartCmd(),
 		newHookPromptCmd(),
 		newHookToolFailureCmd(),
+		newHookToolSuccessCmd(),
 		newHookCheckpointCmd(),
 		newHookTaskCompletedCmd(),
 		newHookRetrospectiveCmd(),
+		newHookSubagentStopCmd(),
+		newHookSubagentStartCmd(),
+		newHookStopCmd(),
 	} {
 		sub.Hidden = true
 		cmd.AddCommand(sub)
@@ -121,7 +125,7 @@ func truncateString(raw string, max int) (string, bool) {
 	return raw[:max], true
 }
 
-func buildToolFailureMetadata(input hookInput) string {
+func buildToolMetadata(input hookInput) string {
 	inputPreview, inputTruncated := truncateString(string(input.ToolInput), 2048)
 	outputPreview, outputTruncated := truncateString(string(input.ToolResponse), 4096)
 
@@ -340,7 +344,7 @@ func newHookToolFailureCmd() *cobra.Command {
 				msg = fmt.Sprintf("%s (%s)", msg, hctx.Input.HookEventName)
 			}
 
-			metadata := buildToolFailureMetadata(hctx.Input)
+			metadata := buildToolMetadata(hctx.Input)
 
 			// Hooks must never block Claude Code — log diagnostic and exit clean.
 			if err := withDB(func(db *DB) error {
@@ -350,6 +354,84 @@ func newHookToolFailureCmd() *cobra.Command {
 				return err
 			}); err != nil {
 				slog.Error("tool-failure hook failed", "error", err, "tool_name", hctx.Input.ToolName)
+			}
+
+			return nil
+		},
+	}
+}
+
+// mutatingTools is the set of tools that modify state. Read-only tools are skipped
+// by the tool-success hook to reduce event noise.
+var mutatingTools = map[string]bool{
+	"Write":        true,
+	"Edit":         true,
+	"MultiEdit":    true,
+	"Bash":         true,
+	"NotebookEdit": true,
+}
+
+// toolInputSummary extracts a short human-readable summary from the tool input JSON.
+// Returns the tool name prefix + meaningful identifier (file path or command).
+func toolInputSummary(toolName string, raw json.RawMessage) string {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return toolName
+	}
+
+	switch toolName {
+	case "Write", "Edit", "MultiEdit":
+		if fp, ok := obj["file_path"].(string); ok {
+			return fmt.Sprintf("%s: %s", toolName, fp)
+		}
+	case "NotebookEdit":
+		if np, ok := obj["notebook_path"].(string); ok {
+			return fmt.Sprintf("%s: %s", toolName, np)
+		}
+	case "Bash":
+		if cmd, ok := obj["command"].(string); ok {
+			if len(cmd) > 120 {
+				cmd = cmd[:120]
+			}
+			return fmt.Sprintf("Bash: %s", cmd)
+		}
+	}
+	return toolName
+}
+
+func newHookToolSuccessCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "tool-success",
+		Short:         "PostToolUse hook — logs successful mutating tool calls to vybe",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hctx := resolveHookContext(cmd)
+			if hctx.Input.ToolName == "" {
+				return nil
+			}
+
+			// Skip read-only tools
+			if !mutatingTools[hctx.Input.ToolName] {
+				return nil
+			}
+
+			requestID := hookRequestID("tool_success", hctx.AgentName)
+			msg := toolInputSummary(hctx.Input.ToolName, hctx.Input.ToolInput)
+			if len(msg) > 500 {
+				msg = msg[:500]
+			}
+
+			metadata := buildToolMetadata(hctx.Input)
+
+			// Hooks must never block Claude Code — log diagnostic and exit clean.
+			if err := withDB(func(db *DB) error {
+				_, err := appendEventWithFocusTask(
+					db, hctx.AgentName, requestID, models.EventKindToolSuccess, hctx.CWD, "", msg, metadata,
+				)
+				return err
+			}); err != nil {
+				slog.Error("tool-success hook failed", "error", err, "tool_name", hctx.Input.ToolName)
 			}
 
 			return nil
@@ -463,6 +545,121 @@ func newHookTaskCompletedCmd() *cobra.Command {
 				return err
 			}); err != nil {
 				slog.Error("task-completed hook failed", "error", err)
+			}
+
+			return nil
+		},
+	}
+}
+
+func newHookSubagentStopCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "subagent-stop",
+		Short:         "SubagentStop hook — logs sub-agent completion to vybe",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hctx := resolveHookContext(cmd)
+			requestID := hookRequestID("subagent_stop", hctx.AgentName)
+
+			// Extract description from raw payload fields
+			desc := hctx.Input.ToolName
+			if d, ok := hctx.Input.Raw["description"].(string); ok && d != "" {
+				desc = d
+			}
+			if desc == "" {
+				desc = "subagent"
+			}
+
+			msg := fmt.Sprintf("SubagentStop: %s", desc)
+			if len(msg) > 500 {
+				msg = msg[:500]
+			}
+
+			metadata := buildToolMetadata(hctx.Input)
+
+			if err := withDB(func(db *DB) error {
+				_, err := appendEventWithFocusTask(
+					db, hctx.AgentName, requestID, models.EventKindAgentCompleted, hctx.CWD, "", msg, metadata,
+				)
+				return err
+			}); err != nil {
+				slog.Error("subagent-stop hook failed", "error", err)
+			}
+
+			return nil
+		},
+	}
+}
+
+func newHookSubagentStartCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "subagent-start",
+		Short:         "SubagentStart hook — logs sub-agent spawn to vybe",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hctx := resolveHookContext(cmd)
+			requestID := hookRequestID("subagent_start", hctx.AgentName)
+
+			desc := "subagent"
+			if d, ok := hctx.Input.Raw["description"].(string); ok && d != "" {
+				desc = d
+			}
+
+			msg := fmt.Sprintf("SubagentStart: %s", desc)
+			if len(msg) > 500 {
+				msg = msg[:500]
+			}
+
+			metadata, _ := json.Marshal(map[string]string{
+				"source":     "claude",
+				"session_id": hctx.Input.SessionID,
+				"hook_event": hctx.Input.HookEventName,
+				"description": desc,
+			})
+			metaStr := string(metadata)
+			if len(metaStr) > store.MaxEventMetadataLength {
+				metaStr = "{}"
+			}
+
+			if err := withDB(func(db *DB) error {
+				_, err := appendEventWithFocusTask(
+					db, hctx.AgentName, requestID, models.EventKindAgentSpawned, hctx.CWD, "", msg, metaStr,
+				)
+				return err
+			}); err != nil {
+				slog.Error("subagent-start hook failed", "error", err)
+			}
+
+			return nil
+		},
+	}
+}
+
+func newHookStopCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "stop",
+		Short:         "Stop hook — logs turn completion heartbeat to vybe",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hctx := resolveHookContext(cmd)
+			requestID := hookRequestID("stop", hctx.AgentName)
+
+			metadata, _ := json.Marshal(map[string]string{
+				"source":     "claude",
+				"session_id": hctx.Input.SessionID,
+				"hook_event": hctx.Input.HookEventName,
+			})
+
+			if err := withDB(func(db *DB) error {
+				_, err := appendEventWithFocusTask(
+					db, hctx.AgentName, requestID, models.EventKindHeartbeat, hctx.CWD, "", "turn_complete", string(metadata),
+				)
+				return err
+			}); err != nil {
+				slog.Error("stop hook failed", "error", err)
 			}
 
 			return nil
