@@ -47,16 +47,16 @@ func TestClaimAndReleaseTask(t *testing.T) {
 	task, err := CreateTask(db, "claim me", "", "", 0)
 	require.NoError(t, err)
 
-	require.NoError(t, ClaimTask(db, "agent-a", task.ID, 0))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent-a", task.ID, 0) }))
 
 	claimed, err := GetTask(db, task.ID)
 	require.NoError(t, err)
 	require.Equal(t, "agent-a", claimed.ClaimedBy)
 
-	err = ClaimTask(db, "agent-b", task.ID, 5)
+	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent-b", task.ID, 5) })
 	require.ErrorContains(t, err, "task already claimed by another agent")
 
-	require.NoError(t, ReleaseTaskClaim(db, "agent-a", task.ID))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ReleaseTaskClaimTx(tx, "agent-a", task.ID) }))
 
 	released, err := GetTask(db, task.ID)
 	require.NoError(t, err)
@@ -92,8 +92,8 @@ func TestAgentStateIdempotentAndCursorHelpers(t *testing.T) {
 	require.NoError(t, UpdateAgentStateAtomicWithProject(db, "agent-a", 42, task.ID, project.ID))
 
 	err = Transact(db, func(tx *sql.Tx) error {
-		cf, err := LoadAgentCursorAndFocusTx(tx, "agent-a")
-		require.NoError(t, err)
+		cf, txErr := LoadAgentCursorAndFocusTx(tx, "agent-a")
+		require.NoError(t, txErr)
 		require.Equal(t, int64(42), cf.Cursor)
 		require.Equal(t, task.ID, cf.TaskID)
 		require.Equal(t, project.ID, cf.ProjectID)
@@ -176,7 +176,7 @@ func TestTaskTxHelpers_GetTaskTxAndUpdateWithEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	err = Transact(db, func(tx *sql.Tx) error {
-		fetched, getErr := GetTaskTx(tx, task.ID)
+		fetched, getErr := getTaskTx(tx, task.ID)
 		require.NoError(t, getErr)
 		require.Equal(t, task.ID, fetched.ID)
 

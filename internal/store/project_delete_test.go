@@ -38,8 +38,7 @@ func TestDeleteProject_ClearsReferences(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create an event linked to the project
-	_, err = AppendEvent(db, "test.event", "agent1", task.ID, "event in project")
-	require.NoError(t, err)
+	appendEvent(t, db, "test.event", "agent1", task.ID, "event in project")
 
 	// Create agent state with focus on project
 	_, err = LoadOrCreateAgentState(db, "agent1")

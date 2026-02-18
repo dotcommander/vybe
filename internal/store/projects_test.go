@@ -11,7 +11,7 @@ import (
 var projIDPattern = regexp.MustCompile(`^proj_\d+(_[0-9a-f]{12})?$`)
 
 func TestGenerateProjectIDFormat(t *testing.T) {
-	id := GenerateProjectID()
+	id := generateProjectID()
 	require.True(t, projIDPattern.MatchString(id), "unexpected project id format: %s", id)
 }
 
@@ -101,10 +101,10 @@ func TestGetProject_RetryOnBusy(t *testing.T) {
 	// Call GetProject multiple times to exercise the RetryWithBackoff wrapper.
 	// With single-connection SQLite, any leaked state would cause deadlock.
 	for i := 0; i < 10; i++ {
-		fetched, err := GetProject(db, project.ID)
-		require.NoError(t, err)
-		assert.Equal(t, project.ID, fetched.ID)
-		assert.Equal(t, "Retry Test", fetched.Name)
+		got, getErr := GetProject(db, project.ID)
+		require.NoError(t, getErr)
+		assert.Equal(t, project.ID, got.ID)
+		assert.Equal(t, "Retry Test", got.Name)
 	}
 
 	// Not-found should still work correctly through retry

@@ -20,9 +20,9 @@ func TestInitDBIntegration(t *testing.T) {
 		// Note: In production, we don't want to delete the database
 		// This cleanup is only for integration tests
 		if os.Getenv("VYBE_TEST_CLEANUP") == "true" {
-			os.Remove(configPath)
-			os.Remove(configPath + "-shm")
-			os.Remove(configPath + "-wal")
+			_ = os.Remove(configPath)
+			_ = os.Remove(configPath + "-shm")
+			_ = os.Remove(configPath + "-wal")
 		}
 	})
 
@@ -36,14 +36,10 @@ func TestInitDBIntegration(t *testing.T) {
 		}
 		t.Fatalf("InitDB failed (db_path=%s): %v", configPath, err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Verify we can append an event
-	eventID, err := AppendEvent(db, "test.integration", "test-agent", "task-1", "Integration test message")
-	if err != nil {
-		t.Fatalf("AppendEvent failed: %v", err)
-	}
-
+	eventID := appendEvent(t, db, "test.integration", "test-agent", "task-1", "Integration test message")
 	if eventID <= 0 {
 		t.Errorf("Expected positive event ID, got %d", eventID)
 	}

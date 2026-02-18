@@ -178,7 +178,7 @@ func TestConcurrentTaskUpdates(t *testing.T) {
 }
 
 func TestGenerateTaskIDFormat(t *testing.T) {
-	id := GenerateTaskID()
+	id := generateTaskID()
 	require.True(t, taskIDPattern.MatchString(id), "unexpected task id format: %s", id)
 }
 
@@ -269,9 +269,9 @@ func TestUpdateTaskPriorityWithEventTx(t *testing.T) {
 	// Update priority inside transaction
 	var eventID int64
 	err = Transact(db, func(tx *sql.Tx) error {
-		eid, err := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 5, task.Version)
-		if err != nil {
-			return err
+		eid, txErr := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 5, task.Version)
+		if txErr != nil {
+			return txErr
 		}
 		eventID = eid
 		return nil
@@ -307,15 +307,15 @@ func TestUpdateTaskPriorityWithEventTx_VersionConflict(t *testing.T) {
 
 	// First update succeeds
 	err = Transact(db, func(tx *sql.Tx) error {
-		_, err := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 5, task.Version)
-		return err
+		_, txErr := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 5, task.Version)
+		return txErr
 	})
 	require.NoError(t, err)
 
 	// Second update with stale version fails
 	err = Transact(db, func(tx *sql.Tx) error {
-		_, err := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 10, task.Version)
-		return err
+		_, txErr := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 10, task.Version)
+		return txErr
 	})
 	assert.ErrorIs(t, err, ErrVersionConflict)
 }

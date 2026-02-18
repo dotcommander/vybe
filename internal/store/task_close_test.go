@@ -24,12 +24,12 @@ func TestCloseTaskTx_Done(t *testing.T) {
 
 	var result *CloseTaskResult
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		r, err := CloseTaskTx(tx, CloseTaskParams{
+		r, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "completed", Summary: "All done",
 		})
-		if err != nil {
-			return err
+		if txErr != nil {
+			return txErr
 		}
 		result = r
 		return nil
@@ -69,11 +69,11 @@ func TestCloseTaskTx_DoneUnblocksDependents(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		_, err := CloseTaskTx(tx, CloseTaskParams{
+		_, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: blocker.ID,
 			Status: "completed", Summary: "Done blocking",
 		})
-		return err
+		return txErr
 	}))
 
 	// Verify dependent is unblocked.
@@ -95,13 +95,13 @@ func TestCloseTaskTx_Blocked(t *testing.T) {
 
 	var result *CloseTaskResult
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		r, err := CloseTaskTx(tx, CloseTaskParams{
+		r, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "blocked", Summary: "Waiting on external API",
 			BlockedReason: "failure:api_timeout",
 		})
-		if err != nil {
-			return err
+		if txErr != nil {
+			return txErr
 		}
 		result = r
 		return nil
@@ -113,7 +113,7 @@ func TestCloseTaskTx_Blocked(t *testing.T) {
 	updated, err := GetTask(db, task.ID)
 	require.NoError(t, err)
 	assert.Equal(t, models.TaskStatusBlocked, updated.Status)
-	assert.Equal(t, models.NewBlockedReasonFailure("api_timeout"), updated.BlockedReason)
+	assert.Equal(t, newBlockedReasonFailure("api_timeout"), updated.BlockedReason)
 }
 
 func TestCloseTaskTx_BlockedClearsStaleReason(t *testing.T) {
@@ -129,17 +129,17 @@ func TestCloseTaskTx_BlockedClearsStaleReason(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		_, err := CloseTaskTx(tx, CloseTaskParams{
+		_, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "blocked", Summary: "First block",
 			BlockedReason: "failure:old_reason",
 		})
-		return err
+		return txErr
 	}))
 
 	updated, err := GetTask(db, task.ID)
 	require.NoError(t, err)
-	assert.Equal(t, models.NewBlockedReasonFailure("old_reason"), updated.BlockedReason)
+	assert.Equal(t, newBlockedReasonFailure("old_reason"), updated.BlockedReason)
 
 	// Re-open the task so we can close it again.
 	err = UpdateTaskStatus(db, task.ID, "in_progress", updated.Version)
@@ -147,11 +147,11 @@ func TestCloseTaskTx_BlockedClearsStaleReason(t *testing.T) {
 
 	// Second: close as blocked WITHOUT a reason — stale value must be cleared.
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		_, err := CloseTaskTx(tx, CloseTaskParams{
+		_, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "blocked", Summary: "Second block, no reason",
 		})
-		return err
+		return txErr
 	}))
 
 	updated, err = GetTask(db, task.ID)
@@ -173,13 +173,13 @@ func TestCloseTaskTx_EventMetadataShape(t *testing.T) {
 
 	var result *CloseTaskResult
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		r, err := CloseTaskTx(tx, CloseTaskParams{
+		r, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "completed", Summary: "Feature shipped",
 			Label: "v1.2.0",
 		})
-		if err != nil {
-			return err
+		if txErr != nil {
+			return txErr
 		}
 		result = r
 		return nil
@@ -208,11 +208,11 @@ func TestCloseTaskTx_InvalidStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	err = Transact(db, func(tx *sql.Tx) error {
-		_, err := CloseTaskTx(tx, CloseTaskParams{
+		_, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "pending", Summary: "nope",
 		})
-		return err
+		return txErr
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "close status must be completed or blocked")

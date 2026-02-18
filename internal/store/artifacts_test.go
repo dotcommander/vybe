@@ -33,6 +33,6 @@ func TestAddArtifactAndList(t *testing.T) {
 }
 
 func TestGenerateArtifactIDFormat(t *testing.T) {
-	id := GenerateArtifactID()
+	id := generateArtifactID()
 	require.True(t, artifactIDPattern.MatchString(id), "unexpected artifact id format: %s", id)
 }

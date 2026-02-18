@@ -141,7 +141,7 @@ func TestDeleteTask_RefusesInProgressClaimedByOther(t *testing.T) {
 	require.NoError(t, err)
 
 	// agent1 claims and starts the task
-	err = ClaimTask(db, "agent1", task.ID, 60)
+	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 60) })
 	require.NoError(t, err)
 	err = UpdateTaskStatus(db, task.ID, "in_progress", 1)
 	require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestDeleteTask_RefusesClaimedByOther(t *testing.T) {
 	require.NoError(t, err)
 
 	// agent1 claims with long TTL
-	err = ClaimTask(db, "agent1", task.ID, 60)
+	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 60) })
 	require.NoError(t, err)
 
 	// agent2 tries to delete — should fail (active claim)
@@ -207,7 +207,7 @@ func TestDeleteTask_DoesNotUnblockFailureBlocked(t *testing.T) {
 	dep, err := GetTask(db, dependent.ID)
 	require.NoError(t, err)
 	assert.Equal(t, models.TaskStatusBlocked, dep.Status, "failure-blocked task should stay blocked")
-	assert.Equal(t, models.NewBlockedReasonFailure("timeout"), dep.BlockedReason)
+	assert.Equal(t, newBlockedReasonFailure("timeout"), dep.BlockedReason)
 }
 
 func TestDeleteTask_AllowsExpiredClaim(t *testing.T) {
@@ -218,7 +218,7 @@ func TestDeleteTask_AllowsExpiredClaim(t *testing.T) {
 	require.NoError(t, err)
 
 	// agent1 claims with short TTL
-	err = ClaimTask(db, "agent1", task.ID, 1)
+	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 1) })
 	require.NoError(t, err)
 
 	// Expire the claim manually

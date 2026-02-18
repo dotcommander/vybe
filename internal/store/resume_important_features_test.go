@@ -27,15 +27,7 @@ func TestFetchRecentUserPrompts_ByProjectAndMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	// Project via metadata only.
-	_, err = AppendEventWithMetadata(
-		db,
-		"user_prompt",
-		"agent-a",
-		"",
-		"prompt 2",
-		`{"project":"proj-a"}`,
-	)
-	require.NoError(t, err)
+	appendEventWithMetadata(t, db, "user_prompt", "agent-a", "", "prompt 2", `{"project":"proj-a"}`)
 
 	filtered, err := FetchRecentUserPrompts(db, "proj-a", 10)
 	require.NoError(t, err)

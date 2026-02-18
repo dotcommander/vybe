@@ -101,7 +101,12 @@ func TestHasUnresolvedDependencies(t *testing.T) {
 	require.NoError(t, err)
 
 	// task2 should have unresolved dependencies (task1 is pending)
-	hasUnresolved, err := HasUnresolvedDependencies(db, task2.ID)
+	var hasUnresolved bool
+	err = Transact(db, func(tx *sql.Tx) error {
+		var txErr error
+		hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, task2.ID)
+		return txErr
+	})
 	require.NoError(t, err)
 	assert.True(t, hasUnresolved)
 
@@ -110,7 +115,11 @@ func TestHasUnresolvedDependencies(t *testing.T) {
 	require.NoError(t, err)
 
 	// task2 should no longer have unresolved dependencies
-	hasUnresolved, err = HasUnresolvedDependencies(db, task2.ID)
+	err = Transact(db, func(tx *sql.Tx) error {
+		var txErr error
+		hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, task2.ID)
+		return txErr
+	})
 	require.NoError(t, err)
 	assert.False(t, hasUnresolved)
 }
@@ -139,7 +148,10 @@ func TestUnblockDependents(t *testing.T) {
 	require.NoError(t, err)
 
 	// Unblock dependents
-	_, err = UnblockDependents(db, task1.ID)
+	err = Transact(db, func(tx *sql.Tx) error {
+		_, txErr := UnblockDependentsTx(tx, task1.ID)
+		return txErr
+	})
 	require.NoError(t, err)
 
 	// Verify task2 is now pending
@@ -177,7 +189,10 @@ func TestUnblockDependents_MultipleBlockers(t *testing.T) {
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
 	require.NoError(t, err)
 
-	_, err = UnblockDependents(db, task1.ID)
+	err = Transact(db, func(tx *sql.Tx) error {
+		_, txErr := UnblockDependentsTx(tx, task1.ID)
+		return txErr
+	})
 	require.NoError(t, err)
 
 	// task3 should still be blocked (task2 is pending)
@@ -189,7 +204,10 @@ func TestUnblockDependents_MultipleBlockers(t *testing.T) {
 	err = UpdateTaskStatus(db, task2.ID, "completed", task2.Version)
 	require.NoError(t, err)
 
-	_, err = UnblockDependents(db, task2.ID)
+	err = Transact(db, func(tx *sql.Tx) error {
+		_, txErr := UnblockDependentsTx(tx, task2.ID)
+		return txErr
+	})
 	require.NoError(t, err)
 
 	// Now task3 should be unblocked
@@ -228,7 +246,10 @@ func TestDetermineFocusTask_SkipsBlockedDeps(t *testing.T) {
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
 	require.NoError(t, err)
 
-	_, err = UnblockDependents(db, task1.ID)
+	err = Transact(db, func(tx *sql.Tx) error {
+		_, txErr := UnblockDependentsTx(tx, task1.ID)
+		return txErr
+	})
 	require.NoError(t, err)
 
 	// Now task2 should be selected (highest priority, no longer blocked)
@@ -584,7 +605,10 @@ func TestUnblockDependents_ClearsBlockedReason(t *testing.T) {
 	// Complete task1 and unblock
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
 	require.NoError(t, err)
-	_, err = UnblockDependents(db, task1.ID)
+	err = Transact(db, func(tx *sql.Tx) error {
+		_, txErr := UnblockDependentsTx(tx, task1.ID)
+		return txErr
+	})
 	require.NoError(t, err)
 
 	// Verify blocked_reason is cleared
@@ -615,7 +639,7 @@ func TestBlockedReason_RoundTrip(t *testing.T) {
 	fetched, err := GetTask(db, task.ID)
 	require.NoError(t, err)
 	assert.Equal(t, models.TaskStatusBlocked, fetched.Status)
-	assert.Equal(t, models.NewBlockedReasonFailure("timed out"), fetched.BlockedReason)
+	assert.Equal(t, newBlockedReasonFailure("timed out"), fetched.BlockedReason)
 
 	// Clear it
 	err = Transact(db, func(tx *sql.Tx) error {
@@ -628,49 +652,3 @@ func TestBlockedReason_RoundTrip(t *testing.T) {
 	assert.Empty(t, fetched.BlockedReason)
 }
 
-func TestGetBlockedByUnresolved(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	task1, err := CreateTask(db, "Task 1", "First task", "", 0)
-	require.NoError(t, err)
-
-	task2, err := CreateTask(db, "Task 2", "Second task", "", 0)
-	require.NoError(t, err)
-
-	task3, err := CreateTask(db, "Task 3", "Third task", "", 0)
-	require.NoError(t, err)
-
-	// Task3 depends on task1 and task2
-	err = AddTaskDependency(db, task3.ID, task1.ID)
-	require.NoError(t, err)
-
-	err = AddTaskDependency(db, task3.ID, task2.ID)
-	require.NoError(t, err)
-
-	// Both are unresolved
-	blockedBy, err := GetBlockedByUnresolved(db, task3.ID)
-	require.NoError(t, err)
-	assert.Len(t, blockedBy, 2)
-	assert.Contains(t, blockedBy, task1.ID)
-	assert.Contains(t, blockedBy, task2.ID)
-
-	// Complete task1
-	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
-	require.NoError(t, err)
-
-	// Only task2 is unresolved
-	blockedBy, err = GetBlockedByUnresolved(db, task3.ID)
-	require.NoError(t, err)
-	assert.Len(t, blockedBy, 1)
-	assert.Equal(t, task2.ID, blockedBy[0])
-
-	// Complete task2
-	err = UpdateTaskStatus(db, task2.ID, "completed", task2.Version)
-	require.NoError(t, err)
-
-	// No unresolved dependencies
-	blockedBy, err = GetBlockedByUnresolved(db, task3.ID)
-	require.NoError(t, err)
-	assert.Len(t, blockedBy, 0)
-}

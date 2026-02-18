@@ -65,7 +65,7 @@ func TestMemoryCanonicalRace(t *testing.T) {
 	}
 
 	// Verify only one active memory row exists with this canonical key
-	memories, err := ListMemory(db, scope, scopeID)
+	memories, err := ListMemoryWithOptions(db, scope, scopeID, MemoryReadOptions{})
 	require.NoError(t, err)
 
 	activeWithCanonical := 0
@@ -103,7 +103,7 @@ func TestMemoryCanonicalUniqueness(t *testing.T) {
 	require.NoError(t, err, "second upsert should succeed via race-condition retry")
 
 	// Verify only one active entry
-	memories, err := ListMemory(db, scope, scopeID)
+	memories, err := ListMemoryWithOptions(db, scope, scopeID, MemoryReadOptions{})
 	require.NoError(t, err)
 
 	canonical := NormalizeMemoryKey("test_key")
@@ -141,8 +141,8 @@ func TestMemoryCanonicalSupersededAllowed(t *testing.T) {
 
 	// Manually supersede the first entry (simulating memory compaction)
 	err = Transact(db, func(tx *sql.Tx) error {
-		_, err := tx.Exec(`UPDATE memory SET superseded_by = ? WHERE id = ?`, "memory_summary", mem.ID)
-		return err
+		_, txErr := tx.Exec(`UPDATE memory SET superseded_by = ? WHERE id = ?`, "memory_summary", mem.ID)
+		return txErr
 	})
 	require.NoError(t, err)
 
@@ -213,7 +213,7 @@ func TestMemoryCanonicalCrossScope(t *testing.T) {
 	}
 
 	for _, s := range scopes {
-		memories, err := ListMemory(db, s.scope, s.scopeID)
+		memories, err := ListMemoryWithOptions(db, s.scope, s.scopeID, MemoryReadOptions{})
 		require.NoError(t, err)
 
 		count := 0

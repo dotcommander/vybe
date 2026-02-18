@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +16,7 @@ func TestReleaseExpiredClaims(t *testing.T) {
 	require.NoError(t, err)
 
 	// Claim with a very short TTL, then expire it manually
-	err = ClaimTask(db, "agent1", task.ID, 1) // 1 minute
+	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 1) }) // 1 minute
 	require.NoError(t, err)
 
 	// Manually set claim_expires_at to the past
@@ -43,7 +44,7 @@ func TestReleaseExpiredClaims_NonExpiredUntouched(t *testing.T) {
 	require.NoError(t, err)
 
 	// Claim with a long TTL
-	err = ClaimTask(db, "agent1", task.ID, 60) // 60 minutes
+	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 60) }) // 60 minutes
 	require.NoError(t, err)
 
 	// Run GC — should not release non-expired claims

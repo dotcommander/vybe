@@ -16,14 +16,14 @@ func TestHeartbeatTaskTx_OwnerOnly(t *testing.T) {
 	task, err := CreateTask(db, "heartbeat", "", "", 0)
 	require.NoError(t, err)
 
-	require.NoError(t, ClaimTask(db, "agent1", task.ID, 5))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 5) }))
 
-	err = HeartbeatTask(db, "agent2", task.ID, 5)
+	err = Transact(db, func(tx *sql.Tx) error { return HeartbeatTaskTx(tx, "agent2", task.ID, 5) })
 	require.ErrorIs(t, err, ErrClaimNotOwned)
 
 	beforeHeartbeat := fetchTaskHeartbeat(t, db, task.ID)
 	time.Sleep(1100 * time.Millisecond)
-	require.NoError(t, HeartbeatTask(db, "agent1", task.ID, 5))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return HeartbeatTaskTx(tx, "agent1", task.ID, 5) }))
 	afterHeartbeat := fetchTaskHeartbeat(t, db, task.ID)
 	require.NotNil(t, afterHeartbeat)
 	if beforeHeartbeat != nil {
@@ -39,16 +39,16 @@ func TestClaimTask_AttemptIncrementsOnNewLeaseOnly(t *testing.T) {
 	task, err := CreateTask(db, "attempt", "", "", 0)
 	require.NoError(t, err)
 
-	require.NoError(t, ClaimTask(db, "agent1", task.ID, 5))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 5) }))
 	require.Equal(t, 1, fetchTaskAttempt(t, db, task.ID))
 
-	require.NoError(t, ClaimTask(db, "agent1", task.ID, 5))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 5) }))
 	require.Equal(t, 1, fetchTaskAttempt(t, db, task.ID))
 
 	_, err = db.Exec(`UPDATE tasks SET claim_expires_at = datetime('now', '-1 minute') WHERE id = ?`, task.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, ClaimTask(db, "agent2", task.ID, 5))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent2", task.ID, 5) }))
 	require.Equal(t, 2, fetchTaskAttempt(t, db, task.ID))
 }
 
@@ -59,7 +59,7 @@ func TestReleaseExpiredClaims_ClearsHeartbeat(t *testing.T) {
 
 	task, err := CreateTask(db, "gc", "", "", 0)
 	require.NoError(t, err)
-	require.NoError(t, ClaimTask(db, "agent1", task.ID, 5))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 5) }))
 
 	_, err = db.Exec(`UPDATE tasks SET claim_expires_at = datetime('now', '-1 minute') WHERE id = ?`, task.ID)
 	require.NoError(t, err)

@@ -72,7 +72,7 @@ func TestRunIdempotent_ReplaySkipsOperation(t *testing.T) {
 	command := "unit.run_idempotent"
 
 	first, err := RunIdempotent(db, agent, requestID, command, func(tx *sql.Tx) (result, error) {
-		projectID := GenerateProjectID()
+		projectID := generateProjectID()
 		_, execErr := tx.Exec(`
 			INSERT INTO projects (id, name, metadata, created_at)
 			VALUES (?, ?, NULL, CURRENT_TIMESTAMP)

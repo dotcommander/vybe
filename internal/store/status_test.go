@@ -49,8 +49,7 @@ func TestGetStatusCounts_SingleAtomicQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	// Log an event
-	_, err = AppendEvent(db, "test_event", "test-agent", "", "test message")
-	require.NoError(t, err)
+	appendEvent(t, db, "test_event", "test-agent", "", "test message")
 
 	// Verify all counts are correct in a single read
 	counts, err = GetStatusCounts(db)

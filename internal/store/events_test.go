@@ -22,7 +22,7 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	}
 
 	cleanup := func() {
-		db.Close()
+		_ = db.Close()
 	}
 
 	return db, cleanup
@@ -32,10 +32,7 @@ func TestAppendEvent(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	eventID, err := AppendEvent(db, "test.event", "test-agent", "task-123", "Test message")
-	if err != nil {
-		t.Fatalf("AppendEvent failed: %v", err)
-	}
+	eventID := appendEvent(t, db, "test.event", "test-agent", "task-123", "Test message")
 
 	if eventID <= 0 {
 		t.Errorf("Expected positive event ID, got %d", eventID)
@@ -43,7 +40,7 @@ func TestAppendEvent(t *testing.T) {
 
 	// Verify event was stored
 	var kind, agentName, taskID, message string
-	err = db.QueryRow("SELECT kind, agent_name, task_id, message FROM events WHERE id = ?", eventID).
+	err := db.QueryRow("SELECT kind, agent_name, task_id, message FROM events WHERE id = ?", eventID).
 		Scan(&kind, &agentName, &taskID, &message)
 	if err != nil {
 		t.Fatalf("Failed to query event: %v", err)
@@ -66,7 +63,7 @@ func TestAppendEvent(t *testing.T) {
 func TestAppendEventIdempotent_Replay(t *testing.T) {
 	db, err := InitDBWithPath(":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	agent := "agent1"
 	req := "req_1"
@@ -88,10 +85,7 @@ func TestAppendEventWithMetadata(t *testing.T) {
 	defer cleanup()
 
 	metadata := `{"key": "value"}`
-	eventID, err := AppendEventWithMetadata(db, "test.event", "test-agent", "task-123", "Test message", metadata)
-	if err != nil {
-		t.Fatalf("AppendEventWithMetadata failed: %v", err)
-	}
+	eventID := appendEventWithMetadata(t, db, "test.event", "test-agent", "task-123", "Test message", metadata)
 
 	if eventID <= 0 {
 		t.Errorf("Expected positive event ID, got %d", eventID)
@@ -99,7 +93,7 @@ func TestAppendEventWithMetadata(t *testing.T) {
 
 	// Verify metadata was stored
 	var storedMetadata string
-	err = db.QueryRow("SELECT metadata FROM events WHERE id = ?", eventID).Scan(&storedMetadata)
+	err := db.QueryRow("SELECT metadata FROM events WHERE id = ?", eventID).Scan(&storedMetadata)
 	if err != nil {
 		t.Fatalf("Failed to query event metadata: %v", err)
 	}
@@ -114,7 +108,8 @@ func TestListEvents_MetadataIsNativeJSON(t *testing.T) {
 	defer cleanup()
 
 	metadata := `{"foo":"bar","count":2}`
-	_, err := AppendEventWithMetadata(db, "test.event", "test-agent", "task-123", "Test message", metadata)
+	_ = appendEventWithMetadata(t, db, "test.event", "test-agent", "task-123", "Test message", metadata)
+	var err error
 	require.NoError(t, err)
 
 	events, err := ListEvents(db, ListEventsParams{AgentName: "test-agent", Limit: 10})
@@ -142,7 +137,8 @@ func TestFetchEventsSince_MetadataIsNativeJSON(t *testing.T) {
 	defer cleanup()
 
 	metadata := `{"nested":{"ok":true}}`
-	_, err := AppendEventWithMetadata(db, "test.event", "test-agent", "task-123", "Test message", metadata)
+	_ = appendEventWithMetadata(t, db, "test.event", "test-agent", "task-123", "Test message", metadata)
+	var err error
 	require.NoError(t, err)
 
 	events, err := FetchEventsSince(db, 0, 10, "")
@@ -167,12 +163,9 @@ func TestArchiveEventsRangeWithSummaryIdempotent(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := AppendEvent(db, "task.note", "agent1", "task-1", "event one")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "task.note", "agent1", "task-1", "event two")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "task.note", "agent1", "task-1", "event three")
-	require.NoError(t, err)
+	appendEvent(t, db, "task.note", "agent1", "task-1", "event one")
+	appendEvent(t, db, "task.note", "agent1", "task-1", "event two")
+	appendEvent(t, db, "task.note", "agent1", "task-1", "event three")
 
 	summaryEventID, archivedCount, err := ArchiveEventsRangeWithSummaryIdempotent(db, "agent1", "req-archive-1", "", "task-1", 1, 2, "Compressed old events")
 	require.NoError(t, err)
@@ -205,12 +198,10 @@ func TestFetchEventsSince_ExcludesArchived(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := AppendEvent(db, "task.note", "agent1", "task-1", "event one")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "task.note", "agent1", "task-1", "event two")
-	require.NoError(t, err)
+	appendEvent(t, db, "task.note", "agent1", "task-1", "event one")
+	appendEvent(t, db, "task.note", "agent1", "task-1", "event two")
 
-	_, _, err = ArchiveEventsRangeWithSummaryIdempotent(db, "agent1", "req-archive-2", "", "task-1", 1, 1, "Compressed oldest")
+	_, _, err := ArchiveEventsRangeWithSummaryIdempotent(db, "agent1", "req-archive-2", "", "task-1", 1, 1, "Compressed oldest")
 	require.NoError(t, err)
 
 	events, err := FetchEventsSince(db, 0, 20, "")
@@ -230,12 +221,9 @@ func TestCountActiveEvents(t *testing.T) {
 	require.Equal(t, int64(0), count)
 
 	// Add events
-	_, err = AppendEvent(db, "note", "agent1", "", "event one")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "note", "agent1", "", "event two")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "note", "agent1", "", "event three")
-	require.NoError(t, err)
+	appendEvent(t, db, "note", "agent1", "", "event one")
+	appendEvent(t, db, "note", "agent1", "", "event two")
+	appendEvent(t, db, "note", "agent1", "", "event three")
 
 	count, err = CountActiveEvents(db, "")
 	require.NoError(t, err)
@@ -263,8 +251,7 @@ func TestFindArchiveWindow(t *testing.T) {
 
 	// Add 5 events
 	for i := range 5 {
-		_, err = AppendEvent(db, "note", "agent1", "", fmt.Sprintf("event %d", i+1))
-		require.NoError(t, err)
+		appendEvent(t, db, "note", "agent1", "", fmt.Sprintf("event %d", i+1))
 	}
 
 	// Keep 3 recent: should archive events 1-2

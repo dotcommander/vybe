@@ -97,32 +97,6 @@ func TestAdvanceAgentCursorMonotonic(t *testing.T) {
 	}
 }
 
-func TestSetAgentFocusTask(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	// Create agent state
-	_, err := LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("Failed to create agent state: %v", err)
-	}
-
-	// Set focus task
-	err = SetAgentFocusTask(db, "test-agent", "task-123")
-	if err != nil {
-		t.Fatalf("SetAgentFocusTask failed: %v", err)
-	}
-
-	// Verify focus task was set
-	state, err := LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("Failed to load agent state: %v", err)
-	}
-
-	if state.FocusTaskID != "task-123" {
-		t.Errorf("Expected focus_task_id=task-123, got %s", state.FocusTaskID)
-	}
-}
 
 func TestLoadOrCreateAgentState_FocusProjectIDEmpty(t *testing.T) {
 	db, cleanup := setupTestDB(t)

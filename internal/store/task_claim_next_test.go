@@ -48,7 +48,7 @@ func TestClaimNextTaskTx_SkipsClaimed(t *testing.T) {
 	require.NoError(t, err)
 
 	// Claim the first task.
-	require.NoError(t, ClaimTask(db, "agent1", first.ID, 5))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", first.ID, 5) }))
 
 	// Next claim should skip the claimed task.
 	var result *ClaimNextTaskResult
@@ -77,7 +77,7 @@ func TestClaimNextTaskTx_SkipsTasksWithUnresolvedDeps(t *testing.T) {
 	require.NoError(t, AddTaskDependency(db, blocked.ID, blocker.ID))
 
 	// Claim blocker first (it's eligible, created first with same priority as any other).
-	require.NoError(t, ClaimTask(db, "agent0", blocker.ID, 5))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent0", blocker.ID, 5) }))
 
 	// Create a free task that should be claimable.
 	free, err := CreateTask(db, "free", "", "", 0)
@@ -154,7 +154,7 @@ func TestClaimNextTaskTx_ExpiredClaimReclaim(t *testing.T) {
 	require.NoError(t, err)
 
 	// Claim then expire.
-	require.NoError(t, ClaimTask(db, "agent1", task.ID, 5))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 5) }))
 	_, err = db.Exec(`UPDATE tasks SET claim_expires_at = datetime('now', '-1 minute') WHERE id = ?`, task.ID)
 	require.NoError(t, err)
 

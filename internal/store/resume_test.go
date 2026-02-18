@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -12,20 +13,9 @@ func TestFetchEventsSince(t *testing.T) {
 	defer cleanup()
 
 	// Create some events
-	_, err := AppendEvent(db, "test.event", "agent1", "task1", "Event 1")
-	if err != nil {
-		t.Fatalf("Failed to append event: %v", err)
-	}
-
-	_, err = AppendEvent(db, "test.event", "agent2", "task2", "Event 2")
-	if err != nil {
-		t.Fatalf("Failed to append event: %v", err)
-	}
-
-	eventID3, err := AppendEvent(db, "test.event", "agent3", "task3", "Event 3")
-	if err != nil {
-		t.Fatalf("Failed to append event: %v", err)
-	}
+	appendEvent(t, db, "test.event", "agent1", "task1", "Event 1")
+	appendEvent(t, db, "test.event", "agent2", "task2", "Event 2")
+	eventID3 := appendEvent(t, db, "test.event", "agent3", "task3", "Event 3")
 
 	// Fetch events since cursor 0
 	events, err := FetchEventsSince(db, 0, 100, "")
@@ -63,11 +53,8 @@ func TestFetchEventsSinceRespectLimit(t *testing.T) {
 	defer cleanup()
 
 	// Create 5 events
-	for i := 0; i < 5; i++ {
-		_, err := AppendEvent(db, "test.event", "agent", "task", "Event")
-		if err != nil {
-			t.Fatalf("Failed to append event: %v", err)
-		}
+	for range 5 {
+		appendEvent(t, db, "test.event", "agent", "task", "Event")
 	}
 
 	// Fetch with limit 3
@@ -162,7 +149,7 @@ func TestDetermineFocusTask_TaskAssigned_SkipsClaimedByOther(t *testing.T) {
 	// Create a pending task and claim it by another agent
 	task, err := CreateTask(db, "Claimed Task", "Description", "", 0)
 	require.NoError(t, err)
-	err = ClaimTask(db, "other-agent", task.ID, 60) // 60 min TTL
+	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "other-agent", task.ID, 60) }) // 60 min TTL
 	require.NoError(t, err)
 
 	// Create a fallback pending task
@@ -299,10 +286,7 @@ func TestBuildBrief_WithTask(t *testing.T) {
 	}
 
 	// Add some events
-	_, err = AppendEvent(db, "task.started", "agent1", task.ID, "Started work")
-	if err != nil {
-		t.Fatalf("Failed to append event: %v", err)
-	}
+	appendEvent(t, db, "task.started", "agent1", task.ID, "Started work")
 
 	// Build brief
 	brief, err := BuildBrief(db, task.ID, "", "")
@@ -340,14 +324,8 @@ func TestBuildBrief_ApproxTokensFromEventMessages(t *testing.T) {
 		t.Fatalf("Failed to create task: %v", err)
 	}
 
-	_, err = AppendEvent(db, "task.note", "agent1", task.ID, "abcd")
-	if err != nil {
-		t.Fatalf("Failed to append first event: %v", err)
-	}
-	_, err = AppendEvent(db, "task.note", "agent1", task.ID, "12345")
-	if err != nil {
-		t.Fatalf("Failed to append second event: %v", err)
-	}
+	appendEvent(t, db, "task.note", "agent1", task.ID, "abcd")
+	appendEvent(t, db, "task.note", "agent1", task.ID, "12345")
 
 	brief, err := BuildBrief(db, task.ID, "", "")
 	if err != nil {
@@ -709,18 +687,9 @@ func TestFetchEventsSince_ProjectIsolation(t *testing.T) {
 		t.Fatalf("Failed to create other project task: %v", err)
 	}
 
-	_, err = AppendEvent(db, "task.note", "agent1", projectTask.ID, "project A event")
-	if err != nil {
-		t.Fatalf("Failed to append project event: %v", err)
-	}
-	_, err = AppendEvent(db, "task.note", "agent1", globalTask.ID, "global event")
-	if err != nil {
-		t.Fatalf("Failed to append global event: %v", err)
-	}
-	_, err = AppendEvent(db, "task.note", "agent1", otherTask.ID, "project B event")
-	if err != nil {
-		t.Fatalf("Failed to append other project event: %v", err)
-	}
+	appendEvent(t, db, "task.note", "agent1", projectTask.ID, "project A event")
+	appendEvent(t, db, "task.note", "agent1", globalTask.ID, "global event")
+	appendEvent(t, db, "task.note", "agent1", otherTask.ID, "project B event")
 
 	events, err := FetchEventsSince(db, 0, 20, "proj_a")
 	if err != nil {
@@ -737,6 +706,7 @@ func TestFetchEventsSince_ProjectIsolation(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // test verifies priority ordering across many task states; each scenario is a distinct branch of the priority algorithm
 func TestDetermineFocusTask_PriorityOrdering(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
@@ -835,12 +805,9 @@ func TestFetchPriorReasoning_WithEvents(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := AppendEvent(db, "reasoning", "agent1", "", "intent: build feature X")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "user_prompt", "agent1", "", "not reasoning")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "reasoning", "agent1", "", "intent: fix bug Y")
-	require.NoError(t, err)
+	appendEvent(t, db, "reasoning", "agent1", "", "intent: build feature X")
+	appendEvent(t, db, "user_prompt", "agent1", "", "not reasoning")
+	appendEvent(t, db, "reasoning", "agent1", "", "intent: fix bug Y")
 
 	events, err := FetchPriorReasoning(db, "", 10)
 	require.NoError(t, err)
@@ -862,8 +829,7 @@ func TestFetchPriorReasoning_ProjectScoped(t *testing.T) {
 		db, "agent1", "req2", "reasoning", "proj_b", "", "reasoning for B", "",
 	)
 	require.NoError(t, err)
-	_, err = AppendEvent(db, "reasoning", "agent1", "", "global reasoning")
-	require.NoError(t, err)
+	appendEvent(t, db, "reasoning", "agent1", "", "global reasoning")
 
 	// Scoped to proj_a: should get proj_a + global
 	events, err := FetchPriorReasoning(db, "proj_a", 10)
@@ -880,13 +846,10 @@ func TestFetchPriorReasoning_ExcludesArchived(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	id, err := AppendEvent(db, "reasoning", "agent1", "", "archived reasoning")
+	id := appendEvent(t, db, "reasoning", "agent1", "", "archived reasoning")
+	_, err := db.Exec(`UPDATE events SET archived_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
 	require.NoError(t, err)
-	_, err = db.Exec(`UPDATE events SET archived_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
-	require.NoError(t, err)
-
-	_, err = AppendEvent(db, "reasoning", "agent1", "", "active reasoning")
-	require.NoError(t, err)
+	appendEvent(t, db, "reasoning", "agent1", "", "active reasoning")
 
 	events, err := FetchPriorReasoning(db, "", 10)
 	require.NoError(t, err)
@@ -907,19 +870,13 @@ func TestFetchSessionEvents_FiltersByKind(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := AppendEvent(db, "user_prompt", "agent1", "", "a prompt")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "reasoning", "agent1", "", "some reasoning")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "tool_failure", "agent1", "", "bash failed")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "task_status", "agent1", "", "completed")
-	require.NoError(t, err)
-	_, err = AppendEvent(db, "progress", "agent1", "", "step done")
-	require.NoError(t, err)
+	appendEvent(t, db, "user_prompt", "agent1", "", "a prompt")
+	appendEvent(t, db, "reasoning", "agent1", "", "some reasoning")
+	appendEvent(t, db, "tool_failure", "agent1", "", "bash failed")
+	appendEvent(t, db, "task_status", "agent1", "", "completed")
+	appendEvent(t, db, "progress", "agent1", "", "step done")
 	// This kind should be excluded
-	_, err = AppendEvent(db, "task.note", "agent1", "", "random note")
-	require.NoError(t, err)
+	appendEvent(t, db, "task.note", "agent1", "", "random note")
 
 	events, err := FetchSessionEvents(db, 0, "", 200)
 	require.NoError(t, err)
@@ -941,8 +898,7 @@ func TestFetchSessionEvents_ProjectScoped(t *testing.T) {
 		db, "agent1", "req2", "user_prompt", "proj_b", "", "prompt for B", "",
 	)
 	require.NoError(t, err)
-	_, err = AppendEvent(db, "progress", "agent1", "", "global progress")
-	require.NoError(t, err)
+	appendEvent(t, db, "progress", "agent1", "", "global progress")
 
 	events, err := FetchSessionEvents(db, 0, "proj_a", 200)
 	require.NoError(t, err)
@@ -1037,7 +993,7 @@ func TestFetchPipelineTasks_ExcludesClaimedAndBlocked(t *testing.T) {
 	// Claimed by another agent
 	claimed, err := CreateTask(db, "Claimed", "", "", 0)
 	require.NoError(t, err)
-	require.NoError(t, ClaimTask(db, "other-agent", claimed.ID, 60))
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "other-agent", claimed.ID, 60) }))
 
 	// Blocked by dependency
 	blocker, err := CreateTask(db, "Blocker", "", "", 0)

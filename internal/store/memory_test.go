@@ -15,7 +15,7 @@ func setupMemoryTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 	db, err := InitDBWithPath(":memory:")
 	require.NoError(t, err)
-	return db, func() { db.Close() }
+	return db, func() { _ = db.Close() }
 }
 
 func TestSetMemory_GlobalScope(t *testing.T) {
@@ -161,7 +161,7 @@ func TestListMemory_GlobalScope(t *testing.T) {
 	require.NoError(t, SetMemory(db, "key2", "value2", "string", "global", "", nil))
 	require.NoError(t, SetMemory(db, "key3", "value3", "string", "global", "", nil))
 
-	memories, err := ListMemory(db, "global", "")
+	memories, err := ListMemoryWithOptions(db, "global", "", MemoryReadOptions{})
 	require.NoError(t, err)
 	assert.Len(t, memories, 3)
 }
@@ -176,39 +176,16 @@ func TestListMemory_ProjectScope_Isolated(t *testing.T) {
 	require.NoError(t, SetMemory(db, "key3", "value3", "string", "project", "proj-b", nil))
 
 	// List for proj-a
-	memories, err := ListMemory(db, "project", "proj-a")
+	memories, err := ListMemoryWithOptions(db, "project", "proj-a", MemoryReadOptions{})
 	require.NoError(t, err)
 	assert.Len(t, memories, 2)
 
 	// List for proj-b
-	memories, err = ListMemory(db, "project", "proj-b")
+	memories, err = ListMemoryWithOptions(db, "project", "proj-b", MemoryReadOptions{})
 	require.NoError(t, err)
 	assert.Len(t, memories, 1)
 }
 
-func TestDeleteMemory(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	// Insert and delete
-	require.NoError(t, SetMemory(db, "temp", "value", "string", "global", "", nil))
-	err := DeleteMemory(db, "temp", "global", "")
-	assert.NoError(t, err)
-
-	// Verify deletion
-	mem, err := GetMemory(db, "temp", "global", "")
-	assert.NoError(t, err)
-	assert.Nil(t, mem)
-}
-
-func TestDeleteMemory_NotFound(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	err := DeleteMemory(db, "nonexistent", "global", "")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-}
 
 func TestSetMemory_WithExpiration(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
@@ -251,7 +228,7 @@ func TestListMemory_FilterExpired(t *testing.T) {
 	require.NoError(t, SetMemory(db, "key2", "value2", "string", "global", "", &valid))
 	require.NoError(t, SetMemory(db, "key3", "value3", "string", "global", "", nil))
 
-	memories, err := ListMemory(db, "global", "")
+	memories, err := ListMemoryWithOptions(db, "global", "", MemoryReadOptions{})
 	require.NoError(t, err)
 	assert.Len(t, memories, 2) // Only valid and nil expiration
 }
@@ -579,7 +556,7 @@ func TestListMemory_FilterSuperseded(t *testing.T) {
 	require.NoError(t, err)
 
 	// Default list excludes superseded
-	memories, err := ListMemory(db, "global", "")
+	memories, err := ListMemoryWithOptions(db, "global", "", MemoryReadOptions{})
 	require.NoError(t, err)
 	assert.Len(t, memories, 2)
 

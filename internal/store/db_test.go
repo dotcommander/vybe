@@ -15,7 +15,7 @@ func TestInitDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitDBWithPath failed: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Verify database file exists
 	_, statErr := os.Stat(testDBPath)
