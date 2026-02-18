@@ -1,13 +1,16 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 )
 
+// AgentCursorFocus holds the persisted cursor position and focus pointers for an agent.
 type AgentCursorFocus struct {
 	Cursor    int64
 	TaskID    string
@@ -15,7 +18,7 @@ type AgentCursorFocus struct {
 }
 
 func ensureAgentStateTx(tx *sql.Tx, agentName string) error {
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(context.Background(), `
 		INSERT OR IGNORE INTO agent_state (agent_name, last_seen_event_id, version, last_active_at)
 		VALUES (?, 0, 1, ?)
 	`, agentName, time.Now()); err != nil {
@@ -30,7 +33,7 @@ func validateProjectExistsTx(tx *sql.Tx, projectID string) error {
 	}
 
 	var exists int
-	err := tx.QueryRow(`SELECT COUNT(*) FROM projects WHERE id = ?`, projectID).Scan(&exists)
+	err := tx.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM projects WHERE id = ?`, projectID).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("failed to verify project: %w", err)
 	}
@@ -44,7 +47,7 @@ func validateProjectExistsTx(tx *sql.Tx, projectID string) error {
 func loadAgentStateTx(tx *sql.Tx, agentName string) (models.AgentState, error) {
 	var s models.AgentState
 	var focusTaskID, focusProjectID sql.NullString
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(context.Background(), `
 		SELECT agent_name, last_seen_event_id, focus_task_id, focus_project_id, version, last_active_at
 		FROM agent_state
 		WHERE agent_name = ?
@@ -65,7 +68,7 @@ func loadAgentStateTx(tx *sql.Tx, agentName string) (models.AgentState, error) {
 func LoadAgentCursorAndFocusTx(tx *sql.Tx, agentName string) (AgentCursorFocus, error) {
 	var out AgentCursorFocus
 	var focusTaskID, focusProjectID sql.NullString
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(context.Background(), `
 		SELECT last_seen_event_id, focus_task_id, focus_project_id
 		FROM agent_state
 		WHERE agent_name = ?
@@ -87,7 +90,7 @@ func LoadAgentCursorAndFocusTx(tx *sql.Tx, agentName string) (AgentCursorFocus, 
 
 func runFocusEventIdempotent(db *sql.DB, agentName, requestID, command string, setFocus func(tx *sql.Tx) (int64, error)) (int64, error) {
 	if agentName == "" {
-		return 0, fmt.Errorf("agent name is required")
+		return 0, errors.New("agent name is required")
 	}
 
 	type idemResult struct {
@@ -115,14 +118,14 @@ func LoadOrCreateAgentState(db *sql.DB, agentName string) (*models.AgentState, e
 	err := RetryWithBackoff(func() error {
 		// Concurrency-safe create: two workers may race to create the same agent.
 		// INSERT OR IGNORE ensures only one wins and others fall through to the SELECT.
-		if _, err := db.Exec(`
+		if _, err := db.ExecContext(context.Background(), `
 			INSERT OR IGNORE INTO agent_state (agent_name, last_seen_event_id, version, last_active_at)
 			VALUES (?, 0, 1, ?)
 		`, agentName, time.Now()); err != nil {
 			return fmt.Errorf("failed to ensure agent state: %w", err)
 		}
 
-		row := db.QueryRow(`
+		row := db.QueryRowContext(context.Background(), `
 			SELECT agent_name, last_seen_event_id, focus_task_id, focus_project_id, version, last_active_at
 			FROM agent_state
 			WHERE agent_name = ?
@@ -161,14 +164,14 @@ func LoadOrCreateAgentState(db *sql.DB, agentName string) (*models.AgentState, e
 // On retries with the same request id, it returns the originally stored state.
 func LoadOrCreateAgentStateIdempotent(db *sql.DB, agentName, requestID string) (*models.AgentState, error) {
 	if agentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return nil, fmt.Errorf("request id is required")
+		return nil, errors.New("request id is required")
 	}
 
 	s, err := RunIdempotent(db, agentName, requestID, "agent.init", func(tx *sql.Tx) (models.AgentState, error) {
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(context.Background(), `
 			INSERT OR IGNORE INTO agent_state (agent_name, last_seen_event_id, version, last_active_at)
 			VALUES (?, 0, 1, ?)
 		`, agentName, time.Now()); err != nil {
@@ -192,13 +195,13 @@ func AdvanceAgentCursor(db *sql.DB, agentName string, newCursor int64) error {
 		// Load current state for version check
 		var currentVersion int
 		var currentCursor int64
-		err := tx.QueryRow(`
+		err := tx.QueryRowContext(context.Background(), `
 			SELECT version, last_seen_event_id
 			FROM agent_state
 			WHERE agent_name = ?
 		`, agentName).Scan(&currentVersion, &currentCursor)
 
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("agent state not found: %s", agentName)
 		}
 		if err != nil {
@@ -206,7 +209,7 @@ func AdvanceAgentCursor(db *sql.DB, agentName string, newCursor int64) error {
 		}
 
 		// Monotonic advance: use MAX to ensure cursor never goes backward
-		result, err := tx.Exec(`
+		result, err := tx.ExecContext(context.Background(), `
 			UPDATE agent_state
 			SET last_seen_event_id = MAX(last_seen_event_id, ?),
 			    last_active_at = ?,
@@ -230,51 +233,10 @@ func AdvanceAgentCursor(db *sql.DB, agentName string, newCursor int64) error {
 	})
 }
 
-// SetAgentFocusTask sets the focus task for an agent
-func SetAgentFocusTask(db *sql.DB, agentName, taskID string) error {
-	return Transact(db, func(tx *sql.Tx) error {
-		var currentVersion int
-		err := tx.QueryRow(`
-			SELECT version
-			FROM agent_state
-			WHERE agent_name = ?
-		`, agentName).Scan(&currentVersion)
-
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("agent state not found: %s", agentName)
-		}
-		if err != nil {
-			return fmt.Errorf("failed to load agent state: %w", err)
-		}
-
-		result, err := tx.Exec(`
-			UPDATE agent_state
-			SET focus_task_id = ?,
-			    last_active_at = ?,
-			    version = version + 1
-			WHERE agent_name = ? AND version = ?
-		`, taskID, time.Now(), agentName, currentVersion)
-		if err != nil {
-			return fmt.Errorf("failed to update focus task: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed to check rows affected: %w", err)
-		}
-
-		if rowsAffected == 0 {
-			return ErrVersionConflict
-		}
-
-		return nil
-	})
-}
-
 // SetAgentFocusTaskWithEvent sets focus and appends an event atomically.
 func SetAgentFocusTaskWithEvent(db *sql.DB, agentName, taskID string) (int64, error) {
 	if agentName == "" {
-		return 0, fmt.Errorf("agent name is required")
+		return 0, errors.New("agent name is required")
 	}
 
 	var eventID int64
@@ -302,19 +264,19 @@ func SetAgentFocusTaskWithEventIdempotent(db *sql.DB, agentName, requestID, task
 
 func setAgentFocusTaskWithEventTx(tx *sql.Tx, agentName, taskID string) (int64, error) {
 	var currentVersion int
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(context.Background(), `
 		SELECT version
 		FROM agent_state
 		WHERE agent_name = ?
 	`, agentName).Scan(&currentVersion)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("agent state not found: %s", agentName)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to load agent state: %w", err)
 	}
 
-	result, err := tx.Exec(`
+	result, err := tx.ExecContext(context.Background(), `
 		UPDATE agent_state
 		SET focus_task_id = ?,
 		    last_active_at = ?,
@@ -353,13 +315,13 @@ func SetAgentFocusProject(db *sql.DB, agentName, projectID string) error {
 		}
 
 		var currentVersion int
-		err := tx.QueryRow(`
+		err := tx.QueryRowContext(context.Background(), `
 			SELECT version
 			FROM agent_state
 			WHERE agent_name = ?
 		`, agentName).Scan(&currentVersion)
 
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("agent state not found: %s", agentName)
 		}
 		if err != nil {
@@ -368,7 +330,7 @@ func SetAgentFocusProject(db *sql.DB, agentName, projectID string) error {
 
 		var result sql.Result
 		if projectID != "" {
-			result, err = tx.Exec(`
+			result, err = tx.ExecContext(context.Background(), `
 				UPDATE agent_state
 				SET focus_project_id = ?,
 				    last_active_at = ?,
@@ -376,7 +338,7 @@ func SetAgentFocusProject(db *sql.DB, agentName, projectID string) error {
 				WHERE agent_name = ? AND version = ?
 			`, projectID, time.Now(), agentName, currentVersion)
 		} else {
-			result, err = tx.Exec(`
+			result, err = tx.ExecContext(context.Background(), `
 				UPDATE agent_state
 				SET focus_project_id = NULL,
 				    last_active_at = ?,
@@ -404,7 +366,7 @@ func SetAgentFocusProject(db *sql.DB, agentName, projectID string) error {
 // SetAgentFocusProjectWithEvent sets project focus and appends an event atomically.
 func SetAgentFocusProjectWithEvent(db *sql.DB, agentName, projectID string) (int64, error) {
 	if agentName == "" {
-		return 0, fmt.Errorf("agent name is required")
+		return 0, errors.New("agent name is required")
 	}
 
 	var eventID int64
@@ -439,12 +401,12 @@ func setAgentFocusProjectWithEventTx(tx *sql.Tx, agentName, projectID string) (i
 	}
 
 	var currentVersion int
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(context.Background(), `
 		SELECT version
 		FROM agent_state
 		WHERE agent_name = ?
 	`, agentName).Scan(&currentVersion)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("agent state not found: %s", agentName)
 	}
 	if err != nil {
@@ -453,7 +415,7 @@ func setAgentFocusProjectWithEventTx(tx *sql.Tx, agentName, projectID string) (i
 
 	var result sql.Result
 	if projectID != "" {
-		result, err = tx.Exec(`
+		result, err = tx.ExecContext(context.Background(), `
 			UPDATE agent_state
 			SET focus_project_id = ?,
 			    last_active_at = ?,
@@ -461,7 +423,7 @@ func setAgentFocusProjectWithEventTx(tx *sql.Tx, agentName, projectID string) (i
 			WHERE agent_name = ? AND version = ?
 		`, projectID, time.Now(), agentName, currentVersion)
 	} else {
-		result, err = tx.Exec(`
+		result, err = tx.ExecContext(context.Background(), `
 			UPDATE agent_state
 			SET focus_project_id = NULL,
 			    last_active_at = ?,

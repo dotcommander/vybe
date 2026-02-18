@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -11,18 +13,20 @@ import (
 // would have no remaining unresolved dependencies after the delete.
 // Guards against deleting tasks that are in_progress or claimed by another agent.
 // Returns error if the task does not exist.
+//
+//nolint:gocognit,gocyclo,revive // delete guards require ownership check, expiry check, dependent unblock — all in the same transaction
 func DeleteTaskTx(tx *sql.Tx, agentName, taskID string) error {
 	if taskID == "" {
-		return fmt.Errorf("task ID is required")
+		return errors.New("task ID is required")
 	}
 
 	// Guard: refuse to delete a task that is actively owned by another agent.
 	var status string
 	var claimedBy sql.NullString
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(context.Background(), `
 		SELECT status, claimed_by FROM tasks WHERE id = ?`, taskID).
 		Scan(&status, &claimedBy)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("task not found: %s", taskID)
 	}
 	if err != nil {
@@ -39,7 +43,7 @@ func DeleteTaskTx(tx *sql.Tx, agentName, taskID string) error {
 	// Refuse if claimed by another agent with a non-expired lease.
 	if claimedBy.Valid && claimedBy.String != "" && claimedBy.String != agentName {
 		var active bool
-		err = tx.QueryRow(`
+		err = tx.QueryRowContext(context.Background(), `
 			SELECT claim_expires_at IS NOT NULL AND claim_expires_at > CURRENT_TIMESTAMP
 			FROM tasks WHERE id = ?`, taskID).Scan(&active)
 		if err != nil {
@@ -57,7 +61,7 @@ func DeleteTaskTx(tx *sql.Tx, agentName, taskID string) error {
 		return fmt.Errorf("collect blocked dependents: %w", err)
 	}
 
-	result, err := tx.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
+	result, err := tx.ExecContext(context.Background(), `DELETE FROM tasks WHERE id = ?`, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to delete task: %w", err)
 	}
@@ -78,7 +82,7 @@ func DeleteTaskTx(tx *sql.Tx, agentName, taskID string) error {
 			return fmt.Errorf("check unresolved deps for %s: %w", depID, err)
 		}
 		if !has {
-			_, err = tx.Exec(`
+			_, err = tx.ExecContext(context.Background(), `
 				UPDATE tasks
 				SET status = 'pending', blocked_reason = NULL, version = version + 1
 				WHERE id = ? AND status = 'blocked'`,
@@ -96,7 +100,7 @@ func DeleteTaskTx(tx *sql.Tx, agentName, taskID string) error {
 // and are currently dependency-blocked (not failure-blocked).
 // Only these are eligible for auto-unblock when the dependency is removed.
 func collectBlockedDependentsTx(tx *sql.Tx, taskID string) ([]string, error) {
-	rows, err := tx.Query(`
+	rows, err := tx.QueryContext(context.Background(), `
 		SELECT td.task_id
 		FROM task_dependencies td
 		JOIN tasks t ON t.id = td.task_id
@@ -106,7 +110,7 @@ func collectBlockedDependentsTx(tx *sql.Tx, taskID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ids []string
 	for rows.Next() {

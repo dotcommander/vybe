@@ -1,14 +1,17 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dotcommander/vybe/internal/models"
 )
 
-func GenerateArtifactID() string {
+// generateArtifactID returns a unique artifact identifier with the "artifact" prefix.
+func generateArtifactID() string {
 	return generatePrefixedID("artifact")
 }
 
@@ -16,16 +19,16 @@ func GenerateArtifactID() string {
 // in the same transaction. Returns the artifact and the event id.
 func AddArtifact(db *sql.DB, agentName, taskID, filePath, contentType string) (*models.Artifact, int64, error) {
 	if agentName == "" {
-		return nil, 0, fmt.Errorf("agent name is required")
+		return nil, 0, errors.New("agent name is required")
 	}
 	if taskID == "" {
-		return nil, 0, fmt.Errorf("task ID is required")
+		return nil, 0, errors.New("task ID is required")
 	}
 	if filePath == "" {
-		return nil, 0, fmt.Errorf("file path is required")
+		return nil, 0, errors.New("file path is required")
 	}
 
-	artifactID := GenerateArtifactID()
+	artifactID := generateArtifactID()
 	meta := struct {
 		ArtifactID  string `json:"artifact_id"`
 		FilePath    string `json:"file_path"`
@@ -54,7 +57,7 @@ func AddArtifact(db *sql.DB, agentName, taskID, filePath, contentType string) (*
 		}
 		eventID = id
 
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(context.Background(), `
 			INSERT INTO artifacts (id, task_id, project_id, event_id, file_path, content_type, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		`, artifactID, taskID, projectID, eventID, filePath, nullIfEmpty(contentType))
@@ -64,7 +67,7 @@ func AddArtifact(db *sql.DB, agentName, taskID, filePath, contentType string) (*
 
 		var a models.Artifact
 		var ct sql.NullString
-		err = tx.QueryRow(`
+		err = tx.QueryRowContext(context.Background(), `
 			SELECT id, task_id, event_id, file_path, content_type, created_at
 			FROM artifacts
 			WHERE id = ?
@@ -88,15 +91,16 @@ func AddArtifact(db *sql.DB, agentName, taskID, filePath, contentType string) (*
 
 // AddArtifactIdempotent performs AddArtifact once per (agent_name, request_id).
 // On retries with the same request id, it returns the originally created artifact + event id.
+//nolint:revive // argument-limit: all artifact params are required and distinct; a struct would add boilerplate at every callsite
 func AddArtifactIdempotent(db *sql.DB, agentName, requestID, taskID, filePath, contentType string) (*models.Artifact, int64, error) {
 	if agentName == "" {
-		return nil, 0, fmt.Errorf("agent name is required")
+		return nil, 0, errors.New("agent name is required")
 	}
 	if taskID == "" {
-		return nil, 0, fmt.Errorf("task ID is required")
+		return nil, 0, errors.New("task ID is required")
 	}
 	if filePath == "" {
-		return nil, 0, fmt.Errorf("file path is required")
+		return nil, 0, errors.New("file path is required")
 	}
 
 	type idemResult struct {
@@ -105,7 +109,7 @@ func AddArtifactIdempotent(db *sql.DB, agentName, requestID, taskID, filePath, c
 	}
 
 	r, err := RunIdempotent(db, agentName, requestID, "artifact.add", func(tx *sql.Tx) (idemResult, error) {
-		artifactID := GenerateArtifactID()
+		artifactID := generateArtifactID()
 		projectID, err := resolveTaskProjectIDTx(tx, taskID)
 		if err != nil {
 			return idemResult{}, err
@@ -127,7 +131,7 @@ func AddArtifactIdempotent(db *sql.DB, agentName, requestID, taskID, filePath, c
 			return idemResult{}, fmt.Errorf("failed to append event: %w", err)
 		}
 
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(context.Background(), `
 			INSERT INTO artifacts (id, task_id, project_id, event_id, file_path, content_type, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		`, artifactID, taskID, projectID, eventID, filePath, nullIfEmpty(contentType))
@@ -149,17 +153,18 @@ func AddArtifactIdempotent(db *sql.DB, agentName, requestID, taskID, filePath, c
 	return artifact, r.EventID, nil
 }
 
+// GetArtifact retrieves a single artifact by ID.
 func GetArtifact(db *sql.DB, id string) (*models.Artifact, error) {
 	var a models.Artifact
 	var ct sql.NullString
 	err := RetryWithBackoff(func() error {
-		return db.QueryRow(`
+		return db.QueryRowContext(context.Background(), `
 			SELECT id, task_id, event_id, file_path, content_type, created_at
 			FROM artifacts
 			WHERE id = ?
 		`, id).Scan(&a.ID, &a.TaskID, &a.EventID, &a.FilePath, &ct, &a.CreatedAt)
 	})
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("artifact not found: %s", id)
 	}
 	if err != nil {
@@ -171,9 +176,10 @@ func GetArtifact(db *sql.DB, id string) (*models.Artifact, error) {
 	return &a, nil
 }
 
+// ListArtifactsByTask returns artifacts linked to a task, newest first.
 func ListArtifactsByTask(db *sql.DB, taskID string, limit int) ([]*models.Artifact, error) {
 	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
+		return nil, errors.New("task ID is required")
 	}
 	if limit <= 0 {
 		limit = 50
@@ -184,7 +190,7 @@ func ListArtifactsByTask(db *sql.DB, taskID string, limit int) ([]*models.Artifa
 
 	var out []*models.Artifact
 	err := RetryWithBackoff(func() error {
-		rows, err := db.Query(`
+		rows, err := db.QueryContext(context.Background(), `
 			SELECT id, task_id, event_id, file_path, content_type, created_at
 			FROM artifacts
 			WHERE task_id = ?
@@ -194,7 +200,7 @@ func ListArtifactsByTask(db *sql.DB, taskID string, limit int) ([]*models.Artifa
 		if err != nil {
 			return fmt.Errorf("failed to list artifacts: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		out = make([]*models.Artifact, 0)
 		for rows.Next() {
@@ -229,8 +235,8 @@ func resolveTaskProjectIDTx(tx *sql.Tx, taskID string) (any, error) {
 	}
 
 	var projectID sql.NullString
-	err := tx.QueryRow(`SELECT project_id FROM tasks WHERE id = ?`, taskID).Scan(&projectID)
-	if err == sql.ErrNoRows {
+	err := tx.QueryRowContext(context.Background(), `SELECT project_id FROM tasks WHERE id = ?`, taskID).Scan(&projectID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

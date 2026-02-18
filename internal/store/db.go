@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -72,17 +73,17 @@ func InitDBWithPath(dbPath string) (*sql.DB, error) {
 
 	for _, pragma := range pragmas {
 		if err := RetryWithBackoff(func() error {
-			_, err := db.Exec(pragma)
+			_, err := db.ExecContext(context.Background(), pragma)
 			return err
 		}); err != nil {
-			db.Close()
+			_ = db.Close()
 			return nil, fmt.Errorf("failed to set pragma %q: %w", pragma, err)
 		}
 	}
 
 	// Run migrations
 	if err := RetryWithBackoff(func() error { return RunMigrations(db) }); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 

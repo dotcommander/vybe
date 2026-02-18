@@ -1,10 +1,12 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 )
 
+// StatusCounts holds summary counts for all entity types tracked by vybe.
 type StatusCounts struct {
 	Tasks        TaskStatusCounts `json:"tasks"`
 	Events       int              `json:"events"`
@@ -17,6 +19,7 @@ type StatusCounts struct {
 	TasksDetail  *TasksDetail     `json:"tasks_detail,omitempty"`
 }
 
+// TaskStatusCounts breaks down task counts by status.
 type TaskStatusCounts struct {
 	Pending    int `json:"pending"`
 	InProgress int `json:"in_progress"`
@@ -24,11 +27,13 @@ type TaskStatusCounts struct {
 	Blocked    int `json:"blocked"`
 }
 
+// EventsDetail breaks down event counts by archive state.
 type EventsDetail struct {
 	Active   int `json:"active"`
 	Archived int `json:"archived"`
 }
 
+// MemoryDetail breaks down memory entry counts by health/state.
 type MemoryDetail struct {
 	Active     int `json:"active"`
 	Stale      int `json:"stale"`
@@ -36,10 +41,12 @@ type MemoryDetail struct {
 	Expired    int `json:"expired"`
 }
 
+// AgentsDetail provides agent activity counts.
 type AgentsDetail struct {
 	Active7d int `json:"active_7d"`
 }
 
+// TasksDetail provides additional task counts beyond status buckets.
 type TasksDetail struct {
 	Total   int `json:"total"`
 	Unknown int `json:"unknown"`
@@ -54,7 +61,7 @@ func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 	var taskTotal, taskUnknown int
 
 	err := RetryWithBackoff(func() error {
-		return db.QueryRow(`
+		return db.QueryRowContext(context.Background(), `
 			SELECT
 				COALESCE((SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) FROM tasks), 0),
 				COALESCE((SELECT SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) FROM tasks), 0),

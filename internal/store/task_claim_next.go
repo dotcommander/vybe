@@ -1,8 +1,10 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -24,9 +26,11 @@ type ClaimNextTaskResult struct {
 // ORDER BY priority DESC, created_at ASC.
 //
 // Returns empty TaskID + nil error when no work is available.
+//
+//nolint:funlen // claim-next atomically selects, claims, transitions, and emits two events — all phases must be in the same transaction
 func ClaimNextTaskTx(tx *sql.Tx, agentName, projectID string, ttlMinutes int) (*ClaimNextTaskResult, error) {
 	if agentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 	if ttlMinutes <= 0 {
 		ttlMinutes = 5
@@ -56,8 +60,8 @@ func ClaimNextTaskTx(tx *sql.Tx, agentName, projectID string, ttlMinutes int) (*
 
 	var taskID string
 	var version int
-	err := tx.QueryRow(query, args...).Scan(&taskID, &version)
-	if err == sql.ErrNoRows {
+	err := tx.QueryRowContext(context.Background(), query, args...).Scan(&taskID, &version)
+	if errors.Is(err, sql.ErrNoRows) {
 		return &ClaimNextTaskResult{}, nil
 	}
 	if err != nil {
@@ -65,7 +69,7 @@ func ClaimNextTaskTx(tx *sql.Tx, agentName, projectID string, ttlMinutes int) (*
 	}
 
 	// Set status to in_progress with CAS.
-	res, err := tx.Exec(`
+	res, err := tx.ExecContext(context.Background(), `
 		UPDATE tasks
 		SET status = 'in_progress', version = version + 1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND version = ?
@@ -93,8 +97,8 @@ func ClaimNextTaskTx(tx *sql.Tx, agentName, projectID string, ttlMinutes int) (*
 	}
 
 	// Claim the task.
-	if err := ClaimTaskTx(tx, agentName, taskID, ttlMinutes); err != nil {
-		return nil, fmt.Errorf("failed to claim task: %w", err)
+	if claimErr := ClaimTaskTx(tx, agentName, taskID, ttlMinutes); claimErr != nil {
+		return nil, fmt.Errorf("failed to claim task: %w", claimErr)
 	}
 
 	// Emit task_claimed event with metadata.

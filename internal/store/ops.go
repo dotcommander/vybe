@@ -1,8 +1,10 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -21,7 +23,7 @@ func attemptIdempotent[T any](
 	agentName, requestID, command string,
 	operation func(tx *sql.Tx) (T, error),
 ) attemptResult[T] {
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return attemptResult[T]{err: fmt.Errorf("failed to begin transaction: %w", err), done: true}
 	}
@@ -34,12 +36,12 @@ func attemptIdempotent[T any](
 
 	if done {
 		var result T
-		if err := json.Unmarshal([]byte(existing), &result); err != nil {
+		if unmarshalErr := json.Unmarshal([]byte(existing), &result); unmarshalErr != nil {
 			_ = tx.Rollback()
-			return attemptResult[T]{err: fmt.Errorf("failed to decode idempotency result: %w", err), done: true}
+			return attemptResult[T]{err: fmt.Errorf("failed to decode idempotency result: %w", unmarshalErr), done: true}
 		}
-		if err := tx.Commit(); err != nil {
-			return attemptResult[T]{err: fmt.Errorf("failed to commit transaction: %w", err), done: true}
+		if commitErr := tx.Commit(); commitErr != nil {
+			return attemptResult[T]{err: fmt.Errorf("failed to commit transaction: %w", commitErr), done: true}
 		}
 		return attemptResult[T]{result: result, replayed: true, done: true}
 	}
@@ -77,6 +79,8 @@ func RunIdempotent[T any](db *sql.DB, agentName, requestID, command string, oper
 
 // RunIdempotentWithRetry executes an idempotent operation with bounded retry on caller-defined retryable errors.
 // Returns replayed=true when the result is loaded from an existing idempotency record.
+//
+//nolint:revive // argument-limit: generics + idempotency params + retry config all required together
 func RunIdempotentWithRetry[T any](
 	db *sql.DB,
 	agentName, requestID, command string,
@@ -100,5 +104,5 @@ func RunIdempotentWithRetry[T any](
 		// else: continue to next attempt
 	}
 
-	return result, false, fmt.Errorf("idempotent operation exhausted retry attempts")
+	return result, false, errors.New("idempotent operation exhausted retry attempts")
 }

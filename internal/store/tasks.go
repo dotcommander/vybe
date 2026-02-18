@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -32,13 +34,13 @@ func CreateTask(db *sql.DB, title, description, projectID string, priority int) 
 
 // CreateTaskTx inserts and returns a task inside an existing transaction.
 func CreateTaskTx(tx *sql.Tx, title, description, projectID string, priority int) (*models.Task, error) {
-	taskID := GenerateTaskID()
+	taskID := generateTaskID()
 	var projVal any
 	if projectID != "" {
 		projVal = projectID
 	}
 
-	result, err := tx.Exec(`
+	result, err := tx.ExecContext(context.Background(), `
 		INSERT INTO tasks (id, title, description, status, priority, project_id, version, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, taskID, title, description, "pending", priority, projVal)
@@ -51,10 +53,10 @@ func CreateTaskTx(tx *sql.Tx, title, description, projectID string, priority int
 		return nil, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		return nil, fmt.Errorf("failed to insert task: no rows affected")
+		return nil, errors.New("failed to insert task: no rows affected")
 	}
 
-	row := tx.QueryRow(`
+	row := tx.QueryRowContext(context.Background(), `
 		SELECT id, title, description, status, priority, project_id, blocked_reason, claimed_by, claimed_at, claim_expires_at, last_heartbeat_at, attempt, version, created_at, updated_at
 		FROM tasks WHERE id = ?
 	`, taskID)
@@ -70,8 +72,8 @@ func CreateTaskTx(tx *sql.Tx, title, description, projectID string, priority int
 // GetTaskVersionTx loads only the version for optimistic concurrency updates.
 func GetTaskVersionTx(tx *sql.Tx, taskID string) (int, error) {
 	var version int
-	err := tx.QueryRow(`SELECT version FROM tasks WHERE id = ?`, taskID).Scan(&version)
-	if err == sql.ErrNoRows {
+	err := tx.QueryRowContext(context.Background(), `SELECT version FROM tasks WHERE id = ?`, taskID).Scan(&version)
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("task not found: %s", taskID)
 	}
 	if err != nil {
@@ -83,7 +85,7 @@ func GetTaskVersionTx(tx *sql.Tx, taskID string) (int, error) {
 
 // UpdateTaskStatusWithEventTx updates task status and appends task_status event atomically in-tx.
 func UpdateTaskStatusWithEventTx(tx *sql.Tx, agentName, taskID, status string, version int) (int64, error) {
-	result, err := tx.Exec(`
+	result, err := tx.ExecContext(context.Background(), `
 		UPDATE tasks
 		SET status = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND version = ?
@@ -112,7 +114,7 @@ func UpdateTaskStatusWithEventTx(tx *sql.Tx, agentName, taskID, status string, v
 // Returns ErrVersionConflict if the version has changed since read.
 func UpdateTaskStatus(db *sql.DB, taskID, status string, version int) error {
 	return RetryWithBackoff(func() error {
-		result, err := db.Exec(`
+		result, err := db.ExecContext(context.Background(), `
 			UPDATE tasks
 			SET status = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND version = ?
@@ -139,8 +141,8 @@ func GetTask(db *sql.DB, taskID string) (*models.Task, error) {
 	return getTaskByQuerier(db, taskID)
 }
 
-// GetTaskTx retrieves a task by ID in an existing transaction.
-func GetTaskTx(tx *sql.Tx, taskID string) (*models.Task, error) {
+// getTaskTx retrieves a task by ID in an existing transaction.
+func getTaskTx(tx *sql.Tx, taskID string) (*models.Task, error) {
 	return getTaskByQuerier(tx, taskID)
 }
 
@@ -151,7 +153,7 @@ func getTaskByQuerier(q Querier, taskID string) (*models.Task, error) {
 	`, taskID)
 
 	task, err := scanTaskRow(row)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
 	if err != nil {
@@ -179,7 +181,7 @@ func loadTaskDependencies(q Querier, taskID string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query task dependencies: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var deps []string
 	for rows.Next() {
@@ -198,7 +200,7 @@ func loadTaskDependencies(q Querier, taskID string) ([]string, error) {
 
 // UpdateTaskPriorityWithEventTx updates task priority and appends task_priority_changed event atomically in-tx.
 func UpdateTaskPriorityWithEventTx(tx *sql.Tx, agentName, taskID string, priority, version int) (int64, error) {
-	result, err := tx.Exec(`
+	result, err := tx.ExecContext(context.Background(), `
 		UPDATE tasks
 		SET priority = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND version = ?
@@ -244,17 +246,18 @@ func ListTasks(db *sql.DB, statusFilter, projectFilter string, priorityFilter in
 
 	query += ` ORDER BY priority DESC, created_at DESC`
 
-	rows, err := db.Query(query, args...)
+	rows, err := db.QueryContext(context.Background(), query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tasks: %w", err)
 	}
+	defer func() { _ = rows.Close() }()
 
 	var tasks []*models.Task
 	var taskIDs []string
 	for rows.Next() {
 		scanner := &taskRowScanner{}
-		if err := scanner.scan(rows); err != nil {
-			return nil, fmt.Errorf("failed to scan task row: %w", err)
+		if scanErr := scanner.scan(rows); scanErr != nil {
+			return nil, fmt.Errorf("failed to scan task row: %w", scanErr)
 		}
 		scanner.hydrate()
 		task := scanner.getTask()
@@ -262,19 +265,15 @@ func ListTasks(db *sql.DB, statusFilter, projectFilter string, priorityFilter in
 		taskIDs = append(taskIDs, task.ID)
 	}
 
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, fmt.Errorf("error iterating task rows: %w", err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close task rows: %w", err)
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("error iterating task rows: %w", rowsErr)
 	}
 
 	// Batch-load all dependencies if we have tasks
 	if len(taskIDs) > 0 {
-		depsMap, err := batchLoadTaskDependencies(db, taskIDs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to batch-load dependencies: %w", err)
+		depsMap, depsErr := batchLoadTaskDependencies(db, taskIDs)
+		if depsErr != nil {
+			return nil, fmt.Errorf("failed to batch-load dependencies: %w", depsErr)
 		}
 
 		// Assign dependencies to each task
@@ -288,6 +287,8 @@ func ListTasks(db *sql.DB, statusFilter, projectFilter string, priorityFilter in
 
 // batchLoadTaskDependencies loads dependencies for multiple tasks in batches,
 // respecting SQLite's SQLITE_MAX_VARIABLE_NUMBER limit (999).
+//
+//nolint:gocognit // batch loop with inline IIFE for deferred close; placeholder building adds structural branches that inflate the metric
 func batchLoadTaskDependencies(db *sql.DB, taskIDs []string) (map[string][]string, error) {
 	depsMap := make(map[string][]string)
 
@@ -310,6 +311,8 @@ func batchLoadTaskDependencies(db *sql.DB, taskIDs []string) (map[string][]strin
 			placeholders = append(placeholders, '?')
 		}
 
+		// placeholders contains only '?' and ',' — no user input, safe to format.
+		//nolint:gosec // G201: placeholders is built from safe byte literals ('?' and ',') only — no user input
 		query := fmt.Sprintf(`
 			SELECT task_id, depends_on_task_id
 			FROM task_dependencies
@@ -323,26 +326,23 @@ func batchLoadTaskDependencies(db *sql.DB, taskIDs []string) (map[string][]strin
 			queryArgs[j] = id
 		}
 
-		rows, err := db.Query(query, queryArgs...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query task dependencies batch: %w", err)
-		}
-
-		for rows.Next() {
-			var taskID, depID string
-			if err := rows.Scan(&taskID, &depID); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("failed to scan task dependency: %w", err)
+		if scanErr := func() error {
+			rows, err := db.QueryContext(context.Background(), query, queryArgs...)
+			if err != nil {
+				return fmt.Errorf("failed to query task dependencies batch: %w", err)
 			}
-			depsMap[taskID] = append(depsMap[taskID], depID)
-		}
+			defer func() { _ = rows.Close() }()
 
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return nil, fmt.Errorf("error iterating task dependencies: %w", err)
-		}
-		if err := rows.Close(); err != nil {
-			return nil, fmt.Errorf("failed to close task dependencies rows: %w", err)
+			for rows.Next() {
+				var taskID, depID string
+				if err := rows.Scan(&taskID, &depID); err != nil {
+					return fmt.Errorf("failed to scan task dependency: %w", err)
+				}
+				depsMap[taskID] = append(depsMap[taskID], depID)
+			}
+			return rows.Err()
+		}(); scanErr != nil {
+			return nil, scanErr
 		}
 	}
 
@@ -356,14 +356,14 @@ func SetBlockedReasonTx(tx *sql.Tx, taskID, reason string) error {
 	if reason != "" {
 		val = reason
 	}
-	_, err := tx.Exec(`UPDATE tasks SET blocked_reason = ? WHERE id = ?`, val, taskID)
+	_, err := tx.ExecContext(context.Background(), `UPDATE tasks SET blocked_reason = ? WHERE id = ?`, val, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to set blocked_reason: %w", err)
 	}
 	return nil
 }
 
-// GenerateTaskID generates a task ID using pattern: task_<unix_nano>_<random_hex>.
-func GenerateTaskID() string {
+// generateTaskID generates a task ID using pattern: task_<unix_nano>_<random_hex>.
+func generateTaskID() string {
 	return generatePrefixedID("task")
 }

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/dotcommander/vybe/internal/models"
 )
 
+// ListEventsParams configures the ListEvents query.
 type ListEventsParams struct {
 	AgentName       string
 	ProjectID       string
@@ -19,6 +21,9 @@ type ListEventsParams struct {
 	IncludeArchived bool
 }
 
+// ListEvents retrieves events matching the given params, supporting optional filtering by task, project, agent, kind, and archive status.
+//
+//nolint:gocognit,gocyclo,funlen,revive // dynamic query building across many optional filter params (task, project, agent, kind, archived) requires many branches
 func ListEvents(db *sql.DB, p ListEventsParams) ([]*models.Event, error) {
 	if p.Limit <= 0 {
 		p.Limit = 50
@@ -39,7 +44,7 @@ func ListEvents(db *sql.DB, p ListEventsParams) ([]*models.Event, error) {
 		args = append(args, p.TaskID)
 	}
 	if p.ProjectID != "" {
-		where = append(where, "(project_id = ? OR project_id IS NULL)")
+		where = append(where, ProjectScopeClause)
 		args = append(args, p.ProjectID)
 	}
 	if p.Kind != "" {
@@ -71,11 +76,11 @@ func ListEvents(db *sql.DB, p ListEventsParams) ([]*models.Event, error) {
 
 	var out []*models.Event
 	err := RetryWithBackoff(func() error {
-		rows, err := db.Query(query, args...)
+		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to list events: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		out = make([]*models.Event, 0)
 		for rows.Next() {

@@ -1,19 +1,26 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/dotcommander/vybe/internal/models"
 )
 
+// Event payload size constraints enforced by ValidateEventPayload.
 const (
 	MaxEventKindLength      = 128
 	MaxEventAgentNameLength = 128
 	MaxEventMessageLength   = 4096
 	MaxEventMetadataLength  = 16384
+
+	// ProjectScopeClause is the SQL fragment for filtering events to a specific
+	// project plus global (NULL project_id) events. Use with a single ? arg.
+	ProjectScopeClause = "(project_id = ? OR project_id IS NULL)"
 )
 
 // ValidateEventPayload enforces event payload constraints for durability and safety.
@@ -23,19 +30,19 @@ func ValidateEventPayload(kind, agentName, message, metadata string) error {
 	message = strings.TrimSpace(message)
 
 	if kind == "" {
-		return fmt.Errorf("event kind is required")
+		return errors.New("event kind is required")
 	}
 	if len(kind) > MaxEventKindLength {
 		return fmt.Errorf("event kind exceeds max length (%d)", MaxEventKindLength)
 	}
 	if agentName == "" {
-		return fmt.Errorf("agent name is required")
+		return errors.New("agent name is required")
 	}
 	if len(agentName) > MaxEventAgentNameLength {
 		return fmt.Errorf("agent name exceeds max length (%d)", MaxEventAgentNameLength)
 	}
 	if message == "" {
-		return fmt.Errorf("event message is required")
+		return errors.New("event message is required")
 	}
 	if len(message) > MaxEventMessageLength {
 		return fmt.Errorf("event message exceeds max length (%d)", MaxEventMessageLength)
@@ -45,13 +52,14 @@ func ValidateEventPayload(kind, agentName, message, metadata string) error {
 			return fmt.Errorf("event metadata exceeds max length (%d)", MaxEventMetadataLength)
 		}
 		if !json.Valid([]byte(metadata)) {
-			return fmt.Errorf("event metadata must be valid JSON")
+			return errors.New("event metadata must be valid JSON")
 		}
 	}
 
 	return nil
 }
 
+//nolint:revive // argument-limit: event params (kind, agent, task, msg, metadata) are all required
 func insertEventRowTx(tx *sql.Tx, kind, agentName, taskID, message, metadata string) (int64, error) {
 	if err := ValidateEventPayload(kind, agentName, message, metadata); err != nil {
 		return 0, err
@@ -67,7 +75,7 @@ func insertEventRowTx(tx *sql.Tx, kind, agentName, taskID, message, metadata str
 		return 0, err
 	}
 
-	result, err := tx.Exec(`
+	result, err := tx.ExecContext(context.Background(), `
 		INSERT INTO events (kind, agent_name, project_id, task_id, message, metadata)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, kind, agentName, projectID, taskID, message, meta)
@@ -85,25 +93,33 @@ func insertEventRowTx(tx *sql.Tx, kind, agentName, taskID, message, metadata str
 
 func resolveEventProjectIDTx(tx *sql.Tx, agentName, taskID string) (any, error) {
 	if taskID != "" {
-		var taskProjectID sql.NullString
-		err := tx.QueryRow(`SELECT project_id FROM tasks WHERE id = ?`, taskID).Scan(&taskProjectID)
-		if err == nil {
-			if taskProjectID.Valid {
-				return taskProjectID.String, nil
-			}
-			return nil, nil
-		}
-		if err != sql.ErrNoRows {
-			return nil, fmt.Errorf("failed to resolve event project from task: %w", err)
-		}
+		return resolveProjectFromTaskTx(tx, taskID)
 	}
+	return resolveProjectFromAgentFocusTx(tx, agentName)
+}
 
+func resolveProjectFromTaskTx(tx *sql.Tx, taskID string) (any, error) {
+	var taskProjectID sql.NullString
+	err := tx.QueryRowContext(context.Background(), `SELECT project_id FROM tasks WHERE id = ?`, taskID).Scan(&taskProjectID)
+	if err == nil {
+		if taskProjectID.Valid {
+			return taskProjectID.String, nil
+		}
+		return nil, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to resolve event project from task: %w", err)
+	}
+	return nil, nil
+}
+
+func resolveProjectFromAgentFocusTx(tx *sql.Tx, agentName string) (any, error) {
 	if agentName == "" {
 		return nil, nil
 	}
 
 	var focusProjectID sql.NullString
-	err := tx.QueryRow(`SELECT focus_project_id FROM agent_state WHERE agent_name = ?`, agentName).Scan(&focusProjectID)
+	err := tx.QueryRowContext(context.Background(), `SELECT focus_project_id FROM agent_state WHERE agent_name = ?`, agentName).Scan(&focusProjectID)
 	if err == nil {
 		if focusProjectID.Valid {
 			return focusProjectID.String, nil
@@ -117,6 +133,8 @@ func resolveEventProjectIDTx(tx *sql.Tx, agentName, taskID string) (any, error) 
 }
 
 // InsertEventTx validates and inserts an event inside an existing transaction.
+//
+//nolint:revive // argument-limit: event params (kind, agent, task, msg, metadata) are all required
 func InsertEventTx(tx *sql.Tx, kind, agentName, taskID, message, metadata string) (int64, error) {
 	return insertEventRowTx(tx, kind, agentName, taskID, message, metadata)
 }
@@ -124,6 +142,8 @@ func InsertEventTx(tx *sql.Tx, kind, agentName, taskID, message, metadata string
 // InsertEventWithProjectTx inserts an event with an explicit project_id, bypassing
 // the automatic project resolution. Used by ingest commands where the source data
 // knows the project but the agent_state may not reflect it.
+//
+//nolint:revive // argument-limit: event params (kind, agent, project, task, msg, metadata) are all required
 func InsertEventWithProjectTx(tx *sql.Tx, kind, agentName, projectID, taskID, message, metadata string) (int64, error) {
 	if err := ValidateEventPayload(kind, agentName, message, metadata); err != nil {
 		return 0, err
@@ -139,7 +159,7 @@ func InsertEventWithProjectTx(tx *sql.Tx, kind, agentName, projectID, taskID, me
 		projVal = projectID
 	}
 
-	result, err := tx.Exec(`
+	result, err := tx.ExecContext(context.Background(), `
 		INSERT INTO events (kind, agent_name, project_id, task_id, message, metadata)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, kind, agentName, projVal, taskID, message, meta)
@@ -152,6 +172,8 @@ func InsertEventWithProjectTx(tx *sql.Tx, kind, agentName, projectID, taskID, me
 
 // AppendEventWithProjectAndMetadataIdempotent inserts an event with explicit project_id,
 // idempotent on (agent_name, request_id).
+//
+//nolint:revive // argument-limit: all 8 event params (agent, req, kind, project, task, msg, metadata) required for idempotent path
 func AppendEventWithProjectAndMetadataIdempotent(db *sql.DB, agentName, requestID, kind, projectID, taskID, message, metadata string) (int64, error) {
 	if err := ValidateEventPayload(kind, agentName, message, metadata); err != nil {
 		return 0, err
@@ -172,33 +194,10 @@ func AppendEventWithProjectAndMetadataIdempotent(db *sql.DB, agentName, requestI
 	return r.EventID, nil
 }
 
-// AppendEvent appends a new event to the event log.
-// Uses transaction and returns the newly created event ID.
-// Wrapped in retry logic for transient SQLite errors.
-func AppendEvent(db *sql.DB, kind, agentName, taskID, message string) (int64, error) {
-	if err := ValidateEventPayload(kind, agentName, message, ""); err != nil {
-		return 0, err
-	}
-	var eventID int64
-
-	err := Transact(db, func(tx *sql.Tx) error {
-		id, err := insertEventRowTx(tx, kind, agentName, taskID, message, "")
-		if err != nil {
-			return err
-		}
-		eventID = id
-		return nil
-	})
-
-	if err != nil {
-		return 0, err
-	}
-
-	return eventID, nil
-}
-
 // AppendEventIdempotent appends a new event once per (agent_name, request_id).
 // On retries with the same request id, it returns the previously-created event id.
+//
+//nolint:revive // argument-limit: event params (agent, req, kind, task, msg) are all required
 func AppendEventIdempotent(db *sql.DB, agentName, requestID, kind, taskID, message string) (int64, error) {
 	if err := ValidateEventPayload(kind, agentName, message, ""); err != nil {
 		return 0, err
@@ -219,30 +218,9 @@ func AppendEventIdempotent(db *sql.DB, agentName, requestID, kind, taskID, messa
 	return r.EventID, nil
 }
 
-// AppendEventWithMetadata appends an event with JSON metadata
-func AppendEventWithMetadata(db *sql.DB, kind, agentName, taskID, message, metadata string) (int64, error) {
-	if err := ValidateEventPayload(kind, agentName, message, metadata); err != nil {
-		return 0, err
-	}
-	var eventID int64
-
-	err := Transact(db, func(tx *sql.Tx) error {
-		id, err := insertEventRowTx(tx, kind, agentName, taskID, message, metadata)
-		if err != nil {
-			return err
-		}
-		eventID = id
-		return nil
-	})
-
-	if err != nil {
-		return 0, err
-	}
-
-	return eventID, nil
-}
-
 // AppendEventWithMetadataIdempotent is the metadata variant of AppendEventIdempotent.
+//
+//nolint:revive // argument-limit: event params (agent, req, kind, task, msg, metadata) are all required
 func AppendEventWithMetadataIdempotent(db *sql.DB, agentName, requestID, kind, taskID, message, metadata string) (int64, error) {
 	if err := ValidateEventPayload(kind, agentName, message, metadata); err != nil {
 		return 0, err
@@ -266,22 +244,24 @@ func AppendEventWithMetadataIdempotent(db *sql.DB, agentName, requestID, kind, t
 // ArchiveEventsRangeWithSummaryIdempotent marks events in an ID range as archived and appends
 // a single summary event for continuity compression.
 // When projectID is non-empty, only events matching that project (or with NULL project) are archived.
+//
+//nolint:revive // argument-limit: all 8 params (agent, req, project, task, from, to, summary) required together
 func ArchiveEventsRangeWithSummaryIdempotent(db *sql.DB, agentName, requestID, projectID, taskID string, fromID, toID int64, summary string) (summaryEventID int64, archivedCount int64, err error) {
 	if agentName == "" {
-		return 0, 0, fmt.Errorf("agent name is required")
+		return 0, 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return 0, 0, fmt.Errorf("request id is required")
+		return 0, 0, errors.New("request id is required")
 	}
 	if fromID <= 0 || toID <= 0 {
-		return 0, 0, fmt.Errorf("from-id and to-id must be > 0")
+		return 0, 0, errors.New("from-id and to-id must be > 0")
 	}
 	if fromID > toID {
-		return 0, 0, fmt.Errorf("from-id must be <= to-id")
+		return 0, 0, errors.New("from-id must be <= to-id")
 	}
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
-		return 0, 0, fmt.Errorf("summary is required")
+		return 0, 0, errors.New("summary is required")
 	}
 
 	type idemResult struct {
@@ -297,7 +277,7 @@ func ArchiveEventsRangeWithSummaryIdempotent(db *sql.DB, agentName, requestID, p
 		`
 		args := []any{fromID, toID}
 		if projectID != "" {
-			updateSQL += " AND (project_id = ? OR project_id IS NULL)"
+			updateSQL += " AND " + ProjectScopeClause
 			args = append(args, projectID)
 		}
 		if taskID != "" {
@@ -305,27 +285,27 @@ func ArchiveEventsRangeWithSummaryIdempotent(db *sql.DB, agentName, requestID, p
 			args = append(args, taskID)
 		}
 
-		res, err := tx.Exec(updateSQL, args...)
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to archive events: %w", err)
+		res, txErr := tx.ExecContext(context.Background(), updateSQL, args...)
+		if txErr != nil {
+			return idemResult{}, fmt.Errorf("failed to archive events: %w", txErr)
 		}
-		archivedCount, err := res.RowsAffected()
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to count archived events: %w", err)
+		archivedCount, txErr := res.RowsAffected()
+		if txErr != nil {
+			return idemResult{}, fmt.Errorf("failed to count archived events: %w", txErr)
 		}
 
-		metaBytes, err := json.Marshal(map[string]any{
+		metaBytes, txErr := json.Marshal(map[string]any{
 			"archived_from_id": fromID,
 			"archived_to_id":   toID,
 			"archived_count":   archivedCount,
 		})
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to marshal summary metadata: %w", err)
+		if txErr != nil {
+			return idemResult{}, fmt.Errorf("failed to marshal summary metadata: %w", txErr)
 		}
 
-		summaryEventID, err := insertEventRowTx(tx, models.EventKindEventsSummary, agentName, taskID, summary, string(metaBytes))
-		if err != nil {
-			return idemResult{}, err
+		summaryEventID, txErr := insertEventRowTx(tx, models.EventKindEventsSummary, agentName, taskID, summary, string(metaBytes))
+		if txErr != nil {
+			return idemResult{}, txErr
 		}
 
 		return idemResult{SummaryEventID: summaryEventID, ArchivedCount: archivedCount}, nil
@@ -345,10 +325,10 @@ func CountActiveEvents(db *sql.DB, projectID string) (int64, error) {
 		query := `SELECT COUNT(*) FROM events WHERE archived_at IS NULL`
 		args := []any{}
 		if projectID != "" {
-			query += ` AND (project_id = ? OR project_id IS NULL)`
+			query += ` AND ` + ProjectScopeClause
 			args = append(args, projectID)
 		}
-		return db.QueryRow(query, args...).Scan(&count)
+		return db.QueryRowContext(context.Background(), query, args...).Scan(&count)
 	})
 	if err != nil {
 		return 0, fmt.Errorf("count active events: %w", err)
@@ -371,7 +351,7 @@ func FindArchiveWindow(db *sql.DB, projectID string, keepRecent int) (fromID, to
 		`
 		args := []any{}
 		if projectID != "" {
-			query += ` AND (project_id = ? OR project_id IS NULL)`
+			query += ` AND ` + ProjectScopeClause
 			args = append(args, projectID)
 		}
 		query += `
@@ -381,7 +361,7 @@ func FindArchiveWindow(db *sql.DB, projectID string, keepRecent int) (fromID, to
 					WHERE archived_at IS NULL
 		`
 		if projectID != "" {
-			query += ` AND (project_id = ? OR project_id IS NULL)`
+			query += ` AND ` + ProjectScopeClause
 			args = append(args, keepRecent, projectID)
 		} else {
 			args = append(args, keepRecent)
@@ -391,7 +371,7 @@ func FindArchiveWindow(db *sql.DB, projectID string, keepRecent int) (fromID, to
 			)
 		`
 		var minID, maxID sql.NullInt64
-		if scanErr := db.QueryRow(query, args...).Scan(&minID, &maxID); scanErr != nil {
+		if scanErr := db.QueryRowContext(context.Background(), query, args...).Scan(&minID, &maxID); scanErr != nil {
 			return scanErr
 		}
 		if !minID.Valid || !maxID.Valid {

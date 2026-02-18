@@ -1,8 +1,10 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -53,7 +55,7 @@ func GetLastCheckpointEvent(db *sql.DB, agentName, projectID string) (*models.Ev
 		args := []interface{}{models.EventKindCheckpoint, agentName}
 
 		if projectID != "" {
-			where = append(where, "(project_id = ? OR project_id IS NULL)")
+			where = append(where, ProjectScopeClause)
 			args = append(args, projectID)
 		}
 
@@ -61,12 +63,12 @@ func GetLastCheckpointEvent(db *sql.DB, agentName, projectID string) (*models.Ev
 			strings.Join(where, " AND ") +
 			" ORDER BY id DESC LIMIT 1"
 
-		return db.QueryRow(query, args...).Scan(
+		return db.QueryRowContext(context.Background(), query, args...).Scan(
 			&evt.ID, &evt.Kind, &evt.AgentName, &projID, &taskID, &evt.Message, &meta, &evt.CreatedAt,
 		)
 	})
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

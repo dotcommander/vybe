@@ -3,9 +3,15 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dotcommander/vybe/internal/models"
+)
+
+const (
+	taskStatusCompleted = "completed"
+	taskStatusBlocked   = "blocked"
 )
 
 // CloseTaskResult holds the IDs produced by a close-task operation.
@@ -31,16 +37,16 @@ type CloseTaskParams struct {
 // Status must be "completed" or "blocked".
 func CloseTaskTx(tx *sql.Tx, p CloseTaskParams) (*CloseTaskResult, error) {
 	if p.AgentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 	if p.TaskID == "" {
-		return nil, fmt.Errorf("task ID is required")
+		return nil, errors.New("task ID is required")
 	}
-	if p.Status != "completed" && p.Status != "blocked" {
+	if p.Status != taskStatusCompleted && p.Status != taskStatusBlocked {
 		return nil, fmt.Errorf("close status must be completed or blocked, got: %s", p.Status)
 	}
 	if p.Summary == "" {
-		return nil, fmt.Errorf("summary is required")
+		return nil, errors.New("summary is required")
 	}
 
 	// CAS status update.
@@ -60,16 +66,16 @@ func CloseTaskTx(tx *sql.Tx, p CloseTaskParams) (*CloseTaskResult, error) {
 	_ = ReleaseTaskClaimTx(tx, p.AgentName, p.TaskID)
 
 	// Unblock dependents if completed.
-	if p.Status == "completed" {
+	if p.Status == taskStatusCompleted {
 		if _, ubErr := UnblockDependentsTx(tx, p.TaskID); ubErr != nil {
 			return nil, fmt.Errorf("failed to unblock dependents: %w", ubErr)
 		}
 	}
 
 	// Always set/clear blocked_reason when blocked to avoid stale values.
-	if p.Status == "blocked" {
-		if err := SetBlockedReasonTx(tx, p.TaskID, p.BlockedReason); err != nil {
-			return nil, fmt.Errorf("failed to set blocked reason: %w", err)
+	if p.Status == taskStatusBlocked {
+		if setErr := SetBlockedReasonTx(tx, p.TaskID, p.BlockedReason); setErr != nil {
+			return nil, fmt.Errorf("failed to set blocked reason: %w", setErr)
 		}
 	}
 

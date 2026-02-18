@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,7 +16,40 @@ import (
 const (
 	MinMemoryConfidence = 0.3
 	MemoryRecencyDays   = 14
+
+	// statusInProgress is the task status constant used in focus selection rules.
+	statusInProgress = "in_progress"
+	// statusBlocked is the task status constant used in focus selection rules.
+	statusBlocked = "blocked"
+	// andProjectIDFilter is the SQL fragment for filtering tasks to a project.
+	andProjectIDFilter = " AND project_id = ?"
 )
+
+// scanEventRows extracts the repeated 8-column event scan loop used by all event
+// fetch functions. Handles NullString decoding for project_id and metadata.
+func scanEventRows(rows *sql.Rows) ([]*models.Event, error) {
+	var events []*models.Event
+	for rows.Next() {
+		var event models.Event
+		var eventProjectID sql.NullString
+		var metadata sql.NullString
+		if err := rows.Scan(
+			&event.ID, &event.Kind, &event.AgentName, &eventProjectID,
+			&event.TaskID, &event.Message, &metadata, &event.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan event: %w", err)
+		}
+		if eventProjectID.Valid {
+			event.ProjectID = eventProjectID.String
+		}
+		event.Metadata = decodeEventMetadata(metadata)
+		events = append(events, &event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
 
 // PipelineTask is a lightweight task reference for discovery context.
 type PipelineTask struct {
@@ -39,6 +74,8 @@ type BriefPacket struct {
 
 // FetchEventsSince retrieves events after a cursor position.
 // When projectID is non-empty, events are scoped to that project plus global events.
+//
+//nolint:dupl // FetchSessionEvents has a similar structure but different SQL filter and default limit
 func FetchEventsSince(db *sql.DB, cursorID int64, limit int, projectID string) ([]*models.Event, error) {
 	if limit <= 0 {
 		limit = 1000
@@ -54,46 +91,20 @@ func FetchEventsSince(db *sql.DB, cursorID int64, limit int, projectID string) (
 		`
 		args := []any{cursorID}
 		if projectID != "" {
-			query += " AND (project_id = ? OR project_id IS NULL)"
+			query += " AND " + ProjectScopeClause
 			args = append(args, projectID)
 		}
 		query += " ORDER BY id ASC LIMIT ?"
 		args = append(args, limit)
 
-		rows, err := db.Query(query, args...)
+		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to fetch events: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
-		events = make([]*models.Event, 0)
-		for rows.Next() {
-			var event models.Event
-			var eventProjectID sql.NullString
-			var metadata sql.NullString
-			err := rows.Scan(
-				&event.ID,
-				&event.Kind,
-				&event.AgentName,
-				&eventProjectID,
-				&event.TaskID,
-				&event.Message,
-				&metadata,
-				&event.CreatedAt,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to scan event: %w", err)
-			}
-
-			if eventProjectID.Valid {
-				event.ProjectID = eventProjectID.String
-			}
-			event.Metadata = decodeEventMetadata(metadata)
-
-			events = append(events, &event)
-		}
-
-		return rows.Err()
+		events, err = scanEventRows(rows)
+		return err
 	})
 
 	if err != nil {
@@ -103,61 +114,82 @@ func FetchEventsSince(db *sql.DB, cursorID int64, limit int, projectID string) (
 	return events, nil
 }
 
+// keepCurrentFocus evaluates Rules 1 and 1.5 for DetermineFocusTask.
+// Returns true if the current focus should be kept, false to fall through to lower rules.
+// Any lookup error is treated as "task gone" and returns false.
+func keepCurrentFocus(db *sql.DB, currentFocusID string) bool {
+	if currentFocusID == "" {
+		return false
+	}
+	task, err := GetTask(db, currentFocusID)
+	if err != nil {
+		return false // Task gone; fall through
+	}
+	if task.Status == statusInProgress {
+		return true
+	}
+	// Rule 1.5: keep dependency-blocked focus only if still has unresolved deps.
+	if task.Status == statusBlocked && !task.BlockedReason.IsFailure() {
+		var hasUnresolved bool
+		depErr := Transact(db, func(tx *sql.Tx) error {
+			var txErr error
+			hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, currentFocusID)
+			return txErr
+		})
+		if depErr == nil && hasUnresolved {
+			return true
+		}
+	}
+	return false
+}
+
+// pickAssignedTask evaluates a candidate task from a task_assigned event for Rule 2.
+// Returns the task ID if it is eligible, or "" to skip.
+func pickAssignedTask(db *sql.DB, taskID, agentName, projectID string) string {
+	task, err := GetTask(db, taskID)
+	if err != nil {
+		return ""
+	}
+	if task.Status != "pending" {
+		return ""
+	}
+	var hasUnresolved bool
+	if depErr := Transact(db, func(tx *sql.Tx) error {
+		var txErr error
+		hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, taskID)
+		return txErr
+	}); depErr != nil || hasUnresolved {
+		return ""
+	}
+	if task.ClaimedBy != "" && task.ClaimedBy != agentName {
+		if task.ClaimExpiresAt != nil && task.ClaimExpiresAt.After(time.Now()) {
+			return "" // Claimed by another agent and not expired
+		}
+	}
+	if projectID != "" && task.ProjectID != projectID {
+		return ""
+	}
+	return taskID
+}
+
 // DetermineFocusTask selects a task to focus on using deterministic rules.
 // Rule 4 only considers tasks that are available for claiming (unclaimed, self-claimed, or expired).
 // When projectID is non-empty, Rule 4 is strict and only considers pending tasks in that project.
+//
+//nolint:gocognit,gocyclo // five-rule deterministic focus algorithm; each rule is a distinct priority level and cannot be split without losing the priority ordering
 func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*models.Event, projectID string) (string, error) {
-	// Rule 1: If current focus is in_progress, always keep it
-	if currentFocusID != "" {
-		task, err := GetTask(db, currentFocusID)
-		if err == nil {
-			if task.Status == "in_progress" {
-				return currentFocusID, nil
-			}
-			// Rule 1.5: If blocked, keep only if dependency-blocked.
-			// Failure-blocked tasks (blocked_reason="failure:...") fall through to Rule 4.
-			if task.Status == "blocked" {
-				if task.BlockedReason.IsFailure() {
-					// Explicit failure block: fall through to find new work
-				} else {
-					// Dependency-blocked or unknown reason: check unresolved deps
-					hasUnresolved, depErr := HasUnresolvedDependencies(db, currentFocusID)
-					if depErr == nil && hasUnresolved {
-						return currentFocusID, nil
-					}
-					// No unresolved deps: fall through
-				}
-			}
-		}
+	// Rule 1 + 1.5: Keep in_progress focus; keep dependency-blocked focus if still blocked.
+	if keepCurrentFocus(db, currentFocusID) {
+		return currentFocusID, nil
 	}
 
 	// Rule 2: Check deltas for explicit task assignment events
 	for _, event := range deltas {
-		if event.Kind == "task_assigned" && event.TaskID != "" {
-			task, err := GetTask(db, event.TaskID)
-			if err != nil {
-				continue // Task doesn't exist, skip
-			}
-			// Must be pending
-			if task.Status != "pending" {
-				continue
-			}
-			// Must have no unresolved dependencies
-			hasUnresolved, depErr := HasUnresolvedDependencies(db, event.TaskID)
-			if depErr != nil || hasUnresolved {
-				continue
-			}
-			// Must be claimable (unclaimed, self-claimed, or expired)
-			if task.ClaimedBy != "" && task.ClaimedBy != agentName {
-				if task.ClaimExpiresAt != nil && task.ClaimExpiresAt.After(time.Now()) {
-					continue // Claimed by another agent and not expired
-				}
-			}
-			// Project scope must match when set
-			if projectID != "" && task.ProjectID != projectID {
-				continue
-			}
-			return event.TaskID, nil
+		if event.Kind != "task_assigned" || event.TaskID == "" {
+			continue
+		}
+		if taskID := pickAssignedTask(db, event.TaskID, agentName, projectID); taskID != "" {
+			return taskID, nil
 		}
 	}
 
@@ -176,7 +208,7 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 	var taskID string
 	err := RetryWithBackoff(func() error {
 		if projectID != "" {
-			err := db.QueryRow(`
+			err := db.QueryRowContext(context.Background(), `
 				SELECT id FROM tasks
 				WHERE status = 'pending' AND project_id = ?
 				  AND (claimed_by IS NULL OR claimed_by = ? OR claim_expires_at < CURRENT_TIMESTAMP)
@@ -194,7 +226,7 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 			return err
 		}
 
-		err := db.QueryRow(`
+		err := db.QueryRowContext(context.Background(), `
 			SELECT id FROM tasks
 			WHERE status = 'pending'
 			  AND (claimed_by IS NULL OR claimed_by = ? OR claim_expires_at < CURRENT_TIMESTAMP)
@@ -221,6 +253,8 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 }
 
 // BuildBrief constructs a brief packet for a focus task and optional project.
+//
+//nolint:gocognit,gocyclo,revive // brief assembly fetches task, project, memory, events, artifacts across multiple optional branches
 func BuildBrief(db *sql.DB, focusTaskID, focusProjectID, agentName string) (*BriefPacket, error) {
 	brief := &BriefPacket{
 		RelevantMemory: []*models.Memory{},
@@ -342,30 +376,14 @@ func FetchRecentUserPrompts(db *sql.DB, projectDir string, limit int) ([]*models
 			args = []any{limit}
 		}
 
-		rows, err := db.Query(query, args...)
+		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to fetch user prompts: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
-		events = make([]*models.Event, 0, limit)
-		for rows.Next() {
-			var event models.Event
-			var eventProjectID sql.NullString
-			var metadata sql.NullString
-			if err := rows.Scan(
-				&event.ID, &event.Kind, &event.AgentName, &eventProjectID,
-				&event.TaskID, &event.Message, &metadata, &event.CreatedAt,
-			); err != nil {
-				return fmt.Errorf("failed to scan user prompt event: %w", err)
-			}
-			if eventProjectID.Valid {
-				event.ProjectID = eventProjectID.String
-			}
-			event.Metadata = decodeEventMetadata(metadata)
-			events = append(events, &event)
-		}
-		return rows.Err()
+		events, err = scanEventRows(rows)
+		return err
 	})
 
 	if err != nil {
@@ -393,7 +411,7 @@ func FetchPriorReasoning(db *sql.DB, projectID string, limit int) ([]*models.Eve
 				SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 				FROM events
 				WHERE kind = 'reasoning' AND archived_at IS NULL
-				  AND (project_id = ? OR project_id IS NULL)
+				  AND ` + ProjectScopeClause + `
 				ORDER BY id DESC LIMIT ?
 			`
 			args = []any{projectID, limit}
@@ -407,30 +425,14 @@ func FetchPriorReasoning(db *sql.DB, projectID string, limit int) ([]*models.Eve
 			args = []any{limit}
 		}
 
-		rows, err := db.Query(query, args...)
+		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to fetch prior reasoning: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
-		events = make([]*models.Event, 0, limit)
-		for rows.Next() {
-			var event models.Event
-			var eventProjectID sql.NullString
-			var metadata sql.NullString
-			if err := rows.Scan(
-				&event.ID, &event.Kind, &event.AgentName, &eventProjectID,
-				&event.TaskID, &event.Message, &metadata, &event.CreatedAt,
-			); err != nil {
-				return fmt.Errorf("failed to scan reasoning event: %w", err)
-			}
-			if eventProjectID.Valid {
-				event.ProjectID = eventProjectID.String
-			}
-			event.Metadata = decodeEventMetadata(metadata)
-			events = append(events, &event)
-		}
-		return rows.Err()
+		events, err = scanEventRows(rows)
+		return err
 	})
 
 	if err != nil {
@@ -442,6 +444,8 @@ func FetchPriorReasoning(db *sql.DB, projectID string, limit int) ([]*models.Eve
 
 // FetchSessionEvents retrieves events useful for session retrospective extraction.
 // Filters to actionable event kinds and returns in chronological order (oldest first).
+//
+//nolint:dupl // FetchEventsSince has a similar structure but different SQL filter and default limit
 func FetchSessionEvents(db *sql.DB, sinceID int64, projectID string, limit int) ([]*models.Event, error) {
 	if limit <= 0 {
 		limit = 200
@@ -458,36 +462,20 @@ func FetchSessionEvents(db *sql.DB, sinceID int64, projectID string, limit int) 
 		`
 		args := []any{sinceID}
 		if projectID != "" {
-			query += " AND (project_id = ? OR project_id IS NULL)"
+			query += " AND " + ProjectScopeClause
 			args = append(args, projectID)
 		}
 		query += " ORDER BY id ASC LIMIT ?"
 		args = append(args, limit)
 
-		rows, err := db.Query(query, args...)
+		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to fetch session events: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
-		events = make([]*models.Event, 0, limit)
-		for rows.Next() {
-			var event models.Event
-			var eventProjectID sql.NullString
-			var metadata sql.NullString
-			if err := rows.Scan(
-				&event.ID, &event.Kind, &event.AgentName, &eventProjectID,
-				&event.TaskID, &event.Message, &metadata, &event.CreatedAt,
-			); err != nil {
-				return fmt.Errorf("failed to scan session event: %w", err)
-			}
-			if eventProjectID.Valid {
-				event.ProjectID = eventProjectID.String
-			}
-			event.Metadata = decodeEventMetadata(metadata)
-			events = append(events, &event)
-		}
-		return rows.Err()
+		events, err = scanEventRows(rows)
+		return err
 	})
 
 	if err != nil {
@@ -527,7 +515,7 @@ func GetTaskStatusCounts(db *sql.DB, projectID string) (*TaskStatusCounts, error
 			`
 		}
 
-		return db.QueryRow(query, args...).Scan(
+		return db.QueryRowContext(context.Background(), query, args...).Scan(
 			&counts.Pending,
 			&counts.InProgress,
 			&counts.Completed,
@@ -564,17 +552,17 @@ func FetchPipelineTasks(db *sql.DB, excludeTaskID, agentName, projectID string, 
 		`
 		args := []any{excludeTaskID, agentName}
 		if projectID != "" {
-			query += " AND project_id = ?"
+			query += andProjectIDFilter
 			args = append(args, projectID)
 		}
 		query += " ORDER BY priority DESC, created_at ASC LIMIT ?"
 		args = append(args, limit)
 
-		rows, err := db.Query(query, args...)
+		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to query pipeline tasks: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		tasks = make([]PipelineTask, 0, limit)
 		for rows.Next() {
@@ -614,11 +602,11 @@ func FetchUnlockedByCompletion(db *sql.DB, focusTaskID string) ([]PipelineTask, 
 			  )
 			ORDER BY t.priority DESC, t.created_at ASC
 		`
-		rows, err := db.Query(query, focusTaskID, focusTaskID)
+		rows, err := db.QueryContext(context.Background(), query, focusTaskID, focusTaskID)
 		if err != nil {
 			return fmt.Errorf("failed to query unlocked tasks: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		tasks = make([]PipelineTask, 0)
 		for rows.Next() {
@@ -653,6 +641,8 @@ func estimateApproxTokensFromEventMessages(events []*models.Event) int {
 // fetchRelevantMemory retrieves memory relevant to a task and/or project.
 // When projectID is non-empty, only project-scoped memory for that project is included.
 // When projectID is empty, all project-scoped memory is included (legacy behavior).
+//
+//nolint:funlen // query construction varies across four scope combinations (global, task, project, all-project); reducing requires helper indirection
 func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory, error) {
 	var memories []*models.Memory
 
@@ -702,11 +692,11 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 			args = []any{taskID, MinMemoryConfidence}
 		}
 
-		rows, err := db.Query(query, args...)
+		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to query memory: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		memories = make([]*models.Memory, 0)
 		for rows.Next() {
@@ -769,40 +759,14 @@ func fetchRecentEvents(db *sql.DB, taskID string) ([]*models.Event, error) {
 			ORDER BY id DESC
 			LIMIT 20
 		`
-		rows, err := db.Query(query, taskID)
+		rows, err := db.QueryContext(context.Background(), query, taskID)
 		if err != nil {
 			return fmt.Errorf("failed to query events: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
-		events = make([]*models.Event, 0)
-		for rows.Next() {
-			var event models.Event
-			var eventProjectID sql.NullString
-			var metadata sql.NullString
-			err := rows.Scan(
-				&event.ID,
-				&event.Kind,
-				&event.AgentName,
-				&eventProjectID,
-				&event.TaskID,
-				&event.Message,
-				&metadata,
-				&event.CreatedAt,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to scan event: %w", err)
-			}
-
-			if eventProjectID.Valid {
-				event.ProjectID = eventProjectID.String
-			}
-			event.Metadata = decodeEventMetadata(metadata)
-
-			events = append(events, &event)
-		}
-
-		return rows.Err()
+		events, err = scanEventRows(rows)
+		return err
 	})
 
 	if err != nil {
@@ -823,11 +787,11 @@ func fetchArtifacts(db *sql.DB, taskID string) ([]*models.Artifact, error) {
 			WHERE task_id = ?
 			ORDER BY created_at DESC
 		`
-		rows, err := db.Query(query, taskID)
+		rows, err := db.QueryContext(context.Background(), query, taskID)
 		if err != nil {
 			return fmt.Errorf("failed to query artifacts: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		artifacts = make([]*models.Artifact, 0)
 		for rows.Next() {
@@ -862,16 +826,17 @@ func fetchArtifacts(db *sql.DB, taskID string) ([]*models.Artifact, error) {
 	return artifacts, nil
 }
 
+//nolint:funlen // agent_state update requires four UPDATE variants (task+project, task-only, project-only, cursor-only) to avoid nulling existing focus fields
 func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focusTaskID string, focusProjectID *string) error {
 	// Load current state for version check
 	var currentVersion int
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(context.Background(), `
 		SELECT version
 		FROM agent_state
 		WHERE agent_name = ?
 	`, agentName).Scan(&currentVersion)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("agent state not found: %s", agentName)
 	}
 	if err != nil {
@@ -884,7 +849,7 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 	var result sql.Result
 	switch {
 	case focusTaskID != "" && focusProjectID != nil && *focusProjectID != "":
-		result, err = tx.Exec(`
+		result, err = tx.ExecContext(context.Background(), `
 				UPDATE agent_state
 				SET last_seen_event_id = MAX(last_seen_event_id, ?),
 				    focus_task_id = ?,
@@ -894,7 +859,7 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 				WHERE agent_name = ? AND version = ?
 			`, newCursor, focusTaskID, *focusProjectID, agentName, currentVersion)
 	case focusTaskID != "" && focusProjectID != nil:
-		result, err = tx.Exec(`
+		result, err = tx.ExecContext(context.Background(), `
 				UPDATE agent_state
 				SET last_seen_event_id = MAX(last_seen_event_id, ?),
 				    focus_task_id = ?,
@@ -904,7 +869,7 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 				WHERE agent_name = ? AND version = ?
 			`, newCursor, focusTaskID, agentName, currentVersion)
 	case focusTaskID != "":
-		result, err = tx.Exec(`
+		result, err = tx.ExecContext(context.Background(), `
 			UPDATE agent_state
 			SET last_seen_event_id = MAX(last_seen_event_id, ?),
 			    focus_task_id = ?,
@@ -913,7 +878,7 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 			WHERE agent_name = ? AND version = ?
 		`, newCursor, focusTaskID, agentName, currentVersion)
 	case focusProjectID != nil && *focusProjectID != "":
-		result, err = tx.Exec(`
+		result, err = tx.ExecContext(context.Background(), `
 				UPDATE agent_state
 				SET last_seen_event_id = MAX(last_seen_event_id, ?),
 				    focus_task_id = NULL,
@@ -923,7 +888,7 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 				WHERE agent_name = ? AND version = ?
 			`, newCursor, *focusProjectID, agentName, currentVersion)
 	case focusProjectID != nil:
-		result, err = tx.Exec(`
+		result, err = tx.ExecContext(context.Background(), `
 				UPDATE agent_state
 				SET last_seen_event_id = MAX(last_seen_event_id, ?),
 				    focus_task_id = NULL,
@@ -933,7 +898,7 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 				WHERE agent_name = ? AND version = ?
 			`, newCursor, agentName, currentVersion)
 	default:
-		result, err = tx.Exec(`
+		result, err = tx.ExecContext(context.Background(), `
 			UPDATE agent_state
 			SET last_seen_event_id = MAX(last_seen_event_id, ?),
 			    focus_task_id = NULL,

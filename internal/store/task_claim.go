@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -14,35 +15,13 @@ var ErrClaimContention = errors.New("task already claimed by another agent")
 // that does not hold an active claim.
 var ErrClaimNotOwned = errors.New("task claim is not owned by agent")
 
-// ClaimTask atomically claims a task for an agent with a TTL.
-// Uses CAS: only succeeds if task is unclaimed, self-claimed, or lease expired.
-// ttlMinutes defaults to 5 if <= 0.
-func ClaimTask(db *sql.DB, agentName, taskID string, ttlMinutes int) error {
-	if agentName == "" {
-		return fmt.Errorf("agent name is required")
-	}
-	if taskID == "" {
-		return fmt.Errorf("task ID is required")
-	}
-	if ttlMinutes <= 0 {
-		ttlMinutes = 5
-	}
-	if ttlMinutes > 1440 {
-		ttlMinutes = 1440
-	}
-
-	return Transact(db, func(tx *sql.Tx) error {
-		return ClaimTaskTx(tx, agentName, taskID, ttlMinutes)
-	})
-}
-
 // ClaimTaskTx is the in-transaction variant.
 func ClaimTaskTx(tx *sql.Tx, agentName, taskID string, ttlMinutes int) error {
 	if agentName == "" {
-		return fmt.Errorf("agent name is required")
+		return errors.New("agent name is required")
 	}
 	if taskID == "" {
-		return fmt.Errorf("task ID is required")
+		return errors.New("task ID is required")
 	}
 	if ttlMinutes <= 0 {
 		ttlMinutes = 5
@@ -51,7 +30,7 @@ func ClaimTaskTx(tx *sql.Tx, agentName, taskID string, ttlMinutes int) error {
 		ttlMinutes = 1440
 	}
 
-	result, err := tx.Exec(`
+	result, err := tx.ExecContext(context.Background(), `
 		UPDATE tasks
 		SET claimed_by = ?,
 		    claimed_at = CURRENT_TIMESTAMP,
@@ -80,31 +59,16 @@ func ClaimTaskTx(tx *sql.Tx, agentName, taskID string, ttlMinutes int) error {
 	return nil
 }
 
-// ReleaseTaskClaim releases an agent's claim on a task.
-// Only releases if the agent currently holds the claim.
-func ReleaseTaskClaim(db *sql.DB, agentName, taskID string) error {
-	if agentName == "" {
-		return fmt.Errorf("agent name is required")
-	}
-	if taskID == "" {
-		return fmt.Errorf("task ID is required")
-	}
-
-	return Transact(db, func(tx *sql.Tx) error {
-		return ReleaseTaskClaimTx(tx, agentName, taskID)
-	})
-}
-
 // ReleaseTaskClaimTx is the in-transaction variant.
 func ReleaseTaskClaimTx(tx *sql.Tx, agentName, taskID string) error {
 	if agentName == "" {
-		return fmt.Errorf("agent name is required")
+		return errors.New("agent name is required")
 	}
 	if taskID == "" {
-		return fmt.Errorf("task ID is required")
+		return errors.New("task ID is required")
 	}
 
-	_, err := tx.Exec(`
+	_, err := tx.ExecContext(context.Background(), `
 		UPDATE tasks
 		SET claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, last_heartbeat_at = NULL
 		WHERE id = ? AND claimed_by = ?
@@ -119,33 +83,13 @@ func ReleaseTaskClaimTx(tx *sql.Tx, agentName, taskID string) error {
 	return nil
 }
 
-// HeartbeatTask refreshes lease expiry for a currently owned claim.
-func HeartbeatTask(db *sql.DB, agentName, taskID string, ttlMinutes int) error {
-	if agentName == "" {
-		return fmt.Errorf("agent name is required")
-	}
-	if taskID == "" {
-		return fmt.Errorf("task ID is required")
-	}
-	if ttlMinutes <= 0 {
-		ttlMinutes = 5
-	}
-	if ttlMinutes > 1440 {
-		ttlMinutes = 1440
-	}
-
-	return Transact(db, func(tx *sql.Tx) error {
-		return HeartbeatTaskTx(tx, agentName, taskID, ttlMinutes)
-	})
-}
-
 // HeartbeatTaskTx refreshes lease expiry for a currently owned claim in-tx.
 func HeartbeatTaskTx(tx *sql.Tx, agentName, taskID string, ttlMinutes int) error {
 	if agentName == "" {
-		return fmt.Errorf("agent name is required")
+		return errors.New("agent name is required")
 	}
 	if taskID == "" {
-		return fmt.Errorf("task ID is required")
+		return errors.New("task ID is required")
 	}
 	if ttlMinutes <= 0 {
 		ttlMinutes = 5
@@ -154,7 +98,7 @@ func HeartbeatTaskTx(tx *sql.Tx, agentName, taskID string, ttlMinutes int) error
 		ttlMinutes = 1440
 	}
 
-	result, err := tx.Exec(`
+	result, err := tx.ExecContext(context.Background(), `
 		UPDATE tasks
 		SET claim_expires_at = datetime(CURRENT_TIMESTAMP, '+' || ? || ' minutes'),
 		    last_heartbeat_at = CURRENT_TIMESTAMP

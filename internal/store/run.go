@@ -1,9 +1,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -30,6 +32,8 @@ type runCompletedMetadata struct {
 }
 
 // QueryRunCompletedEvents returns the most recent run_completed events, newest first.
+//
+//nolint:gocognit,revive // query builds optional WHERE clauses for agent/project filters and parses embedded JSON summary fields
 func QueryRunCompletedEvents(db *sql.DB, agentName, projectID string, limit int) ([]RunSummaryRow, error) {
 	if limit <= 0 {
 		limit = 10
@@ -48,25 +52,21 @@ func QueryRunCompletedEvents(db *sql.DB, agentName, projectID string, limit int)
 			args = append(args, agentName)
 		}
 		if projectID != "" {
-			where = append(where, "(project_id = ? OR project_id IS NULL)")
+			where = append(where, ProjectScopeClause)
 			args = append(args, projectID)
 		}
 
-		query := "SELECT id, agent_name, project_id, metadata, created_at FROM events WHERE "
-		for i, w := range where {
-			if i > 0 {
-				query += " AND "
-			}
-			query += w
-		}
-		query += " ORDER BY id DESC LIMIT ?"
+		//nolint:gosec // G202: query is built from hardcoded string literals only; no user input in WHERE clauses
+		query := "SELECT id, agent_name, project_id, metadata, created_at FROM events WHERE " +
+			strings.Join(where, " AND ") +
+			" ORDER BY id DESC LIMIT ?"
 		args = append(args, limit)
 
-		rows, err := db.Query(query, args...)
+		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("query run_completed events: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		out = make([]RunSummaryRow, 0, limit)
 		for rows.Next() {

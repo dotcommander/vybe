@@ -1,14 +1,16 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/dotcommander/vybe/internal/models"
 )
 
-// GenerateProjectID generates a project ID using pattern: proj_<unix_nano>_<random_hex>.
-func GenerateProjectID() string {
+// generateProjectID generates a project ID using pattern: proj_<unix_nano>_<random_hex>.
+func generateProjectID() string {
 	return generatePrefixedID("proj")
 }
 
@@ -34,13 +36,13 @@ func CreateProject(db *sql.DB, name, metadata string) (*models.Project, error) {
 
 // CreateProjectTx inserts and returns a project inside an existing transaction.
 func CreateProjectTx(tx *sql.Tx, name, metadata string) (*models.Project, error) {
-	projectID := GenerateProjectID()
+	projectID := generateProjectID()
 	meta := any(nil)
 	if metadata != "" {
 		meta = metadata
 	}
 
-	result, err := tx.Exec(`
+	result, err := tx.ExecContext(context.Background(), `
 		INSERT INTO projects (id, name, metadata, created_at)
 		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
 	`, projectID, name, meta)
@@ -53,12 +55,12 @@ func CreateProjectTx(tx *sql.Tx, name, metadata string) (*models.Project, error)
 		return nil, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		return nil, fmt.Errorf("failed to insert project: no rows affected")
+		return nil, errors.New("failed to insert project: no rows affected")
 	}
 
 	var project models.Project
 	var metaCol sql.NullString
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(context.Background(), `
 		SELECT id, name, metadata, created_at
 		FROM projects WHERE id = ?
 	`, projectID).Scan(&project.ID, &project.Name, &metaCol, &project.CreatedAt)
@@ -77,15 +79,15 @@ func CreateProjectTx(tx *sql.Tx, name, metadata string) (*models.Project, error)
 // idempotent creation.
 func EnsureProjectByID(db *sql.DB, id, name string) (*models.Project, error) {
 	if id == "" {
-		return nil, fmt.Errorf("project id is required")
+		return nil, errors.New("project id is required")
 	}
 	if name == "" {
-		return nil, fmt.Errorf("project name is required")
+		return nil, errors.New("project name is required")
 	}
 
 	var project models.Project
 	err := Transact(db, func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(context.Background(), `
 			INSERT OR IGNORE INTO projects (id, name, created_at)
 			VALUES (?, ?, CURRENT_TIMESTAMP)
 		`, id, name); err != nil {
@@ -93,7 +95,7 @@ func EnsureProjectByID(db *sql.DB, id, name string) (*models.Project, error) {
 		}
 
 		var metaCol sql.NullString
-		if err := tx.QueryRow(`
+		if err := tx.QueryRowContext(context.Background(), `
 			SELECT id, name, metadata, created_at
 			FROM projects WHERE id = ?
 		`, id).Scan(&project.ID, &project.Name, &metaCol, &project.CreatedAt); err != nil {
@@ -116,13 +118,13 @@ func GetProject(db *sql.DB, projectID string) (*models.Project, error) {
 	var metadata sql.NullString
 
 	err := RetryWithBackoff(func() error {
-		return db.QueryRow(`
+		return db.QueryRowContext(context.Background(), `
 			SELECT id, name, metadata, created_at
 			FROM projects WHERE id = ?
 		`, projectID).Scan(&project.ID, &project.Name, &metadata, &project.CreatedAt)
 	})
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("project not found: %s", projectID)
 	}
 	if err != nil {
@@ -141,7 +143,7 @@ func ListProjects(db *sql.DB) ([]*models.Project, error) {
 	var projects []*models.Project
 
 	err := RetryWithBackoff(func() error {
-		rows, err := db.Query(`
+		rows, err := db.QueryContext(context.Background(), `
 			SELECT id, name, metadata, created_at
 			FROM projects
 			ORDER BY created_at DESC
@@ -149,7 +151,7 @@ func ListProjects(db *sql.DB) ([]*models.Project, error) {
 		if err != nil {
 			return fmt.Errorf("failed to query projects: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		projects = make([]*models.Project, 0)
 		for rows.Next() {
