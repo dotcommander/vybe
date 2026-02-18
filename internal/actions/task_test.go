@@ -18,7 +18,7 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	require.NoError(t, err)
 
 	cleanup := func() {
-		db.Close()
+		_ = db.Close()
 	}
 
 	return db, cleanup
@@ -28,7 +28,7 @@ func TestTaskCreate(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	task, eventID, err := TaskCreate(db, "test-agent", "Test Task", "Test Description", "", 0)
+	task, eventID, err := TaskCreateIdempotent(db, "test-agent", "req-create-1", "Test Task", "Test Description", "", 0)
 	require.NoError(t, err)
 	require.NotNil(t, task)
 	assert.Greater(t, eventID, int64(0))
@@ -44,7 +44,7 @@ func TestTaskCreateEmptyTitle(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	task, _, err := TaskCreate(db, "test-agent", "", "Description", "", 0)
+	task, _, err := TaskCreateIdempotent(db, "test-agent", "req-create-empty-1", "", "Description", "", 0)
 	assert.Error(t, err)
 	assert.Nil(t, task)
 	assert.Contains(t, err.Error(), "title is required")
@@ -55,7 +55,7 @@ func TestTaskGet(t *testing.T) {
 	defer cleanup()
 
 	// Create a task
-	created, _, err := TaskCreate(db, "test-agent", "Get Test", "Description", "", 0)
+	created, _, err := TaskCreateIdempotent(db, "test-agent", "req-get-1", "Get Test", "Description", "", 0)
 	require.NoError(t, err)
 
 	// Get the task
@@ -80,11 +80,11 @@ func TestTaskSetStatus(t *testing.T) {
 	defer cleanup()
 
 	// Create a task
-	created, _, err := TaskCreate(db, "test-agent", "Status Test", "Description", "", 0)
+	created, _, err := TaskCreateIdempotent(db, "test-agent", "req-setstatus-create-1", "Status Test", "Description", "", 0)
 	require.NoError(t, err)
 
 	// Set status
-	task, eventID, err := TaskSetStatus(db, "test-agent", created.ID, "in_progress")
+	task, eventID, err := TaskSetStatusIdempotent(db, "test-agent", "req-setstatus-1", created.ID, "in_progress", "")
 	require.NoError(t, err)
 	require.NotNil(t, task)
 	assert.Greater(t, eventID, int64(0))
@@ -105,10 +105,10 @@ func TestTaskSetStatusInvalidStatus(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	created, _, err := TaskCreate(db, "test-agent", "Invalid Status Test", "Description", "", 0)
+	created, _, err := TaskCreateIdempotent(db, "test-agent", "req-invalid-status-create-1", "Invalid Status Test", "Description", "", 0)
 	require.NoError(t, err)
 
-	task, eventID, err := TaskSetStatus(db, "test-agent", created.ID, "invalid_status")
+	task, eventID, err := TaskSetStatusIdempotent(db, "test-agent", "req-invalid-status-1", created.ID, "invalid_status", "")
 	assert.Error(t, err)
 	assert.Nil(t, task)
 	assert.Equal(t, int64(0), eventID)
@@ -119,7 +119,7 @@ func TestTaskSetStatusEmptyTaskID(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	task, eventID, err := TaskSetStatus(db, "test-agent", "", "in_progress")
+	task, eventID, err := TaskSetStatusIdempotent(db, "test-agent", "req-empty-id-1", "", "in_progress", "")
 	assert.Error(t, err)
 	assert.Nil(t, task)
 	assert.Equal(t, int64(0), eventID)
@@ -130,10 +130,10 @@ func TestTaskSetStatusEmptyStatus(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	created, _, err := TaskCreate(db, "test-agent", "Empty Status Test", "Description", "", 0)
+	created, _, err := TaskCreateIdempotent(db, "test-agent", "req-empty-status-create-1", "Empty Status Test", "Description", "", 0)
 	require.NoError(t, err)
 
-	task, eventID, err := TaskSetStatus(db, "test-agent", created.ID, "")
+	task, eventID, err := TaskSetStatusIdempotent(db, "test-agent", "req-empty-status-1", created.ID, "", "")
 	assert.Error(t, err)
 	assert.Nil(t, task)
 	assert.Equal(t, int64(0), eventID)
@@ -159,10 +159,10 @@ func TestTaskSetStatusValidTransitions(t *testing.T) {
 			db, cleanup := setupTestDB(t)
 			defer cleanup()
 
-			created, _, err := TaskCreate(db, "test-agent", "Transition Test", "Description", "", 0)
+			created, _, err := TaskCreateIdempotent(db, "test-agent", "req-trans-create-"+tt.name, "Transition Test", "Description", "", 0)
 			require.NoError(t, err)
 
-			task, eventID, err := TaskSetStatus(db, "test-agent", created.ID, tt.status)
+			task, eventID, err := TaskSetStatusIdempotent(db, "test-agent", "req-trans-status-"+tt.name, created.ID, tt.status, "")
 
 			if tt.valid {
 				require.NoError(t, err)
@@ -203,46 +203,22 @@ func TestValidateTaskStatus(t *testing.T) {
 	}
 }
 
-func TestTaskSetStatusIdempotentParity(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	nonIdemTask, _, err := TaskCreate(db, "test-agent", "Non-idempotent status", "Description", "", 0)
-	require.NoError(t, err)
-
-	idemTask, _, err := TaskCreate(db, "test-agent", "Idempotent status", "Description", "", 0)
-	require.NoError(t, err)
-
-	nonIdemUpdated, nonIdemEventID, err := TaskSetStatus(db, "test-agent", nonIdemTask.ID, "in_progress")
-	require.NoError(t, err)
-
-	idemUpdated, idemEventID, err := TaskSetStatusIdempotent(db, "test-agent", "req_status_parity", idemTask.ID, "in_progress", "")
-	require.NoError(t, err)
-
-	require.Equal(t, models.TaskStatusInProgress, nonIdemUpdated.Status)
-	require.Equal(t, models.TaskStatusInProgress, idemUpdated.Status)
-	require.Equal(t, 2, nonIdemUpdated.Version)
-	require.Equal(t, 2, idemUpdated.Version)
-	require.Greater(t, nonIdemEventID, int64(0))
-	require.Greater(t, idemEventID, int64(0))
-}
-
 func TestTaskSetStatusConcurrency(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Create a task
-	created, _, err := TaskCreate(db, "test-agent", "Concurrency Test", "Description", "", 0)
+	created, _, err := TaskCreateIdempotent(db, "test-agent", "req-conc-create-1", "Concurrency Test", "Description", "", 0)
 	require.NoError(t, err)
 
 	// First status change
-	task1, eventID1, err := TaskSetStatus(db, "test-agent", created.ID, "in_progress")
+	task1, eventID1, err := TaskSetStatusIdempotent(db, "test-agent", "req-conc-status-1", created.ID, "in_progress", "")
 	require.NoError(t, err)
 	assert.Equal(t, models.TaskStatusInProgress, task1.Status)
 	assert.Greater(t, eventID1, int64(0))
 
 	// Second status change (should succeed with retry)
-	task2, eventID2, err := TaskSetStatus(db, "test-agent", created.ID, "completed")
+	task2, eventID2, err := TaskSetStatusIdempotent(db, "test-agent", "req-conc-status-2", created.ID, "completed", "")
 	require.NoError(t, err)
 	assert.Equal(t, models.TaskStatusCompleted, task2.Status)
 	assert.Equal(t, 3, task2.Version)
@@ -254,14 +230,14 @@ func TestTaskList(t *testing.T) {
 	defer cleanup()
 
 	// Create tasks
-	_, _, err := TaskCreate(db, "test-agent", "Task 1", "Desc 1", "", 0)
+	_, _, err := TaskCreateIdempotent(db, "test-agent", "req-list-create-1", "Task 1", "Desc 1", "", 0)
 	require.NoError(t, err)
 
-	task2, _, err := TaskCreate(db, "test-agent", "Task 2", "Desc 2", "", 0)
+	task2, _, err := TaskCreateIdempotent(db, "test-agent", "req-list-create-2", "Task 2", "Desc 2", "", 0)
 	require.NoError(t, err)
 
 	// Change status of task2
-	_, _, err = TaskSetStatus(db, "test-agent", task2.ID, "completed")
+	_, _, err = TaskSetStatusIdempotent(db, "test-agent", "req-list-status-1", task2.ID, "completed", "")
 	require.NoError(t, err)
 
 	// List all tasks
@@ -285,11 +261,11 @@ func TestTaskSetStatusAtomicity(t *testing.T) {
 	defer cleanup()
 
 	// Create a task
-	created, _, err := TaskCreate(db, "test-agent", "Atomicity Test", "Description", "", 0)
+	created, _, err := TaskCreateIdempotent(db, "test-agent", "req-atomic-create-1", "Atomicity Test", "Description", "", 0)
 	require.NoError(t, err)
 
 	// Update status
-	task, eventID, err := TaskSetStatus(db, "test-agent", created.ID, "in_progress")
+	task, eventID, err := TaskSetStatusIdempotent(db, "test-agent", "req-atomic-status-1", created.ID, "in_progress", "")
 	require.NoError(t, err)
 
 	// Verify both task and event were updated
@@ -306,73 +282,14 @@ func TestTaskSetStatusAtomicity(t *testing.T) {
 	assert.Contains(t, eventMessage, "in_progress")
 }
 
-func TestTaskRemoveDependency(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	parent, _, err := TaskCreate(db, "test-agent", "Parent", "", "", 0)
-	require.NoError(t, err)
-
-	child, _, err := TaskCreate(db, "test-agent", "Child", "", "", 0)
-	require.NoError(t, err)
-
-	err = store.AddTaskDependency(db, child.ID, parent.ID)
-	require.NoError(t, err)
-
-	err = TaskRemoveDependency(db, "test-agent", child.ID, parent.ID)
-	require.NoError(t, err)
-
-	deps, err := store.GetTaskDependencies(db, child.ID)
-	require.NoError(t, err)
-	assert.Len(t, deps, 0)
-
-	var count int
-	err = db.QueryRow(`
-		SELECT COUNT(*)
-		FROM events
-		WHERE kind = 'task_dependency_removed' AND task_id = ?
-	`, child.ID).Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count)
-}
-
-func TestTaskSetStatus_CompletedUnblocksInTransaction(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	parent, _, err := TaskCreate(db, "test-agent", "Parent", "", "", 0)
-	require.NoError(t, err)
-
-	child, _, err := TaskCreate(db, "test-agent", "Child", "", "", 0)
-	require.NoError(t, err)
-
-	// child depends on parent
-	err = store.AddTaskDependency(db, child.ID, parent.ID)
-	require.NoError(t, err)
-
-	// Verify child is blocked
-	childTask, err := TaskGet(db, child.ID)
-	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusBlocked, childTask.Status)
-
-	// Complete parent — child should be unblocked atomically in the same tx
-	_, _, err = TaskSetStatus(db, "test-agent", parent.ID, "completed")
-	require.NoError(t, err)
-
-	// Verify child is now pending (unblocked inside the completion transaction)
-	childTask, err = TaskGet(db, child.ID)
-	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusPending, childTask.Status)
-}
-
 func TestTaskSetStatusIdempotent_CompletedUnblocksInTransaction(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	parent, _, err := TaskCreate(db, "test-agent", "Parent", "", "", 0)
+	parent, _, err := TaskCreateIdempotent(db, "test-agent", "req-unblock-create-1", "Parent", "", "", 0)
 	require.NoError(t, err)
 
-	child, _, err := TaskCreate(db, "test-agent", "Child", "", "", 0)
+	child, _, err := TaskCreateIdempotent(db, "test-agent", "req-unblock-create-2", "Child", "", "", 0)
 	require.NoError(t, err)
 
 	// child depends on parent
@@ -393,10 +310,10 @@ func TestTaskRemoveDependencyIdempotentReplay(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	parent, _, err := TaskCreate(db, "test-agent", "Parent", "", "", 0)
+	parent, _, err := TaskCreateIdempotent(db, "test-agent", "req-rmreplay-create-1", "Parent", "", "", 0)
 	require.NoError(t, err)
 
-	child, _, err := TaskCreate(db, "test-agent", "Child", "", "", 0)
+	child, _, err := TaskCreateIdempotent(db, "test-agent", "req-rmreplay-create-2", "Child", "", "", 0)
 	require.NoError(t, err)
 
 	err = store.AddTaskDependency(db, child.ID, parent.ID)

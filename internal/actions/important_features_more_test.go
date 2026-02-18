@@ -6,11 +6,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResumeIdempotent_WrapperPath(t *testing.T) {
+func TestResumeWithOptionsIdempotent_WrapperPath(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()
 
-	resp, err := ResumeIdempotent(db, "agent-a", "req-resume-1")
+	resp, err := ResumeWithOptionsIdempotent(db, "agent-a", "req-resume-1", ResumeOptions{EventLimit: 1000})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 }

@@ -63,42 +63,20 @@ func TestParseExpiresIn_Invalid(t *testing.T) {
 	}
 }
 
-func TestMemoryUpsertIdempotent(t *testing.T) {
+func TestMemorySetIdempotent_RejectsInvalidValueType(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	result, err := MemoryUpsertIdempotent(db, "agent1", "req_mem_upsert_1", " API Key ", "secret", "", "global", "", nil, nil, nil)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.Equal(t, "api_key", result.CanonicalKey)
-	assert.False(t, result.Reinforced)
-
-	reinforced, err := MemoryUpsertIdempotent(db, "agent1", "req_mem_upsert_2", "api_key", "secret", "", "global", "", nil, nil, nil)
-	require.NoError(t, err)
-	require.NotNil(t, reinforced)
-	assert.True(t, reinforced.Reinforced)
-
-	mem, err := store.GetMemory(db, "api_key", "global", "")
-	require.NoError(t, err)
-	require.NotNil(t, mem)
-	assert.Equal(t, "api_key", mem.Canonical)
-}
-
-func TestMemoryUpsertIdempotent_RejectsInvalidConfidence(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	bad := 1.5
-	result, err := MemoryUpsertIdempotent(db, "agent1", "req_mem_upsert_bad", "k", "v", "", "global", "", nil, &bad, nil)
+	_, err := MemorySetIdempotent(db, "agent1", "req_bad_vt", "k", "v", "invalid_type", "global", "", nil)
 	require.Error(t, err)
-	assert.Nil(t, result)
+	require.Contains(t, err.Error(), "invalid value_type")
 }
 
 func TestMemoryGet_IncludeSuperseded(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySet(db, "agent-a", "k1", "v1", "", "global", "", nil)
+	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-get-1", "k1", "v1", "", "global", "", nil)
 	require.NoError(t, err)
 
 	// Supersede it
@@ -119,9 +97,9 @@ func TestMemoryList_IncludeSuperseded(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySet(db, "agent-a", "x1", "v1", "", "global", "", nil)
+	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-list-1", "x1", "v1", "", "global", "", nil)
 	require.NoError(t, err)
-	_, err = MemorySet(db, "agent-a", "x2", "v2", "", "global", "", nil)
+	_, err = MemorySetIdempotent(db, "agent-a", "req-mem-list-2", "x2", "v2", "", "global", "", nil)
 	require.NoError(t, err)
 
 	_, err = db.Exec(`UPDATE memory SET superseded_by = 'memory_x' WHERE key = 'x2' AND scope = 'global'`)
@@ -138,20 +116,11 @@ func TestMemoryList_IncludeSuperseded(t *testing.T) {
 	require.Len(t, list, 2)
 }
 
-func TestMemoryUpsertIdempotent_RejectsInvalidValueType(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, err := MemoryUpsertIdempotent(db, "agent1", "req_bad_vt", "k", "v", "invalid_type", "global", "", nil, nil, nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid value_type")
-}
-
 func TestMemoryTouchIdempotent(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySet(db, "agent-a", "t1", "v", "", "global", "", nil)
+	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-touch-setup-1", "t1", "v", "", "global", "", nil)
 	require.NoError(t, err)
 
 	result, err := MemoryTouchIdempotent(db, "agent-a", "req_touch_act_1", "t1", "global", "", 0.1)
@@ -175,11 +144,11 @@ func TestMemoryQuery(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySet(db, "agent-a", "q_alpha", "a", "", "global", "", nil)
+	_, err := MemorySetIdempotent(db, "agent-a", "req-query-1", "q_alpha", "a", "", "global", "", nil)
 	require.NoError(t, err)
-	_, err = MemorySet(db, "agent-a", "q_beta", "b", "", "global", "", nil)
+	_, err = MemorySetIdempotent(db, "agent-a", "req-query-2", "q_beta", "b", "", "global", "", nil)
 	require.NoError(t, err)
-	_, err = MemorySet(db, "agent-a", "other", "c", "", "global", "", nil)
+	_, err = MemorySetIdempotent(db, "agent-a", "req-query-3", "other", "c", "", "global", "", nil)
 	require.NoError(t, err)
 
 	results, err := MemoryQuery(db, "global", "", "q_%", 10)

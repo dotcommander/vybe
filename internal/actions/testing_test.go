@@ -21,7 +21,7 @@ func setupTestDBWithCleanup(t *testing.T) (*sql.DB, func()) {
 	if err != nil {
 		t.Fatalf("Failed to initialize test database: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 
 	return db, func() {}
 }

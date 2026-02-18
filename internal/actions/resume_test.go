@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -12,8 +13,7 @@ func TestResume_NewAgent(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()
 
-	// Resume for new agent
-	response, err := Resume(db, "new-agent")
+	response, err := ResumeWithOptionsIdempotent(db, "new-agent", "req-new-agent-1", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
@@ -50,18 +50,15 @@ func TestResume_WithEvents(t *testing.T) {
 	}
 
 	// Create some events
-	_, err = store.AppendEvent(db, "test.event", "agent1", "", "Event 1")
-	if err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", ""); return e }); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
-
-	_, err = store.AppendEvent(db, "test.event", "agent1", "", "Event 2")
-	if err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 2", ""); return e }); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
 
 	// Resume
-	response, err := Resume(db, "agent1")
+	response, err := ResumeWithOptionsIdempotent(db, "agent1", "req-with-events-1", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
@@ -90,7 +87,7 @@ func TestResume_WithPendingTask(t *testing.T) {
 	}
 
 	// Resume
-	response, err := Resume(db, "agent1")
+	response, err := ResumeWithOptionsIdempotent(db, "agent1", "req-pending-task-1", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
@@ -117,13 +114,12 @@ func TestResume_CursorAdvancement(t *testing.T) {
 	defer cleanup()
 
 	// Create events
-	_, err := store.AppendEvent(db, "test.event", "agent1", "", "Event 1")
-	if err != nil {
+	if err := store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", ""); return e }); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
 
 	// First resume
-	response1, err := Resume(db, "agent1")
+	response1, err := ResumeWithOptionsIdempotent(db, "agent1", "req-cursor-adv-1", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
@@ -137,13 +133,12 @@ func TestResume_CursorAdvancement(t *testing.T) {
 	}
 
 	// Create another event
-	_, err = store.AppendEvent(db, "test.event", "agent1", "", "Event 2")
-	if err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 2", ""); return e }); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
 
-	// Second resume
-	response2, err := Resume(db, "agent1")
+	// Second resume — distinct request ID so it computes fresh state
+	response2, err := ResumeWithOptionsIdempotent(db, "agent1", "req-cursor-adv-2", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
@@ -172,7 +167,7 @@ func TestResume_FocusTaskPersistence(t *testing.T) {
 	}
 
 	// First resume (should select the task)
-	response1, err := Resume(db, "agent1")
+	response1, err := ResumeWithOptionsIdempotent(db, "agent1", "req-focus-persist-1", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
@@ -187,8 +182,8 @@ func TestResume_FocusTaskPersistence(t *testing.T) {
 		t.Fatalf("Failed to update task status: %v", err)
 	}
 
-	// Second resume (should keep focus on in_progress task)
-	response2, err := Resume(db, "agent1")
+	// Second resume (should keep focus on in_progress task) — distinct request ID
+	response2, err := ResumeWithOptionsIdempotent(db, "agent1", "req-focus-persist-2", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
@@ -202,8 +197,7 @@ func TestResume_RequiresAgentName(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()
 
-	// Resume with empty agent name
-	_, err := Resume(db, "")
+	_, err := ResumeWithOptionsIdempotent(db, "", "req-empty-agent", ResumeOptions{EventLimit: 1000})
 	if err == nil {
 		t.Error("Expected error for empty agent name")
 	}
@@ -286,8 +280,7 @@ func TestBrief_DoesNotAdvanceCursor(t *testing.T) {
 		t.Fatalf("Failed to create agent state: %v", err)
 	}
 
-	_, err = store.AppendEvent(db, "test.event", "agent1", "", "Event 1")
-	if err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", ""); return e }); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
 
@@ -318,8 +311,10 @@ func TestBuildPrompt_IncludesPriorReasoning(t *testing.T) {
 	}
 
 	// Insert reasoning events
-	_, err = store.AppendEventWithMetadata(db, "reasoning", "agent1", "", "intent summary", `{"intent":"build auth","approach":"jwt tokens"}`)
-	if err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error {
+		_, e := store.InsertEventTx(tx, "reasoning", "agent1", "", "intent summary", `{"intent":"build auth","approach":"jwt tokens"}`)
+		return e
+	}); err != nil {
 		t.Fatalf("Failed to append reasoning event: %v", err)
 	}
 

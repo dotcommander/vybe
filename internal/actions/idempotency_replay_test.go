@@ -93,15 +93,15 @@ func TestTaskStartIdempotent_Replay(t *testing.T) {
 	require.NoError(t, err)
 
 	req := "req_task_start"
-	t1, se1, fe1, err := TaskStartIdempotent(db, agent, req, task.ID)
+	r1, err := TaskStartIdempotent(db, agent, req, task.ID)
 	require.NoError(t, err)
-	t2, se2, fe2, err := TaskStartIdempotent(db, agent, req, task.ID)
+	r2, err := TaskStartIdempotent(db, agent, req, task.ID)
 	require.NoError(t, err)
 
-	require.Equal(t, t1.ID, t2.ID)
-	require.Equal(t, models.TaskStatusInProgress, t2.Status)
-	require.Equal(t, se1, se2)
-	require.Equal(t, fe1, fe2)
+	require.Equal(t, r1.Task.ID, r2.Task.ID)
+	require.Equal(t, models.TaskStatusInProgress, r2.Task.Status)
+	require.Equal(t, r1.StatusEventID, r2.StatusEventID)
+	require.Equal(t, r1.FocusEventID, r2.FocusEventID)
 
 	var focusEvents int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM events WHERE kind = 'agent_focus' AND task_id = ?`, task.ID).Scan(&focusEvents))
@@ -144,7 +144,7 @@ func TestTaskHeartbeatIdempotent_Replay(t *testing.T) {
 	agent := "agent1"
 	task, _, err := TaskCreateIdempotent(db, agent, "req_seed_taskheartbeat", "t1", "d1", "", 0)
 	require.NoError(t, err)
-	_, _, _, err = TaskStartIdempotent(db, agent, "req_seed_taskheartbeat_start", task.ID)
+	_, err = TaskStartIdempotent(db, agent, "req_seed_taskheartbeat_start", task.ID)
 	require.NoError(t, err)
 
 	req := "req_task_heartbeat"

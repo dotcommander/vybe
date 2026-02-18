@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -8,6 +9,8 @@ import (
 )
 
 // TestResumeInterruptionScenario simulates an agent being interrupted and resuming later
+//
+//nolint:gocognit,gocyclo,revive // integration test exercises the full resume/interruption flow; splitting would obscure the end-to-end scenario
 func TestResumeInterruptionScenario(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()
@@ -17,18 +20,18 @@ func TestResumeInterruptionScenario(t *testing.T) {
 	// === Phase 1: Initial work session ===
 
 	// Create some tasks (using actions layer to log events)
-	task1, _, err := TaskCreate(db, agentName, "Task 1", "First task", "", 0)
+	task1, _, err := TaskCreateIdempotent(db, agentName, "req-integ-create-1", "Task 1", "First task", "", 0)
 	if err != nil {
 		t.Fatalf("Failed to create task 1: %v", err)
 	}
 
-	task2, _, err := TaskCreate(db, agentName, "Task 2", "Second task", "", 0)
+	task2, _, err := TaskCreateIdempotent(db, agentName, "req-integ-create-2", "Task 2", "Second task", "", 0)
 	if err != nil {
 		t.Fatalf("Failed to create task 2: %v", err)
 	}
 
 	// Agent resumes for the first time
-	response1, err := Resume(db, agentName)
+	response1, err := ResumeWithOptionsIdempotent(db, agentName, "req-integ-resume-1", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("First resume failed: %v", err)
 	}
@@ -47,14 +50,16 @@ func TestResumeInterruptionScenario(t *testing.T) {
 	}
 
 	// Agent starts working on task1 (using actions layer to log events)
-	_, _, err = TaskSetStatus(db, agentName, task1.ID, "in_progress")
+	_, _, err = TaskSetStatusIdempotent(db, agentName, "req-integ-status-1", task1.ID, "in_progress", "")
 	if err != nil {
 		t.Fatalf("Failed to update task status: %v", err)
 	}
 
 	// Log some work
-	_, err = store.AppendEvent(db, "progress", agentName, task1.ID, "Made progress on task 1")
-	if err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error {
+		_, e := store.InsertEventTx(tx, "progress", agentName, task1.ID, "Made progress on task 1", "")
+		return e
+	}); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
 
@@ -64,7 +69,7 @@ func TestResumeInterruptionScenario(t *testing.T) {
 	// === Phase 2: Resume after interruption ===
 
 	// Agent resumes after restart
-	response2, err := Resume(db, agentName)
+	response2, err := ResumeWithOptionsIdempotent(db, agentName, "req-integ-resume-2", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Second resume failed: %v", err)
 	}
@@ -94,13 +99,13 @@ func TestResumeInterruptionScenario(t *testing.T) {
 	// === Phase 3: Complete task and pick up next ===
 
 	// Agent completes task1 (using actions layer)
-	_, _, err = TaskSetStatus(db, agentName, task1.ID, "completed")
+	_, _, err = TaskSetStatusIdempotent(db, agentName, "req-integ-status-2", task1.ID, "completed", "")
 	if err != nil {
 		t.Fatalf("Failed to complete task: %v", err)
 	}
 
 	// Resume again
-	response3, err := Resume(db, agentName)
+	response3, err := ResumeWithOptionsIdempotent(db, agentName, "req-integ-resume-3", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Third resume failed: %v", err)
 	}
@@ -118,13 +123,13 @@ func TestResumeInterruptionScenario(t *testing.T) {
 	// === Phase 4: No more work ===
 
 	// Complete task2 (using actions layer)
-	_, _, err = TaskSetStatus(db, agentName, task2.ID, "completed")
+	_, _, err = TaskSetStatusIdempotent(db, agentName, "req-integ-status-3", task2.ID, "completed", "")
 	if err != nil {
 		t.Fatalf("Failed to complete task2: %v", err)
 	}
 
 	// Resume with no pending work
-	response4, err := Resume(db, agentName)
+	response4, err := ResumeWithOptionsIdempotent(db, agentName, "req-integ-resume-4", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Fourth resume failed: %v", err)
 	}
@@ -141,6 +146,8 @@ func TestResumeInterruptionScenario(t *testing.T) {
 }
 
 // TestResumeWithMemoryContext tests that brief includes relevant memory
+//
+//nolint:gocyclo // integration test sets up memory across multiple scopes; each assertion is a distinct branch
 func TestResumeWithMemoryContext(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()
@@ -148,7 +155,7 @@ func TestResumeWithMemoryContext(t *testing.T) {
 	agentName := "memory-agent"
 
 	// Create a task (using actions layer)
-	task, _, err := TaskCreate(db, agentName, "Task with context", "Description", "", 0)
+	task, _, err := TaskCreateIdempotent(db, agentName, "req-mem-ctx-create-1", "Task with context", "Description", "", 0)
 	if err != nil {
 		t.Fatalf("Failed to create task: %v", err)
 	}
@@ -172,7 +179,7 @@ func TestResumeWithMemoryContext(t *testing.T) {
 	}
 
 	// Resume
-	response, err := Resume(db, agentName)
+	response, err := ResumeWithOptionsIdempotent(db, agentName, "req-mem-ctx-resume-1", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
@@ -215,6 +222,8 @@ func TestResumeWithMemoryContext(t *testing.T) {
 }
 
 // TestMonotonicCursorAdvancement ensures cursor never goes backward
+//
+//nolint:gocyclo // integration test verifies monotonic cursor property across multiple resume calls; branching is inherent to the scenario
 func TestMonotonicCursorAdvancement(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()
@@ -223,14 +232,13 @@ func TestMonotonicCursorAdvancement(t *testing.T) {
 
 	// Create events
 	for i := 0; i < 5; i++ {
-		_, err := store.AppendEvent(db, "test.event", agentName, "", "Event")
-		if err != nil {
+		if err := store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", agentName, "", "Event", ""); return e }); err != nil {
 			t.Fatalf("Failed to append event: %v", err)
 		}
 	}
 
 	// First resume (cursor 0 -> 5)
-	response1, err := Resume(db, agentName)
+	response1, err := ResumeWithOptionsIdempotent(db, agentName, "req-mono-resume-1", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("First resume failed: %v", err)
 	}
@@ -244,7 +252,7 @@ func TestMonotonicCursorAdvancement(t *testing.T) {
 	}
 
 	// Second resume immediately (no new events, cursor stays at 5)
-	response2, err := Resume(db, agentName)
+	response2, err := ResumeWithOptionsIdempotent(db, agentName, "req-mono-resume-2", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Second resume failed: %v", err)
 	}
@@ -263,14 +271,13 @@ func TestMonotonicCursorAdvancement(t *testing.T) {
 
 	// Add more events
 	for i := 0; i < 3; i++ {
-		_, appendErr := store.AppendEvent(db, "test.event", agentName, "", "New Event")
-		if appendErr != nil {
+		if appendErr := store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", agentName, "", "New Event", ""); return e }); appendErr != nil {
 			t.Fatalf("Failed to append event: %v", appendErr)
 		}
 	}
 
 	// Third resume (cursor 5 -> 8)
-	response3, err := Resume(db, agentName)
+	response3, err := ResumeWithOptionsIdempotent(db, agentName, "req-mono-resume-3", ResumeOptions{EventLimit: 1000})
 	if err != nil {
 		t.Fatalf("Third resume failed: %v", err)
 	}
