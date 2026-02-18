@@ -19,7 +19,7 @@ func newTargetFlagCmd() *cobra.Command {
 func TestResolveTargetFlags_DefaultsToClaudeOnly(t *testing.T) {
 	cmd := newTargetFlagCmd()
 
-	claude, opencode, err := resolveTargetFlags(cmd, "claude", "opencode")
+	claude, opencode, err := resolveTargetFlags(cmd)
 	require.NoError(t, err)
 	require.True(t, claude)
 	require.False(t, opencode)
@@ -30,7 +30,7 @@ func TestResolveTargetFlags_ReturnsErrorWhenBothExplicitlyFalse(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("claude", "false"))
 	require.NoError(t, cmd.Flags().Set("opencode", "false"))
 
-	claude, opencode, err := resolveTargetFlags(cmd, "claude", "opencode")
+	claude, opencode, err := resolveTargetFlags(cmd)
 	require.Error(t, err)
 	require.False(t, claude)
 	require.False(t, opencode)
@@ -41,7 +41,7 @@ func TestResolveTargetFlags_BothTrue(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("claude", "true"))
 	require.NoError(t, cmd.Flags().Set("opencode", "true"))
 
-	claude, opencode, err := resolveTargetFlags(cmd, "claude", "opencode")
+	claude, opencode, err := resolveTargetFlags(cmd)
 	require.NoError(t, err)
 	require.True(t, claude)
 	require.True(t, opencode)
@@ -75,6 +75,8 @@ func TestIsVybeHookCommand(t *testing.T) {
 	require.False(t, isVybeHookCommand(""))
 	require.False(t, isVybeHookCommand("vybe hook unknown-subcommand"))
 	require.True(t, isVybeHookCommand("vybe hook retrospective"))
+	require.True(t, isVybeHookCommand("vybe hook retrospective-bg"))
+	require.True(t, isVybeHookCommand("vybe hook session-end"))
 	require.True(t, isVybeHookCommand("vybe hook tool-success"))
 	require.True(t, isVybeHookCommand("vybe hook subagent-stop"))
 	require.True(t, isVybeHookCommand("vybe hook subagent-start"))
@@ -222,7 +224,7 @@ func TestInstallOpenCode_SkipsConflictWithoutForce(t *testing.T) {
 	require.NotEqual(t, opencodeBridgePluginSource, string(existing))
 
 	// Verify conflict detection logic directly
-	status := "installed"
+	var status string
 	if string(existing) == opencodeBridgePluginSource {
 		status = "skipped"
 	} else {
@@ -251,12 +253,13 @@ func TestInstallOpenCode_OverwritesWithForce(t *testing.T) {
 
 	// With force=true, status should be "updated"
 	force := true
-	status := "installed"
-	if string(existing) == opencodeBridgePluginSource {
+	var status string
+	switch {
+	case string(existing) == opencodeBridgePluginSource:
 		status = "skipped"
-	} else if !force {
+	case !force:
 		status = "skipped_conflict"
-	} else {
+	default:
 		status = "updated"
 	}
 	require.Equal(t, "updated", status)

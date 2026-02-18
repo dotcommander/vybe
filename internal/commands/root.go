@@ -75,7 +75,7 @@ func Execute(version string) error {
 	if err != nil {
 		var pe printedError
 		if !errors.As(err, &pe) {
-			slog.Error("command failed", "error", err.Error())
+			slog.Default().Error("command failed", "error", err.Error())
 		}
 	}
 	return err

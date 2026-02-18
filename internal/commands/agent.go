@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/output"
@@ -24,6 +24,7 @@ func NewAgentCmd() *cobra.Command {
 	return cmd
 }
 
+//nolint:gocognit // focus command handles multiple optional args (task, project, clear) with validation and conflict detection
 func newAgentFocusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "focus",
@@ -32,7 +33,7 @@ func newAgentFocusCmd() *cobra.Command {
 			taskID, _ := cmd.Flags().GetString("task")
 			projectID, _ := cmd.Flags().GetString("project")
 			if taskID == "" && projectID == "" {
-				return cmdErr(fmt.Errorf("--task and/or --project is required"))
+				return cmdErr(errors.New("--task and/or --project is required"))
 			}
 
 			agentName, err := requireActorName(cmd, "")

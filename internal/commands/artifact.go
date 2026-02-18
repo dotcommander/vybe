@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/spf13/cobra"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/dotcommander/vybe/internal/output"
 )
 
+// NewArtifactCmd creates the artifact management command group.
 func NewArtifactCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "artifact",
@@ -42,10 +43,10 @@ func newArtifactAddCmd() *cobra.Command {
 				return cmdErr(err)
 			}
 			if taskID == "" {
-				return fmt.Errorf("--task is required")
+				return errors.New("--task is required")
 			}
 			if filePath == "" {
-				return fmt.Errorf("--path is required")
+				return errors.New("--path is required")
 			}
 
 			var (
@@ -86,7 +87,7 @@ func newArtifactGetCmd() *cobra.Command {
 		Short: "Get artifact by id",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if id == "" {
-				return fmt.Errorf("--id is required")
+				return errors.New("--id is required")
 			}
 
 			var artifact *models.Artifact
@@ -120,7 +121,7 @@ func newArtifactListCmd() *cobra.Command {
 		Short: "List artifacts for a task",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if taskID == "" {
-				return fmt.Errorf("--task is required")
+				return errors.New("--task is required")
 			}
 
 			var artifacts []*models.Artifact

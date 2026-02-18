@@ -31,6 +31,7 @@ var opencodeBridgePluginSource string
 
 const vybeCommandFallback = "vybe"
 
+//nolint:gochecknoglobals // sync.Once singleton cache for hook definitions; required by the sync.Once pattern
 var (
 	vybeHooksOnce  sync.Once
 	vybeHooksCache map[string]hookEntry
@@ -100,6 +101,7 @@ func vybeHooks() map[string]hookEntry {
 	return vybeHooksCache
 }
 
+//nolint:funlen // hook definitions are data-heavy; all 10 hook event entries must be defined together for maintainability
 func buildVybeHooks() map[string]hookEntry {
 	return map[string]hookEntry{
 		"SessionStart": {
@@ -136,18 +138,11 @@ func buildVybeHooks() map[string]hookEntry {
 		},
 		"SessionEnd": {
 			Matcher: "",
-			Hooks: []hookHandler{
-				{
-					Type:    "command",
-					Command: buildVybeHookCommand("checkpoint"),
-					Timeout: 4000,
-				},
-				{
-					Type:    "command",
-					Command: buildVybeHookCommand("retrospective"),
-					Timeout: 15000,
-				},
-			},
+			Hooks: []hookHandler{{
+				Type:    "command",
+				Command: buildVybeHookCommand("session-end"),
+				Timeout: 5000,
+			}},
 		},
 		"TaskCompleted": {
 			Matcher: "",
@@ -228,7 +223,7 @@ func writeSettings(path string, settings map[string]any) error {
 	data = append(data, '\n')
 
 	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}
 
@@ -260,6 +255,7 @@ func hasVybeHook(entries []any) bool {
 	return false
 }
 
+//nolint:gocyclo // recognizer checks multiple vybe command patterns across both legacy and current CLI shapes
 func isVybeHookCommand(command string) bool {
 	cmd := strings.TrimSpace(command)
 	if cmd == "" {
@@ -280,12 +276,14 @@ func isVybeHookCommand(command string) bool {
 
 	sub := parts[2]
 	return sub == "session-start" ||
+		sub == "session-end" ||
 		sub == "prompt" ||
 		sub == "tool-failure" ||
 		sub == "tool-success" ||
 		sub == "checkpoint" ||
 		sub == "task-completed" ||
 		sub == "retrospective" ||
+		sub == "retrospective-bg" ||
 		sub == "subagent-stop" ||
 		sub == "subagent-start" ||
 		sub == "stop"
@@ -348,7 +346,8 @@ func upsertVybeHookEntry(existing []any, newEntry map[string]any) ([]any, instal
 		kept = append(kept, currentEntry)
 	}
 
-	entries := append(kept, newEntry)
+	kept = append(kept, newEntry)
+	entries := kept
 	if matchingVybe {
 		return entries, hookSkipped
 	}
@@ -360,7 +359,10 @@ func upsertVybeHookEntry(existing []any, newEntry map[string]any) ([]any, instal
 
 // resolveTargetFlags returns (claude, opencode) based on explicit flag usage.
 // Default: Claude only when no flags specified.
-func resolveTargetFlags(cmd *cobra.Command, claudeFlag, opencodeFlag string) (claude bool, opencode bool, err error) {
+func resolveTargetFlags(cmd *cobra.Command) (claude bool, opencode bool, err error) {
+	const claudeFlag = "claude"
+	const opencodeFlag = "opencode"
+
 	claude = cmd.Flags().Changed(claudeFlag)
 	opencode = cmd.Flags().Changed(opencodeFlag)
 
@@ -379,6 +381,7 @@ func resolveTargetFlags(cmd *cobra.Command, claudeFlag, opencodeFlag string) (cl
 	return c, o, nil
 }
 
+//nolint:gocognit,gocyclo,funlen,nestif,revive // install command handles multiple targets (claude+opencode) with tty branching; splitting degrades cohesion
 func newHookInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -386,7 +389,7 @@ func newHookInstallCmd() *cobra.Command {
 		Long: `Installs Claude Code hooks and/or an OpenCode bridge plugin.
 Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			installClaude, installOpenCode, err := resolveTargetFlags(cmd, "claude", "opencode")
+			installClaude, installOpenCode, err := resolveTargetFlags(cmd)
 			if err != nil {
 				return cmdErr(err)
 			}
@@ -493,7 +496,7 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 				}
 
 				if status == "installed" || status == "updated" {
-					if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+					if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 						return cmdErr(fmt.Errorf("create opencode plugin directory: %w", err))
 					}
 					if err := os.WriteFile(path, []byte(opencodeBridgePluginSource), 0600); err != nil {
@@ -549,13 +552,14 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 	return cmd
 }
 
+//nolint:gocognit,gocyclo,funlen,nestif,revive // uninstall command mirrors install branching; same rationale applies
 func newHookUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Remove vybe hooks for Claude and/or OpenCode",
 		Long:  `Removes Claude Code hook entries and/or OpenCode bridge plugin.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			uninstallClaude, uninstallOpenCode, err := resolveTargetFlags(cmd, "claude", "opencode")
+			uninstallClaude, uninstallOpenCode, err := resolveTargetFlags(cmd)
 			if err != nil {
 				return cmdErr(err)
 			}

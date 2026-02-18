@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -56,7 +57,7 @@ func upgradeViaGitPull(srcDir string) error {
 	oldVersion := getGitVersion(srcDir)
 
 	// Pull latest
-	pull := exec.Command("git", "pull", "--ff-only")
+	pull := exec.CommandContext(context.Background(), "git", "pull", "--ff-only") //nolint:gosec // G204: git is a known system tool
 	pull.Dir = srcDir
 	pull.Stdout = os.Stderr
 	pull.Stderr = os.Stderr
@@ -65,7 +66,7 @@ func upgradeViaGitPull(srcDir string) error {
 	}
 
 	// Build and install
-	install := exec.Command("go", "install", "./cmd/vybe")
+	install := exec.CommandContext(context.Background(), "go", "install", "./cmd/vybe") //nolint:gosec // G204: go is a known system tool
 	install.Dir = srcDir
 	install.Stdout = os.Stderr
 	install.Stderr = os.Stderr
@@ -90,7 +91,7 @@ func upgradeViaGitPull(srcDir string) error {
 }
 
 func upgradeViaGoInstall() error {
-	install := exec.Command("go", "install", "github.com/dotcommander/vybe/cmd/vybe@latest")
+	install := exec.CommandContext(context.Background(), "go", "install", "github.com/dotcommander/vybe/cmd/vybe@latest") //nolint:gosec // G204: go is a known system tool
 	install.Stdout = os.Stderr
 	install.Stderr = os.Stderr
 	if err := install.Run(); err != nil {
@@ -108,7 +109,7 @@ func upgradeViaGoInstall() error {
 }
 
 func getGitVersion(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--short", "HEAD").Output()
+	out, err := exec.CommandContext(context.Background(), "git", "-C", dir, "rev-parse", "--short", "HEAD").Output() //nolint:gosec // G204: git is a known system tool
 	if err != nil {
 		return "unknown"
 	}

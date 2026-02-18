@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/dotcommander/vybe/internal/actions"
 	"github.com/dotcommander/vybe/internal/models"
@@ -42,7 +42,7 @@ func newProjectCreateCmd() *cobra.Command {
 			}
 
 			if name == "" {
-				return cmdErr(fmt.Errorf("--name is required"))
+				return cmdErr(errors.New("--name is required"))
 			}
 
 			var project *models.Project
@@ -81,13 +81,13 @@ func newProjectGetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectID, _ := cmd.Flags().GetString("id")
 			if projectID != "" && len(args) == 1 {
-				return cmdErr(fmt.Errorf("provide either --id or a positional project id, not both"))
+				return cmdErr(errors.New("provide either --id or a positional project id, not both"))
 			}
 			if projectID == "" && len(args) == 1 {
 				projectID = args[0]
 			}
 			if projectID == "" {
-				return cmdErr(fmt.Errorf("--id is required"))
+				return cmdErr(errors.New("--id is required"))
 			}
 
 			var project *models.Project
@@ -139,6 +139,7 @@ func newProjectListCmd() *cobra.Command {
 	return cmd
 }
 
+//nolint:dupl // newTaskDeleteCmd has the same cobra pattern; they operate on different entities and actions
 func newProjectDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete",
@@ -155,7 +156,7 @@ func newProjectDeleteCmd() *cobra.Command {
 			}
 
 			if projectID == "" {
-				return cmdErr(fmt.Errorf("--id is required"))
+				return cmdErr(errors.New("--id is required"))
 			}
 
 			var eventID int64

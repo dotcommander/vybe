@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"sort"
@@ -11,6 +12,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// NewStatusCmd creates the status command that shows installation and system overview.
+//
+//nolint:revive,funlen // status display requires many conditional checks for completeness; splitting degrades the linear status-collection flow
 func NewStatusCmd() *cobra.Command {
 	var check bool
 
@@ -71,32 +75,31 @@ func NewStatusCmd() *cobra.Command {
 					result.QueryError = "db not available"
 					result.Hint = "If this is running in a sandboxed environment, set db_path to a writable location or use --db-path."
 				}
-			} else {
-				result.DB.OK = true
-				defer db.Close()
+				return output.PrintSuccess(result)
+			}
 
-				// 5. Get DB file size
-				if stat, err := os.Stat(dbPath); err == nil {
-					size := stat.Size()
-					result.DB.SizeBytes = &size
-				}
+			result.DB.OK = true
+			defer func() { _ = db.Close() }()
 
-				// 6. Get counts
-				if counts, err := store.GetStatusCounts(db); err == nil {
-					result.Counts = counts
-				}
+			// 5. Get DB file size
+			if stat, err := os.Stat(dbPath); err == nil {
+				size := stat.Size()
+				result.DB.SizeBytes = &size
+			}
 
-				// 7. Health check (--check): run SELECT 1 to verify connectivity
-				if check {
-					var one int
-					if qErr := db.QueryRow("SELECT 1").Scan(&one); qErr != nil {
-						qOK := false
-						result.QueryOK = &qOK
-						result.QueryError = qErr.Error()
-					} else {
-						qOK := true
-						result.QueryOK = &qOK
-					}
+			// 6. Get counts
+			if counts, err := store.GetStatusCounts(db); err == nil {
+				result.Counts = counts
+			}
+
+			// 7. Health check (--check): run SELECT 1 to verify connectivity
+			if check {
+				var one int
+				qErr := db.QueryRowContext(context.Background(), "SELECT 1").Scan(&one)
+				qOK := qErr == nil
+				result.QueryOK = &qOK
+				if !qOK {
+					result.QueryError = qErr.Error()
 				}
 			}
 

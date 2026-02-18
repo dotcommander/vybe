@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -11,6 +11,7 @@ import (
 	"github.com/dotcommander/vybe/internal/store"
 )
 
+// NewEventsCmd creates the events command group for inspecting the continuity log.
 func NewEventsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "events",
@@ -47,10 +48,10 @@ func newEventsAddCmd() *cobra.Command {
 				return cmdErr(err)
 			}
 			if kind == "" {
-				return fmt.Errorf("--kind is required")
+				return errors.New("--kind is required")
 			}
 			if message == "" {
-				return fmt.Errorf("--msg is required")
+				return errors.New("--msg is required")
 			}
 
 			var eventID int64
@@ -103,7 +104,7 @@ func newEventsListCmd() *cobra.Command {
 				agentName = ""
 			}
 			if !all && agentName == "" {
-				return cmdErr(fmt.Errorf("agent is required unless --all is set (set --agent or VYBE_AGENT)"))
+				return cmdErr(errors.New("agent is required unless --all is set (set --agent or VYBE_AGENT)"))
 			}
 
 			var events []*models.Event
@@ -156,6 +157,7 @@ func newEventsListCmd() *cobra.Command {
 	return cmd
 }
 
+//nolint:gocognit,gocyclo,funlen,revive // tail command implements a polling event stream with multiple filter/format branches; splitting degrades the linear read flow
 func newEventsTailCmd() *cobra.Command {
 	var (
 		all             bool
@@ -184,7 +186,7 @@ func newEventsTailCmd() *cobra.Command {
 				agentName = ""
 			}
 			if !all && agentName == "" {
-				return cmdErr(fmt.Errorf("agent is required unless --all is set (set --agent or VYBE_AGENT)"))
+				return cmdErr(errors.New("agent is required unless --all is set (set --agent or VYBE_AGENT)"))
 			}
 
 			// Default to agent cursor (if available) to avoid dumping history.
@@ -304,13 +306,13 @@ func newEventsSummarizeCmd() *cobra.Command {
 			summary, _ := cmd.Flags().GetString("summary")
 
 			if fromID <= 0 {
-				return cmdErr(fmt.Errorf("--from-id is required and must be > 0"))
+				return cmdErr(errors.New("--from-id is required and must be > 0"))
 			}
 			if toID <= 0 {
-				return cmdErr(fmt.Errorf("--to-id is required and must be > 0"))
+				return cmdErr(errors.New("--to-id is required and must be > 0"))
 			}
 			if summary == "" {
-				return cmdErr(fmt.Errorf("--summary is required"))
+				return cmdErr(errors.New("--summary is required"))
 			}
 
 			var (

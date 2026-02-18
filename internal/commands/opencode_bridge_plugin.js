@@ -38,6 +38,18 @@ async function runVybeJSON(args) {
   }
 }
 
+// Fire-and-forget: spawn vybe process without awaiting completion.
+// Optional env object is merged into process.env for the child.
+function runVybeBackground(args, env) {
+  try {
+    var opts = { cmd: ["vybe", ...args], stdout: "ignore", stderr: "ignore" }
+    if (env) opts.env = Object.assign({}, process.env, env)
+    Bun.spawn(opts)
+  } catch (_) {
+    // best-effort — don't block caller
+  }
+}
+
 function extractUserPrompt(parts) {
   if (!Array.isArray(parts)) return ""
   const texts = []
@@ -50,12 +62,29 @@ function extractUserPrompt(parts) {
   return texts.join("\n").trim()
 }
 
+function truncate(str, max) {
+  if (!str || str.length <= max) return str
+  return str.slice(0, max)
+}
+
+var MUTATING_TOOLS = { Write: 1, Edit: 1, MultiEdit: 1, Bash: 1, NotebookEdit: 1 }
+
 export const VybeBridgePlugin = async ({ client }) => {
   const sessionPrompts = new Map()
   const sessionProjects = new Map()
   const todoTimers = new Map()
   const todoPending = new Map()
   const TODO_DEBOUNCE_MS = 3000
+
+  const log = async (level, message, extra) => {
+    try {
+      await client.app.log({ body: { service: "vybe-bridge", level, message, extra } })
+    } catch (_) {}
+  }
+
+  const agentForSession = (sessionID) => {
+    return stableAgent(sessionID, sessionProjects.get(sessionID))
+  }
 
   const hydrateSessionPrompt = async (sessionID, projectDir) => {
     if (sessionPrompts.size >= 100) {
@@ -75,6 +104,27 @@ export const VybeBridgePlugin = async ({ client }) => {
     }
   }
 
+  // Run checkpoint operations: compact + gc.
+  // Note: auto-summarize is not exposed as a CLI command; it runs internally
+  // in the Go checkpoint hook. compact + gc cover the critical cleanup.
+  const runCheckpoint = async (agent, projectDir) => {
+    const prefix = reqID("oc_checkpoint")
+    const scopeArgs = projectDir ? ["--scope", "project", "--scope-id", projectDir] : ["--scope", "global"]
+
+    await runVybe([
+      "memory", "compact",
+      "--agent", agent,
+      "--request-id", prefix + "_compact",
+      ...scopeArgs,
+    ]).catch(() => {})
+
+    await runVybe([
+      "memory", "gc",
+      "--agent", agent,
+      "--request-id", prefix + "_gc",
+    ]).catch(() => {})
+  }
+
   return {
     event: async ({ event }) => {
       try {
@@ -85,18 +135,21 @@ export const VybeBridgePlugin = async ({ client }) => {
           }
           const agent = stableAgent(info.id, info.directory)
           await hydrateSessionPrompt(info.id, info.directory)
-          await client.app.log({
-            body: {
-              service: "vybe-bridge",
-              level: "info",
-              message: "session.created -> vybe resume",
-              extra: { sessionID: info.id, agent },
-            },
-          })
+          await log("info", "session.created -> vybe resume", { sessionID: info.id, agent })
         }
 
         if (event.type === "session.deleted") {
           const delID = event.properties.info.id
+          const projectDir = sessionProjects.get(delID)
+          const agent = agentForSession(delID)
+
+          // Synchronous checkpoint
+          await runCheckpoint(agent, projectDir).catch(() => {})
+
+          // Fire-and-forget retrospective (pass agent via env since retrospective has no --agent flag)
+          runVybeBackground(["hook", "retrospective"], { VYBE_AGENT: agent })
+
+          // Clean up maps
           sessionPrompts.delete(delID)
           sessionProjects.delete(delID)
           if (todoTimers.has(delID)) {
@@ -104,6 +157,22 @@ export const VybeBridgePlugin = async ({ client }) => {
             todoTimers.delete(delID)
           }
           todoPending.delete(delID)
+        }
+
+        if (event.type === "session.idle") {
+          // Property structure varies by OpenCode version; try both known shapes.
+          const sessionID = event.properties?.sessionID || event.properties?.info?.id
+          if (sessionID) {
+            const agent = agentForSession(sessionID)
+            await runVybe([
+              "events", "add",
+              "--agent", agent,
+              "--request-id", reqID("oc_idle"),
+              "--kind", "heartbeat",
+              "--msg", "session_idle",
+              "--metadata", JSON.stringify({ source: "opencode", session_id: sessionID }),
+            ]).catch(() => {})
+          }
         }
 
         if (event.type === "todo.updated") {
@@ -118,10 +187,9 @@ export const VybeBridgePlugin = async ({ client }) => {
             todoPending.delete(sessionID)
             if (!latestTodos) return
             try {
-              const agent = stableAgent(sessionID, sessionProjects.get(sessionID))
+              const agent = agentForSession(sessionID)
               await runVybe([
-                "events",
-                "add",
+                "events", "add",
                 "--agent", agent,
                 "--request-id", reqID("oc_todo_updated"),
                 "--kind", "todo_snapshot",
@@ -133,25 +201,73 @@ export const VybeBridgePlugin = async ({ client }) => {
                 }),
               ])
             } catch (err) {
-              await client.app.log({
-                body: {
-                  service: "vybe-bridge",
-                  level: "warn",
-                  message: "vybe bridge todo debounce flush failed",
-                  extra: { error: err instanceof Error ? err.message : String(err) },
-                },
+              await log("warn", "vybe bridge todo debounce flush failed", {
+                error: err instanceof Error ? err.message : String(err),
               })
             }
           }, TODO_DEBOUNCE_MS))
         }
       } catch (err) {
-        await client.app.log({
-          body: {
-            service: "vybe-bridge",
-            level: "warn",
-            message: "vybe bridge hook failed",
-            extra: { error: err instanceof Error ? err.message : String(err) },
-          },
+        await log("warn", "vybe bridge event hook failed", {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    },
+
+    "tool.execute.after": async (input) => {
+      try {
+        const tool = input.tool
+        if (!tool) return
+
+        const sessionID = input.sessionID
+        const agent = agentForSession(sessionID)
+        const isError = !!input.error
+
+        if (isError) {
+          // Log all tool failures
+          const msg = truncate(tool + " failed", 500)
+          const metadata = JSON.stringify({
+            source: "opencode",
+            session_id: sessionID,
+            tool_name: tool,
+            error: truncate(String(input.error || ""), 2048),
+            metadata_schema_version: "v1",
+          })
+          await runVybe([
+            "events", "add",
+            "--agent", agent,
+            "--request-id", reqID("oc_tool_failure"),
+            "--kind", "tool_failure",
+            "--msg", msg,
+            "--metadata", metadata,
+          ])
+        } else if (MUTATING_TOOLS[tool]) {
+          // Only log mutating tool successes
+          let msg = tool
+          let args = input.args || {}
+          if (args.file_path) msg = tool + ": " + args.file_path
+          else if (args.notebook_path) msg = tool + ": " + args.notebook_path
+          else if (args.command) msg = tool + ": " + truncate(String(args.command), 120)
+          msg = truncate(msg, 500)
+
+          const metadata = JSON.stringify({
+            source: "opencode",
+            session_id: sessionID,
+            tool_name: tool,
+            metadata_schema_version: "v1",
+          })
+          await runVybe([
+            "events", "add",
+            "--agent", agent,
+            "--request-id", reqID("oc_tool_success"),
+            "--kind", "tool_success",
+            "--msg", msg,
+            "--metadata", metadata,
+          ])
+        }
+      } catch (err) {
+        await log("warn", "vybe bridge tool.execute.after failed", {
+          error: err instanceof Error ? err.message : String(err),
         })
       }
     },
@@ -159,7 +275,7 @@ export const VybeBridgePlugin = async ({ client }) => {
     "chat.message": async (input, output) => {
       try {
         const sessionID = input.sessionID
-        const agent = stableAgent(sessionID, sessionProjects.get(sessionID))
+        const agent = agentForSession(sessionID)
 
         const prompt = extractUserPrompt(output.parts)
         if (!prompt) return
@@ -167,8 +283,7 @@ export const VybeBridgePlugin = async ({ client }) => {
         const truncated = prompt.length > 500 ? prompt.slice(0, 500) : prompt
 
         await runVybe([
-          "events",
-          "add",
+          "events", "add",
           "--agent", agent,
           "--request-id", reqID("oc_user_prompt"),
           "--kind", "user_prompt",
@@ -179,13 +294,21 @@ export const VybeBridgePlugin = async ({ client }) => {
           }),
         ])
       } catch (err) {
-        await client.app.log({
-          body: {
-            service: "vybe-bridge",
-            level: "warn",
-            message: "vybe bridge chat.message failed",
-            extra: { error: err instanceof Error ? err.message : String(err) },
-          },
+        await log("warn", "vybe bridge chat.message failed", {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    },
+
+    "experimental.session.compacting": async (input, output) => {
+      try {
+        const sessionID = input.sessionID
+        const agent = agentForSession(sessionID)
+        const projectDir = sessionProjects.get(sessionID)
+        await runCheckpoint(agent, projectDir)
+      } catch (err) {
+        await log("warn", "vybe bridge compacting checkpoint failed", {
+          error: err instanceof Error ? err.message : String(err),
         })
       }
     },

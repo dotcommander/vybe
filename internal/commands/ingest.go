@@ -36,6 +36,7 @@ type historyEntry struct {
 	SessionID string `json:"sessionId"`
 }
 
+//nolint:gocognit,gocyclo,funlen,revive // history ingestion parses mixed event kinds with different metadata shapes; each branch handles a distinct event type
 func newIngestHistoryCmd() *cobra.Command {
 	var (
 		filePath  string
@@ -191,7 +192,7 @@ func readHistoryFile(path, projectFilter string, sinceTs int64) (historyResult, 
 	if err != nil {
 		return historyResult{}, fmt.Errorf("cannot open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var items []historyEntry
 	var totalRead int
@@ -241,6 +242,6 @@ func readHistoryFile(path, projectFilter string, sinceTs int64) (historyResult, 
 // entryRequestID produces a deterministic ID from content, so re-runs are idempotent.
 func entryRequestID(e historyEntry) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%d|%s|%s", e.Timestamp, e.Project, e.Display)
+	_, _ = fmt.Fprintf(h, "%d|%s|%s", e.Timestamp, e.Project, e.Display)
 	return fmt.Sprintf("ingest_%x", h.Sum(nil)[:12])
 }

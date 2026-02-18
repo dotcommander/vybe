@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/dotcommander/vybe/internal/actions"
@@ -57,7 +58,7 @@ func newTaskCreateCmd() *cobra.Command {
 			}
 
 			if title == "" {
-				return fmt.Errorf("--title is required")
+				return errors.New("--title is required")
 			}
 
 			var task *models.Task
@@ -109,10 +110,10 @@ func newTaskSetStatusCmd() *cobra.Command {
 			}
 
 			if taskID == "" {
-				return fmt.Errorf("--id is required")
+				return errors.New("--id is required")
 			}
 			if status == "" {
-				return fmt.Errorf("--status is required")
+				return errors.New("--status is required")
 			}
 
 			var (
@@ -152,7 +153,7 @@ func newTaskBeginCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			if taskID == "" {
-				return fmt.Errorf("--id is required")
+				return errors.New("--id is required")
 			}
 
 			agentName, err := requireActorName(cmd, "")
@@ -164,20 +165,11 @@ func newTaskBeginCmd() *cobra.Command {
 				return cmdErr(err)
 			}
 
-			var (
-				task          *models.Task
-				statusEventID int64
-				focusEventID  int64
-			)
+			var result *actions.TaskStartResult
 			if err := withDB(func(db *DB) error {
-				t, se, fe, err := actions.TaskStartIdempotent(db, agentName, requestID, taskID)
-				if err != nil {
-					return err
-				}
-				task = t
-				statusEventID = se
-				focusEventID = fe
-				return nil
+				var startErr error
+				result, startErr = actions.TaskStartIdempotent(db, agentName, requestID, taskID)
+				return startErr
 			}); err != nil {
 				return err
 			}
@@ -187,7 +179,7 @@ func newTaskBeginCmd() *cobra.Command {
 				StatusEventID int64        `json:"status_event_id,omitempty"`
 				FocusEventID  int64        `json:"focus_event_id"`
 			}
-			return output.PrintSuccess(resp{Task: task, StatusEventID: statusEventID, FocusEventID: focusEventID})
+			return output.PrintSuccess(resp{Task: result.Task, StatusEventID: result.StatusEventID, FocusEventID: result.FocusEventID})
 		},
 	}
 
@@ -202,7 +194,7 @@ func newTaskHeartbeatCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			if taskID == "" {
-				return fmt.Errorf("--id is required")
+				return errors.New("--id is required")
 			}
 
 			agentName, err := requireActorName(cmd, "")
@@ -281,13 +273,13 @@ func newTaskGetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			if taskID != "" && len(args) == 1 {
-				return fmt.Errorf("provide either --id or a positional task id, not both")
+				return errors.New("provide either --id or a positional task id, not both")
 			}
 			if taskID == "" && len(args) == 1 {
 				taskID = args[0]
 			}
 			if taskID == "" {
-				return fmt.Errorf("--id is required")
+				return errors.New("--id is required")
 			}
 
 			var task *models.Task
@@ -319,10 +311,10 @@ func newTaskDepCmd(use, short, successFmt string, apply func(db *DB, agentName, 
 			taskID, _ := cmd.Flags().GetString("id")
 			dependsOn, _ := cmd.Flags().GetString("depends-on")
 			if taskID == "" {
-				return fmt.Errorf("--id is required")
+				return errors.New("--id is required")
 			}
 			if dependsOn == "" {
-				return fmt.Errorf("--depends-on is required")
+				return errors.New("--depends-on is required")
 			}
 
 			agentName, err := requireActorName(cmd, "")
@@ -371,6 +363,7 @@ func newTaskRemoveDepCmd() *cobra.Command {
 	)
 }
 
+//nolint:dupl // newProjectDeleteCmd has the same cobra pattern; they operate on different entities and actions
 func newTaskDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete",
@@ -387,7 +380,7 @@ func newTaskDeleteCmd() *cobra.Command {
 			}
 
 			if taskID == "" {
-				return cmdErr(fmt.Errorf("--id is required"))
+				return cmdErr(errors.New("--id is required"))
 			}
 
 			var eventID int64
@@ -467,13 +460,13 @@ func newTaskCompleteCmd() *cobra.Command {
 			blockedReason, _ := cmd.Flags().GetString("blocked-reason")
 
 			if taskID == "" {
-				return fmt.Errorf("--id is required")
+				return errors.New("--id is required")
 			}
 			if outcome == "" {
-				return fmt.Errorf("--outcome is required (done|blocked)")
+				return errors.New("--outcome is required (done|blocked)")
 			}
 			if summary == "" {
-				return fmt.Errorf("--summary is required")
+				return errors.New("--summary is required")
 			}
 
 			agentName, err := requireActorName(cmd, "")
@@ -554,7 +547,7 @@ func newTaskSetPriorityCmd() *cobra.Command {
 			}
 
 			if taskID == "" {
-				return fmt.Errorf("--id is required")
+				return errors.New("--id is required")
 			}
 
 			var (
@@ -632,7 +625,7 @@ func newTaskUnlocksCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			if taskID == "" {
-				return fmt.Errorf("--id is required")
+				return errors.New("--id is required")
 			}
 
 			var tasks []store.PipelineTask

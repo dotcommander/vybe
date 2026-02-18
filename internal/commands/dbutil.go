@@ -60,6 +60,6 @@ func cmdErr(err error) error {
 	if errors.As(err, &detailed) {
 		attrs = append(attrs, detailed.SlogAttrs()...)
 	}
-	slog.Error("command error", attrs...)
+	slog.Default().Error("command error", attrs...)
 	return printedError{err: err}
 }

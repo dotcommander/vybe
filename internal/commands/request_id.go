@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"fmt"
+	"errors"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -18,7 +18,7 @@ func resolveRequestID(cmd *cobra.Command) string {
 func requireRequestID(cmd *cobra.Command) (string, error) {
 	rid := resolveRequestID(cmd)
 	if rid == "" {
-		return "", fmt.Errorf("request id is required for mutating operations (set --request-id or VYBE_REQUEST_ID)")
+		return "", errors.New("request id is required for mutating operations (set --request-id or VYBE_REQUEST_ID)")
 	}
 	return rid, nil
 }

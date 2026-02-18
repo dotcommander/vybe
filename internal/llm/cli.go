@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -13,13 +14,13 @@ import (
 // this is defense-in-depth: external CLIs may be shell scripts.
 func validatePrompt(s string) error {
 	if len(s) == 0 {
-		return fmt.Errorf("empty prompt")
+		return errors.New("empty prompt")
 	}
 	if len(s) > 16000 {
 		return fmt.Errorf("prompt exceeds 16000 byte limit (%d bytes)", len(s))
 	}
 	if strings.ContainsRune(s, 0) {
-		return fmt.Errorf("prompt contains null byte")
+		return errors.New("prompt contains null byte")
 	}
 	return nil
 }
@@ -94,7 +95,7 @@ func (r *Runner) Extract(ctx context.Context, prompt string) (string, error) {
 		return "", fmt.Errorf("context expired before exec: %w", err)
 	}
 	args := r.args(prompt)
-	cmd := exec.CommandContext(ctx, r.command, args...)
+	cmd := exec.CommandContext(ctx, r.command, args...) //nolint:gosec // G204: command is caller-provided LLM CLI binary, validated at construction
 
 	var stdout bytes.Buffer
 	stderrW := &limitedWriter{maxBytes: 4096}

@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"fmt"
+	"errors"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -34,7 +34,7 @@ func resolveActorName(cmd *cobra.Command, perCmdFlag string) string {
 func requireActorName(cmd *cobra.Command, perCmdFlag string) (string, error) {
 	agent := resolveActorName(cmd, perCmdFlag)
 	if agent == "" {
-		return "", fmt.Errorf("agent is required (set --agent or VYBE_AGENT)")
+		return "", errors.New("agent is required (set --agent or VYBE_AGENT)")
 	}
 	return agent, nil
 }

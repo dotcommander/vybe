@@ -2,7 +2,9 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -117,6 +119,7 @@ type taskResult struct {
 	Duration  string `json:"duration"`
 }
 
+//nolint:gocognit,gocyclo,funlen,revive // run loop orchestrates per-task execution with claim, run, status-update, and retry phases
 func runLoop(opts runOptions) error {
 	loopStart := time.Now()
 
@@ -149,7 +152,7 @@ func runLoop(opts runOptions) error {
 
 		// No focus task = no more work
 		if response.FocusTaskID == "" {
-			slog.Info("no pending tasks, exiting", "completed", completed, "failed", failed)
+			slog.Default().Info("no pending tasks, exiting", "completed", completed, "failed", failed)
 			break
 		}
 
@@ -158,7 +161,7 @@ func runLoop(opts runOptions) error {
 			taskTitle = response.Brief.Task.Title
 		}
 
-		slog.Info("task selected",
+		slog.Default().Info("task selected",
 			"task_id", response.FocusTaskID,
 			"title", taskTitle,
 			"iteration", totalRun+1,
@@ -233,7 +236,7 @@ func runLoop(opts runOptions) error {
 		results = append(results, result)
 		totalRun++
 
-		slog.Info("task finished",
+		slog.Default().Info("task finished",
 			"task_id", response.FocusTaskID,
 			"status", result.Status,
 			"duration", result.Duration,
@@ -243,7 +246,7 @@ func runLoop(opts runOptions) error {
 
 		// Circuit breaker
 		if consecuteFails >= opts.maxFails {
-			slog.Warn("circuit breaker tripped", "consecutive_fails", consecuteFails, "max_fails", opts.maxFails)
+			slog.Default().Warn("circuit breaker tripped", "consecutive_fails", consecuteFails, "max_fails", opts.maxFails)
 			break
 		}
 
@@ -267,7 +270,7 @@ func runLoop(opts runOptions) error {
 		_, err := actions.PersistRunResultIdempotent(db, opts.agentName, persistRequestID, opts.project, runResult)
 		return err
 	}); err != nil {
-		slog.Warn("failed to persist run results", "error", err)
+		slog.Default().Warn("failed to persist run results", "error", err)
 	}
 
 	type resp struct {
@@ -287,13 +290,11 @@ func runLoop(opts runOptions) error {
 
 	// Execute post-run hook if configured (non-fatal)
 	if opts.postHook != "" {
-		resultsJSON, err := json.Marshal(r)
-		if err != nil {
-			slog.Warn("failed to marshal results for post-hook", "error", err)
-		} else {
-			if err := execPostRunHook(opts.postHook, resultsJSON); err != nil {
-				slog.Warn("post-run hook failed", "error", err, "hook", opts.postHook)
-			}
+		resultsJSON, marshalErr := json.Marshal(r)
+		if marshalErr != nil {
+			slog.Default().Warn("failed to marshal results for post-hook", "error", marshalErr)
+		} else if hookErr := execPostRunHook(opts.postHook, resultsJSON); hookErr != nil {
+			slog.Default().Warn("post-run hook failed", "error", hookErr, "hook", opts.postHook)
 		}
 	}
 
@@ -302,7 +303,7 @@ func runLoop(opts runOptions) error {
 
 // execPostRunHook pipes run results JSON to an external command via stdin.
 func execPostRunHook(command string, resultsJSON []byte) error {
-	cmd := exec.Command("sh", "-c", command)
+	cmd := exec.CommandContext(context.Background(), "sh", "-c", command) //nolint:gosec // G204: sh is a known system tool
 	cmd.Stdin = bytes.NewReader(resultsJSON)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
@@ -372,14 +373,14 @@ func spawnAgent(command, prompt, project string, timeout time.Duration) int {
 		args = append([]string{"--project", project}, args...)
 	}
 
-	cmd := exec.Command(command, args...)
+	cmd := exec.CommandContext(context.Background(), command, args...) //nolint:gosec // G204: command is user-configured and intentional for autonomous agent spawning
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
 	// Start with timeout
 	if err := cmd.Start(); err != nil {
-		slog.Error("failed to start command", "command", command, "error", err)
+		slog.Default().Error("failed to start command", "command", command, "error", err)
 		return 1
 	}
 
@@ -391,7 +392,8 @@ func spawnAgent(command, prompt, project string, timeout time.Duration) int {
 	select {
 	case err := <-done:
 		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
 				return exitErr.ExitCode()
 			}
 			return 1
@@ -399,7 +401,7 @@ func spawnAgent(command, prompt, project string, timeout time.Duration) int {
 		return 0
 	case <-time.After(timeout):
 		_ = cmd.Process.Kill()
-		slog.Warn("command timed out, killed", "timeout", timeout)
+		slog.Default().Warn("command timed out, killed", "timeout", timeout)
 		return 124 // standard timeout exit code
 	}
 }

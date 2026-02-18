@@ -1,12 +1,15 @@
 package commands
 
 import (
+	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync/atomic"
 	"time"
@@ -17,12 +20,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// maxHookStdinBytes caps stdin reads. Hook payloads are small JSON objects;
-// 1 MB is generous headroom that prevents unbounded allocation.
-const maxHookStdinBytes = 1 << 20
+const (
+	// maxHookStdinBytes caps stdin reads. Hook payloads are small JSON objects;
+	// 1 MB is generous headroom that prevents unbounded allocation.
+	maxHookStdinBytes = 1 << 20
+
+	// defaultAgentName is the default agent identity used by hooks when no --agent flag is provided.
+	defaultAgentName = "claude"
+)
 
 // hookSeqCounter provides monotonic fallback entropy when crypto/rand fails.
-var hookSeqCounter uint64
+var hookSeqCounter uint64 //nolint:gochecknoglobals // atomic counter shared across hook invocations; required for fallback entropy
 
 // NewHookCmd creates the hook parent command.
 func NewHookCmd() *cobra.Command {
@@ -44,6 +52,8 @@ func NewHookCmd() *cobra.Command {
 		newHookCheckpointCmd(),
 		newHookTaskCompletedCmd(),
 		newHookRetrospectiveCmd(),
+		newHookRetrospectiveBgCmd(),
+		newHookSessionEndCmd(),
 		newHookSubagentStopCmd(),
 		newHookSubagentStartCmd(),
 		newHookStopCmd(),
@@ -92,7 +102,7 @@ func resolveHookContext(cmd *cobra.Command) hookContext {
 	input := readHookStdin()
 	agentName := resolveActorName(cmd, "")
 	if agentName == "" {
-		agentName = "claude"
+		agentName = defaultAgentName
 	}
 	cwd := input.CWD
 	if cwd == "" {
@@ -111,7 +121,7 @@ func randomHex(bytesLen int) string {
 		seq := atomic.AddUint64(&hookSeqCounter, 1)
 		return fmt.Sprintf("%x%x", os.Getpid(), seq)
 	}
-	return fmt.Sprintf("%x", b)
+	return hex.EncodeToString(b)
 }
 
 func hookRequestID(prefix, agentName string) string {
@@ -125,12 +135,41 @@ func truncateString(raw string, max int) (string, bool) {
 	return raw[:max], true
 }
 
+// runCheckpoint performs best-effort memory compaction, GC, and event summarization.
+// Used by both the checkpoint and session-end hook handlers.
+func runCheckpoint(db *DB, hctx hookContext, requestIDPrefix string) {
+	scope := "global"
+	scopeID := ""
+	if hctx.Input.CWD != "" {
+		scope = "project"
+		scopeID = hctx.Input.CWD
+	}
+
+	_, compactErr := actions.MemoryCompactIdempotent(db, hctx.AgentName, requestIDPrefix+"_compact", scope, scopeID, 14*24*time.Hour, 10)
+	if compactErr != nil {
+		slog.Default().Warn("checkpoint compact failed", "error", compactErr, "hook_event", hctx.Input.HookEventName, "scope", scope)
+	}
+
+	_, gcErr := actions.MemoryGCIdempotent(db, hctx.AgentName, requestIDPrefix+"_gc", 500)
+	if gcErr != nil {
+		slog.Default().Warn("checkpoint gc failed", "error", gcErr, "hook_event", hctx.Input.HookEventName)
+	}
+
+	// Auto-compress old events when active count exceeds threshold
+	summarizeReqID := requestIDPrefix + "_summarize"
+	projectID := hctx.CWD
+	_, _, summarizeErr := actions.AutoSummarizeEventsIdempotent(db, hctx.AgentName, summarizeReqID, projectID, 200, 50)
+	if summarizeErr != nil {
+		slog.Default().Warn("checkpoint auto-summarize failed", "error", summarizeErr, "hook_event", hctx.Input.HookEventName)
+	}
+}
+
 func buildToolMetadata(input hookInput) string {
 	inputPreview, inputTruncated := truncateString(string(input.ToolInput), 2048)
 	outputPreview, outputTruncated := truncateString(string(input.ToolResponse), 4096)
 
 	metaObj := map[string]any{
-		"source":                  "claude",
+		"source":                  defaultAgentName,
 		"session_id":              input.SessionID,
 		"hook_event":              input.HookEventName,
 		"tool_name":               input.ToolName,
@@ -163,7 +202,7 @@ func buildToolMetadata(input hookInput) string {
 	}
 
 	fallback := map[string]any{
-		"source":                  "claude",
+		"source":                  defaultAgentName,
 		"session_id":              input.SessionID,
 		"hook_event":              input.HookEventName,
 		"tool_name":               input.ToolName,
@@ -182,7 +221,7 @@ func readHookStdin() hookInput {
 	}
 	var input hookInput
 	if err := json.Unmarshal(data, &input); err != nil {
-		slog.Warn("hook stdin unmarshal failed", "error", err, "bytes", len(data))
+		slog.Default().Warn("hook stdin unmarshal failed", "error", err, "bytes", len(data))
 	}
 	// Intentional double-unmarshal: struct tags handle known fields while
 	// the Raw map preserves unknown fields for forward compatibility.
@@ -209,6 +248,8 @@ func resolveAgentFocusTaskID(db *DB, agentName string) string {
 // appendEventWithFocusTask resolves the agent's focus task (unless overridden)
 // and appends an event with project and metadata. Consolidates the repeated
 // resolve-then-append pattern used by prompt, tool-failure, and task-completed hooks.
+//
+//nolint:revive // argument-limit: all 8 params are required for the unified hook event path
 func appendEventWithFocusTask(db *DB, agentName, requestID, kind, projectID, taskIDOverride, msg, metadata string) (int64, error) {
 	taskID := taskIDOverride
 	if taskID == "" {
@@ -244,7 +285,7 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 				// Ensure project exists before setting focus scope
 				if hctx.CWD != "" {
 					if _, err := store.EnsureProjectByID(db, hctx.CWD, filepath.Base(hctx.CWD)); err != nil {
-						slog.Warn("project ensure failed", "error", err, "cwd", hctx.CWD)
+						slog.Default().Warn("project ensure failed", "error", err, "cwd", hctx.CWD)
 					} else {
 						_ = store.SetAgentFocusProject(db, hctx.AgentName, hctx.CWD)
 					}
@@ -261,7 +302,7 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 				return nil
 			}); err != nil {
 				// Hooks must never block Claude Code — log diagnostic and exit clean.
-				slog.Error("session-start hook failed", "error", err, "cwd", hctx.CWD, "agent", hctx.AgentName)
+				slog.Default().Error("session-start hook failed", "error", err, "cwd", hctx.CWD, "agent", hctx.AgentName)
 				return nil
 			}
 
@@ -300,17 +341,14 @@ Register via 'vybe hook install'.`,
 			}
 
 			// Truncate long prompts
-			msg := hctx.Input.Prompt
-			if len(msg) > 500 {
-				msg = msg[:500]
-			}
+			msg, _ := truncateString(hctx.Input.Prompt, 500)
 
 			requestID := hookRequestID("prompt", hctx.AgentName)
 
 			// Hooks must never block Claude Code — errors are swallowed.
 			_ = withDB(func(db *DB) error {
 				metadata, _ := json.Marshal(map[string]string{
-					"source":        "claude",
+					"source":        defaultAgentName,
 					"session_id":    hctx.Input.SessionID,
 					"hook_event":    hctx.Input.HookEventName,
 					"resume_source": hctx.Input.Source,
@@ -353,7 +391,7 @@ func newHookToolFailureCmd() *cobra.Command {
 				)
 				return err
 			}); err != nil {
-				slog.Error("tool-failure hook failed", "error", err, "tool_name", hctx.Input.ToolName)
+				slog.Default().Error("tool-failure hook failed", "error", err, "tool_name", hctx.Input.ToolName)
 			}
 
 			return nil
@@ -363,7 +401,7 @@ func newHookToolFailureCmd() *cobra.Command {
 
 // mutatingTools is the set of tools that modify state. Read-only tools are skipped
 // by the tool-success hook to reduce event noise.
-var mutatingTools = map[string]bool{
+var mutatingTools = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table initialized once at startup
 	"Write":        true,
 	"Edit":         true,
 	"MultiEdit":    true,
@@ -417,10 +455,7 @@ func newHookToolSuccessCmd() *cobra.Command {
 			}
 
 			requestID := hookRequestID("tool_success", hctx.AgentName)
-			msg := toolInputSummary(hctx.Input.ToolName, hctx.Input.ToolInput)
-			if len(msg) > 500 {
-				msg = msg[:500]
-			}
+			msg, _ := truncateString(toolInputSummary(hctx.Input.ToolName, hctx.Input.ToolInput), 500)
 
 			metadata := buildToolMetadata(hctx.Input)
 
@@ -431,7 +466,7 @@ func newHookToolSuccessCmd() *cobra.Command {
 				)
 				return err
 			}); err != nil {
-				slog.Error("tool-success hook failed", "error", err, "tool_name", hctx.Input.ToolName)
+				slog.Default().Error("tool-success hook failed", "error", err, "tool_name", hctx.Input.ToolName)
 			}
 
 			return nil
@@ -451,34 +486,10 @@ func newHookCheckpointCmd() *cobra.Command {
 
 			// Hooks must never block Claude Code — log diagnostic and exit clean.
 			if err := withDB(func(db *DB) error {
-				scope := "global"
-				scopeID := ""
-				if hctx.Input.CWD != "" {
-					scope = "project"
-					scopeID = hctx.Input.CWD
-				}
-
-				_, compactErr := actions.MemoryCompactIdempotent(db, hctx.AgentName, requestIDPrefix+"_compact", scope, scopeID, 14*24*time.Hour, 10)
-				if compactErr != nil {
-					slog.Warn("checkpoint compact failed", "error", compactErr, "hook_event", hctx.Input.HookEventName, "scope", scope)
-				}
-
-				_, gcErr := actions.MemoryGCIdempotent(db, hctx.AgentName, requestIDPrefix+"_gc", 500)
-				if gcErr != nil {
-					slog.Warn("checkpoint gc failed", "error", gcErr, "hook_event", hctx.Input.HookEventName)
-				}
-
-				// Auto-compress old events when active count exceeds threshold
-				summarizeReqID := requestIDPrefix + "_summarize"
-				projectID := hctx.CWD
-				_, _, summarizeErr := actions.AutoSummarizeEventsIdempotent(db, hctx.AgentName, summarizeReqID, projectID, 200, 50)
-				if summarizeErr != nil {
-					slog.Warn("checkpoint auto-summarize failed", "error", summarizeErr, "hook_event", hctx.Input.HookEventName)
-				}
-
+				runCheckpoint(db, hctx, requestIDPrefix)
 				return nil
 			}); err != nil {
-				slog.Error("checkpoint hook failed", "error", err, "hook_event", hctx.Input.HookEventName)
+				slog.Default().Error("checkpoint hook failed", "error", err, "hook_event", hctx.Input.HookEventName)
 			}
 
 			return nil
@@ -504,7 +515,7 @@ func newHookTaskCompletedCmd() *cobra.Command {
 			payloadPreview, payloadTruncated := truncateString(string(rawPayload), 6000)
 
 			metadataObj := map[string]any{
-				"source":                    "claude",
+				"source":                    defaultAgentName,
 				"session_id":                hctx.Input.SessionID,
 				"hook_event":                hctx.Input.HookEventName,
 				"task_id":                   hctx.Input.TaskID,
@@ -532,7 +543,7 @@ func newHookTaskCompletedCmd() *cobra.Command {
 						db, hctx.AgentName, statusReqID, taskID, "completed", "",
 					)
 					if statusErr != nil {
-						slog.Warn("task-completed status promotion failed",
+						slog.Default().Warn("task-completed status promotion failed",
 							"error", statusErr, "task_id", taskID)
 					}
 				}
@@ -544,7 +555,7 @@ func newHookTaskCompletedCmd() *cobra.Command {
 				)
 				return err
 			}); err != nil {
-				slog.Error("task-completed hook failed", "error", err)
+				slog.Default().Error("task-completed hook failed", "error", err)
 			}
 
 			return nil
@@ -571,10 +582,7 @@ func newHookSubagentStopCmd() *cobra.Command {
 				desc = "subagent"
 			}
 
-			msg := fmt.Sprintf("SubagentStop: %s", desc)
-			if len(msg) > 500 {
-				msg = msg[:500]
-			}
+			msg, _ := truncateString(fmt.Sprintf("SubagentStop: %s", desc), 500)
 
 			metadata := buildToolMetadata(hctx.Input)
 
@@ -584,7 +592,7 @@ func newHookSubagentStopCmd() *cobra.Command {
 				)
 				return err
 			}); err != nil {
-				slog.Error("subagent-stop hook failed", "error", err)
+				slog.Default().Error("subagent-stop hook failed", "error", err)
 			}
 
 			return nil
@@ -607,13 +615,10 @@ func newHookSubagentStartCmd() *cobra.Command {
 				desc = d
 			}
 
-			msg := fmt.Sprintf("SubagentStart: %s", desc)
-			if len(msg) > 500 {
-				msg = msg[:500]
-			}
+			msg, _ := truncateString(fmt.Sprintf("SubagentStart: %s", desc), 500)
 
 			metadata, _ := json.Marshal(map[string]string{
-				"source":     "claude",
+				"source":     defaultAgentName,
 				"session_id": hctx.Input.SessionID,
 				"hook_event": hctx.Input.HookEventName,
 				"description": desc,
@@ -629,7 +634,7 @@ func newHookSubagentStartCmd() *cobra.Command {
 				)
 				return err
 			}); err != nil {
-				slog.Error("subagent-start hook failed", "error", err)
+				slog.Default().Error("subagent-start hook failed", "error", err)
 			}
 
 			return nil
@@ -648,7 +653,7 @@ func newHookStopCmd() *cobra.Command {
 			requestID := hookRequestID("stop", hctx.AgentName)
 
 			metadata, _ := json.Marshal(map[string]string{
-				"source":     "claude",
+				"source":     defaultAgentName,
 				"session_id": hctx.Input.SessionID,
 				"hook_event": hctx.Input.HookEventName,
 			})
@@ -659,7 +664,7 @@ func newHookStopCmd() *cobra.Command {
 				)
 				return err
 			}); err != nil {
-				slog.Error("stop hook failed", "error", err)
+				slog.Default().Error("stop hook failed", "error", err)
 			}
 
 			return nil
@@ -681,20 +686,124 @@ func newHookRetrospectiveCmd() *cobra.Command {
 			if err := withDB(func(db *DB) error {
 				result, err := actions.SessionRetrospective(db, hctx.AgentName, requestIDPrefix)
 				if err != nil {
-					slog.Warn("retrospective failed", "error", err)
+					slog.Default().Warn("retrospective failed", "error", err)
 					return nil
 				}
 				if result.Skipped {
-					slog.Info("retrospective skipped", "reason", result.SkipReason)
+					slog.Default().Info("retrospective skipped", "reason", result.SkipReason)
 				} else {
-					slog.Info("retrospective complete", "lessons", result.LessonsCount)
+					slog.Default().Info("retrospective complete", "lessons", result.LessonsCount)
 				}
 				return nil
 			}); err != nil {
-				slog.Error("retrospective hook failed", "error", err)
+				slog.Default().Error("retrospective hook failed", "error", err)
 			}
 
 			return nil
 		},
 	}
+}
+
+// newHookRetrospectiveBgCmd runs the retrospective as a detached background worker.
+// Args: <agent-name> <temp-file-path>
+// The temp file is cleaned up after use. Spawned by session-end and the OpenCode bridge.
+func newHookRetrospectiveBgCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "retrospective-bg <agent> <payload-path>",
+		Short:         "Background retrospective worker (spawned by session-end)",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agentName := args[0]
+			payloadPath := args[1]
+			defer func() { _ = os.Remove(payloadPath) }()
+
+			if agentName == "" {
+				agentName = defaultAgentName
+			}
+			requestIDPrefix := hookRequestID("retro", agentName)
+
+			if err := withDB(func(db *DB) error {
+				result, err := actions.SessionRetrospective(db, agentName, requestIDPrefix)
+				if err != nil {
+					slog.Default().Warn("retrospective-bg failed", "error", err)
+					return nil
+				}
+				if result.Skipped {
+					slog.Default().Info("retrospective-bg skipped", "reason", result.SkipReason)
+				} else {
+					slog.Default().Info("retrospective-bg complete", "lessons", result.LessonsCount)
+				}
+				return nil
+			}); err != nil {
+				slog.Default().Error("retrospective-bg hook failed", "error", err)
+			}
+
+			return nil
+		},
+	}
+}
+
+// newHookSessionEndCmd creates a combined SessionEnd hook that runs checkpoint
+// synchronously and spawns retrospective as a fire-and-forget background process.
+// This eliminates one OS process + DB connection compared to running them separately.
+func newHookSessionEndCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "session-end",
+		Short:         "SessionEnd hook — checkpoint + fire-and-forget retrospective",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hctx := resolveHookContext(cmd)
+			requestIDPrefix := hookRequestID("session_end", hctx.AgentName)
+
+			// --- Phase 1: synchronous checkpoint (fast, ~500ms) ---
+			if err := withDB(func(db *DB) error {
+				runCheckpoint(db, hctx, requestIDPrefix)
+				return nil
+			}); err != nil {
+				slog.Default().Error("session-end checkpoint failed", "error", err)
+			}
+
+			// --- Phase 2: fire-and-forget retrospective ---
+			spawnRetrospectiveBackground(hctx.AgentName)
+
+			return nil
+		},
+	}
+}
+
+// spawnRetrospectiveBackground creates a temp file sentinel and launches
+// `vybe hook retrospective-bg <agent> <path>` as a detached process.
+// The parent returns immediately so the caller (Claude Code or OpenCode) is unblocked.
+// The temp file is only used as a cleanup sentinel — the bg worker doesn't read it.
+func spawnRetrospectiveBackground(agentName string) {
+	tmpFile, err := os.CreateTemp("", "vybe-retro-*.lock")
+	if err != nil {
+		slog.Default().Error("session-end: create temp file failed", "error", err)
+		return
+	}
+	if err := tmpFile.Close(); err != nil {
+		slog.Default().Error("session-end: close temp file failed", "error", err)
+		return
+	}
+
+	exe := vybeExecutable()
+	child := exec.CommandContext(context.Background(), exe, "hook", "retrospective-bg", agentName, tmpFile.Name()) //nolint:gosec // G204: exe is the vybe binary resolved from os.Executable
+	// Detach from parent's I/O so we don't hold the pipe open.
+	child.Stdin = nil
+	child.Stdout = nil
+	child.Stderr = nil
+
+	if err := child.Start(); err != nil {
+		slog.Default().Error("session-end: spawn retrospective-bg failed", "error", err)
+		_ = os.Remove(tmpFile.Name())
+		return
+	}
+
+	// Release the child — don't wait for it.
+	go func() { _ = child.Wait() }()
+
+	slog.Default().Info("session-end: retrospective spawned in background", "pid", child.Process.Pid)
 }
