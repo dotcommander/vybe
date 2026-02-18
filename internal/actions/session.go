@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -29,7 +30,7 @@ type SessionDigestResult struct {
 // SessionDigest produces a read-only digest of the current session's events.
 func SessionDigest(db *sql.DB, agentName string) (*SessionDigestResult, error) {
 	if agentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 
 	state, err := store.LoadOrCreateAgentState(db, agentName)
@@ -65,8 +66,8 @@ type Lesson struct {
 	Scope string `json:"scope"`
 }
 
-// SessionRetrospectiveResult captures the outcome of a retrospective operation.
-type SessionRetrospectiveResult struct {
+// sessionRetrospectiveResult captures the outcome of a retrospective operation.
+type sessionRetrospectiveResult struct {
 	AgentName    string  `json:"agent_name"`
 	ProjectID    string  `json:"project_id,omitempty"`
 	EventCount   int     `json:"event_count"`
@@ -151,6 +152,8 @@ func sanitizeKey(s string) string {
 // persistLessons stores extracted lessons as memory entries via idempotent batch upsert.
 // All lessons are persisted in a single transaction. Returns (eventIDs, error).
 // On failure, all upserts are rolled back; no partial writes.
+//
+//nolint:gocognit,gocyclo,funlen,nestif,revive // batch upsert with race-condition recovery requires inline goto jump; splitting obscures the insert→retry→update sequence
 func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, lessons []Lesson) ([]int64, error) {
 	if len(lessons) == 0 {
 		return nil, nil
@@ -234,7 +237,7 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 				existingConfidence float64
 			)
 
-			err := tx.QueryRow(`
+			err := tx.QueryRowContext(context.Background(), `
 				SELECT id, value, value_type, confidence
 				FROM memory
 				WHERE scope = ? AND scope_id = ? AND canonical_key = ?
@@ -246,9 +249,10 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 			reinforced := false
 			newConfidence := pl.confidence
 
-			if err == sql.ErrNoRows {
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
 				// Insert new memory
-				_, execErr := tx.Exec(`
+				_, execErr := tx.ExecContext(context.Background(), `
 					INSERT INTO memory (
 						key, canonical_key, value, value_type, scope, scope_id,
 						expires_at, confidence, last_seen_at, source_event_id
@@ -259,7 +263,7 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 				if execErr != nil {
 					// Race condition: retry lookup
 					if store.IsUniqueConstraintErr(execErr) {
-						retryErr := tx.QueryRow(`
+						retryErr := tx.QueryRowContext(context.Background(), `
 							SELECT id, value, value_type, confidence
 							FROM memory
 							WHERE scope = ? AND scope_id = ? AND canonical_key = ?
@@ -284,9 +288,9 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 					// Insert succeeded, log event
 					goto logEvent
 				}
-			} else if err != nil {
+			case err != nil:
 				return batchResult{}, fmt.Errorf("failed to lookup canonical memory: %w", err)
-			} else {
+			default:
 				// Update existing memory
 				reinforced = existingValue == pl.value && existingValueType == "string"
 				if reinforced {
@@ -297,7 +301,7 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 			}
 
 			// Update path (shared by race retry and normal existing-key path)
-			_, err = tx.Exec(`
+			_, err = tx.ExecContext(context.Background(), `
 				UPDATE memory
 				SET key = ?,
 				    canonical_key = ?,
@@ -338,9 +342,11 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 }
 
 // SessionRetrospective analyzes session events and extracts durable lessons as memory.
-func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*SessionRetrospectiveResult, error) {
+//
+//nolint:funlen,nestif // retrospective orchestrates LLM extraction with fallback to rule-based extraction; splitting degrades the fallback flow
+func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*sessionRetrospectiveResult, error) {
 	if agentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 
 	digest, err := SessionDigest(db, agentName)
@@ -348,7 +354,7 @@ func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*Sessi
 		return nil, fmt.Errorf("session digest: %w", err)
 	}
 
-	result := &SessionRetrospectiveResult{
+	result := &sessionRetrospectiveResult{
 		AgentName:  agentName,
 		ProjectID:  digest.ProjectID,
 		EventCount: digest.EventCount,
@@ -364,7 +370,7 @@ func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*Sessi
 
 	runner, runnerErr := llm.NewRunner(agentName)
 	if runnerErr != nil {
-		slog.Debug("LLM runner not available, falling back to rules", "error", runnerErr)
+		slog.Default().Debug("LLM runner not available, falling back to rules", "error", runnerErr)
 	}
 	if runner != nil {
 		// Build extraction prompt from events (cap at ~8000 chars)
@@ -386,7 +392,7 @@ func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*Sessi
 
 		raw, llmErr := runner.Extract(ctx, b.String())
 		if llmErr != nil {
-			slog.Warn("retrospective LLM extraction failed, falling back to rules", "error", llmErr, "cli", runner.Command())
+			slog.Default().Warn("retrospective LLM extraction failed, falling back to rules", "error", llmErr, "cli", runner.Command())
 		} else {
 			raw = strings.TrimSpace(raw)
 			raw = strings.TrimPrefix(raw, "```json")
@@ -395,7 +401,7 @@ func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*Sessi
 			raw = strings.TrimSpace(raw)
 
 			if parseErr := json.Unmarshal([]byte(raw), &lessons); parseErr != nil {
-				slog.Warn("retrospective parse failed, falling back to rules", "error", parseErr, "raw", raw)
+				slog.Default().Warn("retrospective parse failed, falling back to rules", "error", parseErr, "raw", raw)
 				lessons = nil
 			}
 		}
@@ -418,7 +424,7 @@ func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*Sessi
 
 	eventIDs, persistErr := persistLessons(db, agentName, requestIDPrefix, digest.ProjectID, lessons)
 	if persistErr != nil {
-		slog.Warn("retrospective persist failed", "error", persistErr, "lessons", len(lessons))
+		slog.Default().Warn("retrospective persist failed", "error", persistErr, "lessons", len(lessons))
 	}
 
 	result.LessonsCount = len(eventIDs)
@@ -437,12 +443,14 @@ func truncate(s string, maxLen int) string {
 // AutoSummarizeEventsIdempotent archives old events when active count exceeds threshold,
 // keeping the most recent keepRecent events active.
 // Returns (summaryEventID, archivedCount) or (0, 0) if below threshold.
-func AutoSummarizeEventsIdempotent(db *sql.DB, agentName, requestID, projectID string, threshold, keepRecent int) (int64, int64, error) {
+//
+//nolint:revive // argument-limit: all params (agent, req, project, threshold, keepRecent) required together
+func AutoSummarizeEventsIdempotent(db *sql.DB, agentName, requestID, projectID string, threshold, keepRecent int) (summaryEventID int64, archivedCount int64, err error) {
 	if agentName == "" {
-		return 0, 0, fmt.Errorf("agent name is required")
+		return 0, 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return 0, 0, fmt.Errorf("request id is required")
+		return 0, 0, errors.New("request id is required")
 	}
 
 	count, err := store.CountActiveEvents(db, projectID)
@@ -463,11 +471,12 @@ func AutoSummarizeEventsIdempotent(db *sql.DB, agentName, requestID, projectID s
 
 	summary := fmt.Sprintf("Auto-compressed events %d–%d (%d active exceeded threshold %d)", fromID, toID, count, threshold)
 
-	summaryEventID, archivedCount, err := store.ArchiveEventsRangeWithSummaryIdempotent(
+	var autoSumErr error
+	summaryEventID, archivedCount, autoSumErr = store.ArchiveEventsRangeWithSummaryIdempotent(
 		db, agentName, requestID, projectID, "", fromID, toID, summary,
 	)
-	if err != nil {
-		return 0, 0, fmt.Errorf("archive events: %w", err)
+	if autoSumErr != nil {
+		return 0, 0, fmt.Errorf("archive events: %w", autoSumErr)
 	}
 
 	return summaryEventID, archivedCount, nil

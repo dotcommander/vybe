@@ -87,9 +87,10 @@ func ResolveDBPathDetailed() (path string, source string, err error) {
 	return resolved, "default(~/.config/vybe/vybe.db)", err
 }
 
+// EnsureDBDir creates the directory containing dbPath if it does not already exist.
 func EnsureDBDir(dbPath string) (string, error) {
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create database directory: %w", err)
 	}
 	return dbPath, nil

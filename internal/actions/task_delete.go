@@ -2,6 +2,7 @@ package actions
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -11,13 +12,13 @@ import (
 // TaskDeleteIdempotent deletes a task and appends a task_deleted event, idempotent on request_id.
 func TaskDeleteIdempotent(db *sql.DB, agentName, requestID, taskID string) (int64, error) {
 	if agentName == "" {
-		return 0, fmt.Errorf("agent name is required")
+		return 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return 0, fmt.Errorf("request id is required")
+		return 0, errors.New("request id is required")
 	}
 	if taskID == "" {
-		return 0, fmt.Errorf("task ID is required")
+		return 0, errors.New("task ID is required")
 	}
 
 	type idemResult struct {

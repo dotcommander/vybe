@@ -16,6 +16,11 @@ type Settings struct {
 	PostRunHook string `yaml:"post_run_hook"`
 }
 
+// settingsOnce, settings, settingsErr implement the sync.Once lazy-load singleton for config.
+// dbPathOverrideMu and dbPathOverride implement a mutex-protected process-wide override for CLI --db-path.
+// These globals are required by the sync.Once pattern and the RWMutex pattern; they cannot be avoided.
+//
+//nolint:gochecknoglobals // sync.Once singleton + RWMutex override are intentional process-wide state
 var (
 	settingsOnce sync.Once
 	settings     Settings

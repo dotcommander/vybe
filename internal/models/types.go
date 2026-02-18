@@ -17,6 +17,7 @@ import (
 // TaskStatus represents the current state of a task.
 type TaskStatus string
 
+// Task status constants.
 const (
 	TaskStatusPending    TaskStatus = "pending"
 	TaskStatusInProgress TaskStatus = "in_progress"
@@ -37,6 +38,7 @@ func (s TaskStatus) IsPending() bool {
 // MemoryScope represents the visibility scope of a memory entry.
 type MemoryScope string
 
+// Memory scope constants.
 const (
 	MemoryScopeGlobal  MemoryScope = "global"
 	MemoryScopeProject MemoryScope = "project"
@@ -84,10 +86,6 @@ func (br BlockedReason) GetFailureReason() string {
 	return strings.TrimPrefix(string(br), BlockedReasonFailurePrefix)
 }
 
-// NewBlockedReasonFailure creates a failure-type blocked reason with the given message.
-func NewBlockedReasonFailure(reason string) BlockedReason {
-	return BlockedReason(BlockedReasonFailurePrefix + reason)
-}
 
 // Task represents a task in the system
 type Task struct {

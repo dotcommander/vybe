@@ -10,16 +10,10 @@ import (
 	"github.com/dotcommander/vybe/internal/store"
 )
 
-const completedStatus = "completed"
-
-var validTaskStatusOptions = []string{"pending", "in_progress", completedStatus, "blocked"}
-
-var validTaskStatuses = map[string]bool{
-	"pending":       true,
-	"in_progress":   true,
-	completedStatus: true,
-	"blocked":       true,
-}
+const (
+	completedStatus = "completed"
+	blockedStatus   = "blocked"
+)
 
 type invalidTaskStatusError struct {
 	Status string
@@ -33,66 +27,43 @@ func (e invalidTaskStatusError) SlogAttrs() []any {
 	return []any{
 		"field", "status",
 		"invalid_value", e.Status,
-		"valid_options", validTaskStatusOptions,
+		"valid_options", taskStatusOptions(),
 	}
 }
 
+// taskStatusOptions returns the allowed task status values.
+func taskStatusOptions() []string {
+	return []string{"pending", "in_progress", completedStatus, blockedStatus}
+}
+
+// isValidTaskStatus returns true if s is a known task status.
+func isValidTaskStatus(s string) bool {
+	switch s {
+	case "pending", "in_progress", completedStatus, blockedStatus:
+		return true
+	}
+	return false
+}
+
 func validateTaskStatus(status string) error {
-	if !validTaskStatuses[status] {
+	if !isValidTaskStatus(status) {
 		return invalidTaskStatusError{Status: status}
 	}
 	return nil
 }
 
-// TaskCreate creates a new task with the given title and description.
-// Also appends a task_created event in the same transaction for continuity.
-// If projectID is non-empty, the task is associated with that project.
-func TaskCreate(db *sql.DB, agentName, title, description, projectID string, priority int) (*models.Task, int64, error) {
-	if agentName == "" {
-		return nil, 0, fmt.Errorf("agent name is required")
-	}
-	if title == "" {
-		return nil, 0, fmt.Errorf("task title is required")
-	}
-
-	var (
-		task    *models.Task
-		eventID int64
-	)
-
-	// Atomic: task row + creation event.
-	if err := store.Transact(db, func(tx *sql.Tx) error {
-		var err error
-		task, err = store.CreateTaskTx(tx, title, description, projectID, priority)
-		if err != nil {
-			return err
-		}
-
-		lastEventID, err := store.InsertEventTx(tx, models.EventKindTaskCreated, agentName, task.ID, fmt.Sprintf("Task created: %s", title), "")
-		if err != nil {
-			return fmt.Errorf("failed to append event: %w", err)
-		}
-		eventID = lastEventID
-		return nil
-	}); err != nil {
-		return nil, 0, fmt.Errorf("failed to create task: %w", err)
-	}
-
-	return task, eventID, nil
-}
-
 // TaskCreateIdempotent creates a new task once per (agent_name, request_id).
 // On retries with the same request id, it returns the originally created task + event id.
 // If projectID is non-empty, the task is associated with that project.
-func TaskCreateIdempotent(db *sql.DB, agentName, requestID, title, description, projectID string, priority int) (*models.Task, int64, error) {
+func TaskCreateIdempotent(db *sql.DB, agentName, requestID, title, description, projectID string, priority int) (*models.Task, int64, error) { //nolint:revive // argument-limit: all params are required and semantically distinct; a struct would degrade test readability
 	if agentName == "" {
-		return nil, 0, fmt.Errorf("agent name is required")
+		return nil, 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return nil, 0, fmt.Errorf("request id is required")
+		return nil, 0, errors.New("request id is required")
 	}
 	if title == "" {
-		return nil, 0, fmt.Errorf("task title is required")
+		return nil, 0, errors.New("task title is required")
 	}
 
 	type idemResult struct {
@@ -125,86 +96,6 @@ func TaskCreateIdempotent(db *sql.DB, agentName, requestID, title, description, 
 	return task, r.EventID, nil
 }
 
-// TaskSetStatus atomically updates task status and logs an event.
-// Returns the updated task and the event ID.
-//
-// Status transitions are intentionally unrestricted — any status may move to
-// any other status (pending, in_progress, completed, blocked). This gives
-// agents maximum flexibility for self-correction and recovery.
-//
-// Side effects on transition:
-//   - completed → releases claim, unblocks dependent tasks
-//   - blocked   → releases claim
-//
-// Uses optimistic concurrency control with CAS retry (up to 3 attempts).
-func TaskSetStatus(db *sql.DB, agentName, taskID, status string) (*models.Task, int64, error) {
-	if agentName == "" {
-		return nil, 0, fmt.Errorf("agent name is required")
-	}
-	if taskID == "" {
-		return nil, 0, fmt.Errorf("task ID is required")
-	}
-
-	if status == "" {
-		return nil, 0, fmt.Errorf("status is required")
-	}
-
-	if err := validateTaskStatus(status); err != nil {
-		return nil, 0, err
-	}
-
-	var eventID int64
-
-	// CAS retry loop for optimistic concurrency
-	maxRetries := 3
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		err := store.Transact(db, func(tx *sql.Tx) error {
-			version, vErr := store.GetTaskVersionTx(tx, taskID)
-			if vErr != nil {
-				return fmt.Errorf("failed to get task: %w", vErr)
-			}
-
-			lastEventID, uErr := store.UpdateTaskStatusWithEventTx(tx, agentName, taskID, status, version)
-			if uErr != nil {
-				return uErr
-			}
-			eventID = lastEventID
-
-			// Release claim if task is completed or blocked (best-effort, log on error)
-			if status == completedStatus || status == "blocked" {
-				if releaseErr := store.ReleaseTaskClaimTx(tx, agentName, taskID); releaseErr != nil {
-					slog.Warn("failed to release task claim",
-						"task", taskID, "agent", agentName, "error", releaseErr)
-				}
-			}
-
-			// Unblock dependent tasks atomically if this task is now completed
-			if status == completedStatus {
-				_, err := store.UnblockDependentsTx(tx, taskID)
-				if err != nil {
-					return fmt.Errorf("failed to unblock dependents: %w", err)
-				}
-			}
-
-			return nil
-		})
-		if err != nil {
-			if errors.Is(err, store.ErrVersionConflict) && attempt < maxRetries-1 {
-				continue
-			}
-			return nil, 0, err
-		}
-		break
-	}
-
-	updatedTask, err := store.GetTask(db, taskID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to fetch updated task: %w", err)
-	}
-
-	return updatedTask, eventID, nil
-}
-
 // TaskSetStatusIdempotent updates task status once per (agent_name, request_id).
 // On retries with the same request_id, it replays the originally stored result
 // without re-executing the status change (idempotent).
@@ -216,18 +107,20 @@ func TaskSetStatus(db *sql.DB, agentName, taskID, status string) (*models.Task, 
 //
 // Uses RunIdempotentWithRetry internally to handle both idempotency replay
 // and CAS version conflicts in a single retry loop.
+//
+//nolint:gocognit,gocyclo,revive // idempotent variant adds request deduplication around TaskSetStatus logic; all branches are required
 func TaskSetStatusIdempotent(db *sql.DB, agentName, requestID, taskID, status, blockedReason string) (*models.Task, int64, error) {
 	if agentName == "" {
-		return nil, 0, fmt.Errorf("agent name is required")
+		return nil, 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return nil, 0, fmt.Errorf("request id is required")
+		return nil, 0, errors.New("request id is required")
 	}
 	if taskID == "" {
-		return nil, 0, fmt.Errorf("task ID is required")
+		return nil, 0, errors.New("task ID is required")
 	}
 	if status == "" {
-		return nil, 0, fmt.Errorf("status is required")
+		return nil, 0, errors.New("status is required")
 	}
 
 	type idemResult struct {
@@ -257,9 +150,9 @@ func TaskSetStatusIdempotent(db *sql.DB, agentName, requestID, taskID, status, b
 			}
 
 			// Release claim if task is completed or blocked (best-effort, log on error)
-			if status == completedStatus || status == "blocked" {
+			if status == completedStatus || status == blockedStatus {
 				if releaseErr := store.ReleaseTaskClaimTx(tx, agentName, taskID); releaseErr != nil {
-					slog.Warn("failed to release task claim",
+					slog.Default().Warn("failed to release task claim",
 						"task", taskID, "agent", agentName, "error", releaseErr)
 				}
 			}
@@ -273,7 +166,7 @@ func TaskSetStatusIdempotent(db *sql.DB, agentName, requestID, taskID, status, b
 			}
 
 			// Set blocked_reason atomically with status change
-			if status == "blocked" && blockedReason != "" {
+			if status == blockedStatus && blockedReason != "" {
 				if brErr := store.SetBlockedReasonTx(tx, taskID, blockedReason); brErr != nil {
 					return idemResult{}, fmt.Errorf("failed to set blocked reason: %w", brErr)
 				}
@@ -294,53 +187,37 @@ func TaskSetStatusIdempotent(db *sql.DB, agentName, requestID, taskID, status, b
 	return updatedTask, r.EventID, nil
 }
 
-// TaskStart is a convenience: set status to in_progress and focus the task for the agent.
-// Returns the updated task, the task_status event id (0 if unchanged), and the agent_focus event id.
-func TaskStart(db *sql.DB, agentName, taskID string) (task *models.Task, statusEventID int64, focusEventID int64, err error) {
-	if agentName == "" {
-		return nil, 0, 0, fmt.Errorf("agent name is required")
-	}
-	if taskID == "" {
-		return nil, 0, 0, fmt.Errorf("task ID is required")
-	}
-
-	statusEventID, focusEventID, err = store.StartTaskAndFocus(db, agentName, taskID)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-
-	task, err = store.GetTask(db, taskID)
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("failed to fetch task: %w", err)
-	}
-
-	return task, statusEventID, focusEventID, nil
+// TaskStartResult holds the output of a TaskStart operation.
+type TaskStartResult struct {
+	Task          *models.Task `json:"task"`
+	StatusEventID int64        `json:"status_event_id"`
+	FocusEventID  int64        `json:"focus_event_id"`
 }
 
 // TaskStartIdempotent performs TaskStart once per (agent_name, request_id).
 // On retries with the same request id, it returns the originally created event ids and current task state.
-func TaskStartIdempotent(db *sql.DB, agentName, requestID, taskID string) (task *models.Task, statusEventID int64, focusEventID int64, err error) {
+func TaskStartIdempotent(db *sql.DB, agentName, requestID, taskID string) (*TaskStartResult, error) {
 	if agentName == "" {
-		return nil, 0, 0, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return nil, 0, 0, fmt.Errorf("request id is required")
+		return nil, errors.New("request id is required")
 	}
 	if taskID == "" {
-		return nil, 0, 0, fmt.Errorf("task ID is required")
+		return nil, errors.New("task ID is required")
 	}
 
-	statusEventID, focusEventID, err = store.StartTaskAndFocusIdempotent(db, agentName, requestID, taskID)
+	statusEventID, focusEventID, err := store.StartTaskAndFocusIdempotent(db, agentName, requestID, taskID)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, err
 	}
 
-	task, err = store.GetTask(db, taskID)
+	task, err := store.GetTask(db, taskID)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("failed to fetch task: %w", err)
+		return nil, fmt.Errorf("failed to fetch task: %w", err)
 	}
 
-	return task, statusEventID, focusEventID, nil
+	return &TaskStartResult{Task: task, StatusEventID: statusEventID, FocusEventID: focusEventID}, nil
 }
 
 // TaskHeartbeatResult captures heartbeat mutation output.
@@ -352,13 +229,13 @@ type TaskHeartbeatResult struct {
 // TaskHeartbeatIdempotent refreshes lease expiry for a task claim owner.
 func TaskHeartbeatIdempotent(db *sql.DB, agentName, requestID, taskID string, ttlMinutes int) (*TaskHeartbeatResult, error) {
 	if agentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return nil, fmt.Errorf("request id is required")
+		return nil, errors.New("request id is required")
 	}
 	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
+		return nil, errors.New("task ID is required")
 	}
 	if ttlMinutes <= 0 {
 		ttlMinutes = 5
@@ -395,7 +272,7 @@ func TaskHeartbeatIdempotent(db *sql.DB, agentName, requestID, taskID string, tt
 // TaskGet retrieves a task by ID
 func TaskGet(db *sql.DB, taskID string) (*models.Task, error) {
 	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
+		return nil, errors.New("task ID is required")
 	}
 
 	task, err := store.GetTask(db, taskID)
@@ -422,13 +299,13 @@ func TaskList(db *sql.DB, statusFilter, projectFilter string, priorityFilter int
 // and CAS version conflicts in a single retry loop.
 func TaskSetPriorityIdempotent(db *sql.DB, agentName, requestID, taskID string, priority int) (*models.Task, int64, error) {
 	if agentName == "" {
-		return nil, 0, fmt.Errorf("agent name is required")
+		return nil, 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return nil, 0, fmt.Errorf("request id is required")
+		return nil, 0, errors.New("request id is required")
 	}
 	if taskID == "" {
-		return nil, 0, fmt.Errorf("task ID is required")
+		return nil, 0, errors.New("task ID is required")
 	}
 
 	type idemResult struct {
@@ -472,7 +349,7 @@ func TaskSetPriorityIdempotent(db *sql.DB, agentName, requestID, taskID string, 
 // Read-only, no idempotency needed.
 func TaskNext(db *sql.DB, agentName, projectFilter string, limit int) ([]store.PipelineTask, error) {
 	if agentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 
 	state, err := store.LoadOrCreateAgentState(db, agentName)
@@ -492,7 +369,7 @@ func TaskNext(db *sql.DB, agentName, projectFilter string, limit int) ([]store.P
 // Read-only, no idempotency needed.
 func TaskUnlocks(db *sql.DB, taskID string) ([]store.PipelineTask, error) {
 	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
+		return nil, errors.New("task ID is required")
 	}
 
 	tasks, err := store.FetchUnlockedByCompletion(db, taskID)
@@ -516,13 +393,13 @@ func TaskStats(db *sql.DB, projectFilter string) (*store.TaskStatusCounts, error
 
 func validateDependencyArgs(agentName, taskID, dependsOnTaskID string) error {
 	if agentName == "" {
-		return fmt.Errorf("agent name is required")
+		return errors.New("agent name is required")
 	}
 	if taskID == "" {
-		return fmt.Errorf("task ID is required")
+		return errors.New("task ID is required")
 	}
 	if dependsOnTaskID == "" {
-		return fmt.Errorf("depends_on_task_id is required")
+		return errors.New("depends_on_task_id is required")
 	}
 	return nil
 }
@@ -534,47 +411,35 @@ func taskDependencyMessage(taskID, dependsOnTaskID string, adding bool) string {
 	return fmt.Sprintf("Dependency removed: %s no longer depends on %s", taskID, dependsOnTaskID)
 }
 
-func mutateTaskDependency(
-	db *sql.DB,
-	agentName,
-	taskID,
-	dependsOnTaskID,
-	eventKind string,
-	idempotencyCommand string,
-	requestID string,
-	mutate func(tx *sql.Tx, taskID, dependsOnTaskID string) error,
-	adding bool,
-) error {
-	if err := validateDependencyArgs(agentName, taskID, dependsOnTaskID); err != nil {
+type taskDependencyParams struct {
+	db               *sql.DB
+	agentName        string
+	taskID           string
+	dependsOnTaskID  string
+	eventKind        string
+	idempotencyCmd   string
+	requestID        string
+	mutate           func(tx *sql.Tx, taskID, dependsOnTaskID string) error
+	adding           bool
+}
+
+func mutateTaskDependency(p taskDependencyParams) error {
+	if err := validateDependencyArgs(p.agentName, p.taskID, p.dependsOnTaskID); err != nil {
 		return err
 	}
 
-	message := taskDependencyMessage(taskID, dependsOnTaskID, adding)
-
-	if requestID == "" {
-		return store.Transact(db, func(tx *sql.Tx) error {
-			if err := mutate(tx, taskID, dependsOnTaskID); err != nil {
-				return err
-			}
-
-			if _, err := store.InsertEventTx(tx, eventKind, agentName, taskID, message, ""); err != nil {
-				return fmt.Errorf("failed to append event: %w", err)
-			}
-
-			return nil
-		})
-	}
+	message := taskDependencyMessage(p.taskID, p.dependsOnTaskID, p.adding)
 
 	type idemResult struct {
 		EventID int64 `json:"event_id"`
 	}
 
-	_, err := store.RunIdempotent(db, agentName, requestID, idempotencyCommand, func(tx *sql.Tx) (idemResult, error) {
-		if err := mutate(tx, taskID, dependsOnTaskID); err != nil {
+	_, err := store.RunIdempotent(p.db, p.agentName, p.requestID, p.idempotencyCmd, func(tx *sql.Tx) (idemResult, error) {
+		if err := p.mutate(tx, p.taskID, p.dependsOnTaskID); err != nil {
 			return idemResult{}, err
 		}
 
-		eventID, err := store.InsertEventTx(tx, eventKind, agentName, taskID, message, "")
+		eventID, err := store.InsertEventTx(tx, p.eventKind, p.agentName, p.taskID, message, "")
 		if err != nil {
 			return idemResult{}, fmt.Errorf("failed to append event: %w", err)
 		}
@@ -585,40 +450,30 @@ func mutateTaskDependency(
 	return err
 }
 
-// TaskAddDependency adds a dependency relationship between two tasks.
-func TaskAddDependency(db *sql.DB, agentName, taskID, dependsOnTaskID string) error {
-	err := mutateTaskDependency(db, agentName, taskID, dependsOnTaskID, models.EventKindTaskDependencyAdded, "task.add_dependency", "", store.AddTaskDependencyTx, true)
-	if err != nil {
-		return fmt.Errorf("failed to add dependency: %w", err)
-	}
-	return nil
-}
-
 // TaskAddDependencyIdempotent adds a dependency once per (agent_name, request_id).
 func TaskAddDependencyIdempotent(db *sql.DB, agentName, requestID, taskID, dependsOnTaskID string) error {
 	if requestID == "" {
-		return fmt.Errorf("request id is required")
+		return errors.New("request id is required")
 	}
 
-	return mutateTaskDependency(db, agentName, taskID, dependsOnTaskID, models.EventKindTaskDependencyAdded, "task.add_dependency", requestID, store.AddTaskDependencyTx, true)
-}
-
-// TaskRemoveDependency removes a dependency relationship between two tasks.
-func TaskRemoveDependency(db *sql.DB, agentName, taskID, dependsOnTaskID string) error {
-	err := mutateTaskDependency(db, agentName, taskID, dependsOnTaskID, models.EventKindTaskDependencyRemoved, "task.remove_dependency", "", store.RemoveTaskDependencyTx, false)
-	if err != nil {
-		return fmt.Errorf("failed to remove dependency: %w", err)
-	}
-	return nil
+	return mutateTaskDependency(taskDependencyParams{
+		db: db, agentName: agentName, taskID: taskID, dependsOnTaskID: dependsOnTaskID,
+		eventKind: models.EventKindTaskDependencyAdded, idempotencyCmd: "task.add_dependency",
+		requestID: requestID, mutate: store.AddTaskDependencyTx, adding: true,
+	})
 }
 
 // TaskRemoveDependencyIdempotent removes a dependency once per (agent_name, request_id).
 func TaskRemoveDependencyIdempotent(db *sql.DB, agentName, requestID, taskID, dependsOnTaskID string) error {
 	if requestID == "" {
-		return fmt.Errorf("request id is required")
+		return errors.New("request id is required")
 	}
 
-	return mutateTaskDependency(db, agentName, taskID, dependsOnTaskID, models.EventKindTaskDependencyRemoved, "task.remove_dependency", requestID, store.RemoveTaskDependencyTx, false)
+	return mutateTaskDependency(taskDependencyParams{
+		db: db, agentName: agentName, taskID: taskID, dependsOnTaskID: dependsOnTaskID,
+		eventKind: models.EventKindTaskDependencyRemoved, idempotencyCmd: "task.remove_dependency",
+		requestID: requestID, mutate: store.RemoveTaskDependencyTx, adding: false,
+	})
 }
 
 // TaskClaimResult captures the output of a claim-next operation.
@@ -634,10 +489,10 @@ type TaskClaimResult struct {
 // Returns nil Task when the queue is empty (not an error).
 func TaskClaimIdempotent(db *sql.DB, agentName, requestID, projectID string, ttlMinutes int) (*TaskClaimResult, error) {
 	if agentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return nil, fmt.Errorf("request id is required")
+		return nil, errors.New("request id is required")
 	}
 	if ttlMinutes <= 0 {
 		ttlMinutes = 5
@@ -679,29 +534,36 @@ type TaskCloseResult struct {
 	CloseEventID  int64        `json:"close_event_id"`
 }
 
-var validCloseOutcomes = map[string]string{
-	"done":    completedStatus,
-	"blocked": "blocked",
+// resolveCloseOutcome maps outcome alias ("done"/"blocked") to task status.
+// Returns empty string if the outcome is invalid.
+func resolveCloseOutcome(outcome string) string {
+	switch outcome {
+	case "done":
+		return completedStatus
+	case "blocked":
+		return blockedStatus
+	}
+	return ""
 }
 
 // TaskCloseIdempotent atomically closes a task (status + summary event),
 // once per request-id. Outcome must be "done" or "blocked".
-func TaskCloseIdempotent(db *sql.DB, agentName, requestID, taskID, outcome, summary, label, blockedReason string) (*TaskCloseResult, error) {
+func TaskCloseIdempotent(db *sql.DB, agentName, requestID, taskID, outcome, summary, label, blockedReason string) (*TaskCloseResult, error) { //nolint:revive // argument-limit: all params are required close-task inputs; a struct adds boilerplate without clarity
 	if agentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return nil, fmt.Errorf("request id is required")
+		return nil, errors.New("request id is required")
 	}
 	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
+		return nil, errors.New("task ID is required")
 	}
 	if summary == "" {
-		return nil, fmt.Errorf("summary is required")
+		return nil, errors.New("summary is required")
 	}
 
-	status, ok := validCloseOutcomes[outcome]
-	if !ok {
+	status := resolveCloseOutcome(outcome)
+	if status == "" {
 		return nil, fmt.Errorf("invalid outcome '%s': must be done or blocked", outcome)
 	}
 

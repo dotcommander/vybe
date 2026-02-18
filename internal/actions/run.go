@@ -3,6 +3,7 @@ package actions
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -20,10 +21,10 @@ type RunResult struct {
 // PersistRunResultIdempotent emits a run_completed event with run metrics as metadata.
 func PersistRunResultIdempotent(db *sql.DB, agentName, requestID, projectID string, result RunResult) (int64, error) {
 	if agentName == "" {
-		return 0, fmt.Errorf("agent name is required")
+		return 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return 0, fmt.Errorf("request id is required")
+		return 0, errors.New("request id is required")
 	}
 
 	metaBytes, err := json.Marshal(result)

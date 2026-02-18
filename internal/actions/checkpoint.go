@@ -3,6 +3,7 @@ package actions
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dotcommander/vybe/internal/store"
@@ -12,10 +13,10 @@ import (
 // and persists the result as a checkpoint event.
 func CheckpointIdempotent(db *sql.DB, agentName, requestID, projectID string) (*store.CheckpointResult, error) {
 	if agentName == "" {
-		return nil, fmt.Errorf("agent name is required")
+		return nil, errors.New("agent name is required")
 	}
 	if requestID == "" {
-		return nil, fmt.Errorf("request id is required")
+		return nil, errors.New("request id is required")
 	}
 
 	// 1. Load agent state
@@ -77,9 +78,9 @@ func CheckpointIdempotent(db *sql.DB, agentName, requestID, projectID string) (*
 	}
 
 	r, err := store.RunIdempotent(db, agentName, requestID, "checkpoint.create", func(tx *sql.Tx) (idemResult, error) {
-		eventID, err := store.CreateCheckpointEventTx(tx, agentName, string(snapshotJSON))
-		if err != nil {
-			return idemResult{}, err
+		eventID, txErr := store.CreateCheckpointEventTx(tx, agentName, string(snapshotJSON))
+		if txErr != nil {
+			return idemResult{}, txErr
 		}
 		return idemResult{EventID: eventID}, nil
 	})
