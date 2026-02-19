@@ -157,6 +157,12 @@ func buildPrompt(agentName string, brief *store.BriefPacket, recentPrompts []*mo
 		if t.Description != "" {
 			fmt.Fprintf(&b, "  Description: %s\n", t.Description)
 		}
+		// Count actionable tasks (current + pending pipeline)
+		actionable := 1 // the focus task itself
+		if brief.Counts != nil {
+			actionable = brief.Counts.Pending + brief.Counts.InProgress
+		}
+		fmt.Fprintf(&b, "\n%d task(s) awaiting action in this project.\n", actionable)
 	} else {
 		b.WriteString("\nNo task assigned. You can work freely.\n")
 	}

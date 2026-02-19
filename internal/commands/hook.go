@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -306,6 +307,11 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 				return nil
 			}
 
+			prevContext := readPreviousSessionContext(hctx.CWD, hctx.Input.SessionID)
+			if prevContext != "" {
+				prompt += "\n" + prevContext
+			}
+
 			out := hookOutput{
 				HookSpecificOutput: &hookSpecific{
 					HookEventName:     "SessionStart",
@@ -359,9 +365,154 @@ Register via 'vybe hook install'.`,
 				return nil
 			})
 
+			// Inject task context into model. Richer output for trigger words.
+			_ = withDB(func(db *DB) error {
+				state, err := store.LoadOrCreateAgentState(db, hctx.AgentName)
+				if err != nil {
+					return err
+				}
+
+				focusProjectID := state.FocusProjectID
+				if hctx.CWD != "" {
+					focusProjectID = hctx.CWD
+				}
+
+				// Detect trigger words for rich summary
+				lower := strings.ToLower(strings.TrimSpace(hctx.Input.Prompt))
+				isTrigger := lower == "brief me" || lower == "remember" ||
+					lower == "remember?" || lower == "brief" ||
+					lower == "what's pending" || lower == "status"
+
+				if isTrigger {
+					return emitRichBrief(db, hctx.AgentName, state.FocusTaskID, focusProjectID)
+				}
+
+				// Non-trigger: lightweight reminder if focus task exists
+				if state.FocusTaskID == "" {
+					return nil
+				}
+
+				brief, err := store.BuildBrief(db, state.FocusTaskID, focusProjectID, hctx.AgentName)
+				if err != nil {
+					return err
+				}
+				if brief == nil || brief.Task == nil {
+					return nil
+				}
+
+				actionable := 1
+				if brief.Counts != nil {
+					actionable = brief.Counts.Pending + brief.Counts.InProgress
+				}
+
+				var reminder strings.Builder
+				fmt.Fprintf(&reminder, "TASK REMINDER: You have %d task(s) awaiting action.\n", actionable)
+				fmt.Fprintf(&reminder, "Current: %s — %s\n", brief.Task.ID, brief.Task.Title)
+				if brief.Task.Description != "" {
+					fmt.Fprintf(&reminder, "Description: %s\n", brief.Task.Description)
+				}
+				reminder.WriteString("Ask the user if they'd like to address pending tasks before proceeding.\n")
+
+				return emitHookJSON("UserPromptSubmit", reminder.String())
+			})
+
 			return nil
 		},
 	}
+}
+
+// emitRichBrief builds a comprehensive vybe summary for trigger words like "brief me" and "remember".
+func emitRichBrief(db *DB, agentName, focusTaskID, projectID string) error {
+	var b strings.Builder
+
+	b.WriteString("== VYBE PROJECT SUMMARY ==\n")
+
+	// List all non-completed tasks for this project
+	tasks, err := store.ListTasks(db, "", projectID, 0)
+	if err != nil {
+		return err
+	}
+
+	var pending, inProgress, blocked []*models.Task
+	for _, t := range tasks {
+		switch t.Status {
+		case "pending":
+			pending = append(pending, t)
+		case "in_progress":
+			inProgress = append(inProgress, t)
+		case "blocked":
+			blocked = append(blocked, t)
+		}
+	}
+
+	if len(inProgress) > 0 {
+		b.WriteString("\nIn Progress:\n")
+		for _, t := range inProgress {
+			fmt.Fprintf(&b, "  [%s] %s", t.ID, t.Title)
+			if t.ID == focusTaskID {
+				b.WriteString(" <- current focus")
+			}
+			b.WriteString("\n")
+			if t.Description != "" {
+				fmt.Fprintf(&b, "    %s\n", t.Description)
+			}
+		}
+	}
+
+	if len(pending) > 0 {
+		b.WriteString("\nPending:\n")
+		for _, t := range pending {
+			fmt.Fprintf(&b, "  [%s] %s\n", t.ID, t.Title)
+			if t.Description != "" {
+				fmt.Fprintf(&b, "    %s\n", t.Description)
+			}
+		}
+	}
+
+	if len(blocked) > 0 {
+		b.WriteString("\nBlocked:\n")
+		for _, t := range blocked {
+			fmt.Fprintf(&b, "  [%s] %s", t.ID, t.Title)
+			if t.BlockedReason != "" {
+				fmt.Fprintf(&b, " (%s)", t.BlockedReason)
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	total := len(pending) + len(inProgress) + len(blocked)
+	if total == 0 {
+		b.WriteString("\nNo actionable tasks in this project.\n")
+	} else {
+		fmt.Fprintf(&b, "\nTotal: %d actionable (%d pending, %d in progress, %d blocked)\n",
+			total, len(pending), len(inProgress), len(blocked))
+	}
+
+	// Add memory if available
+	if focusTaskID != "" {
+		brief, err := store.BuildBrief(db, focusTaskID, projectID, agentName)
+		if err == nil && brief != nil && len(brief.RelevantMemory) > 0 {
+			b.WriteString("\nSaved notes:\n")
+			for _, m := range brief.RelevantMemory {
+				fmt.Fprintf(&b, "  %s = %s\n", m.Key, m.Value)
+			}
+		}
+	}
+
+	b.WriteString("\nPresent this summary to the user and ask which task(s) they'd like to work on.\n")
+
+	return emitHookJSON("UserPromptSubmit", b.String())
+}
+
+// emitHookJSON writes a hookOutput JSON to stdout.
+func emitHookJSON(eventName, context string) error {
+	out := hookOutput{
+		HookSpecificOutput: &hookSpecific{
+			HookEventName:     eventName,
+			AdditionalContext: context,
+		},
+	}
+	return json.NewEncoder(os.Stdout).Encode(out)
 }
 
 func newHookToolFailureCmd() *cobra.Command {
@@ -772,6 +923,143 @@ func newHookSessionEndCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// encodeProjectPath converts a filesystem path to the Claude Code project directory
+// name format, where each "/" is replaced with "-".
+// Example: "/Users/vampire/go/src/vybe" → "-Users-vampire-go-src-vybe"
+func encodeProjectPath(cwd string) string {
+	return strings.ReplaceAll(cwd, "/", "-")
+}
+
+// readPreviousSessionContext finds the most recent Claude Code session transcript
+// for the given working directory (excluding the current session) and returns a
+// formatted string of the last few user/assistant exchanges.
+//
+// All errors are silently swallowed — hooks must never block Claude Code.
+func readPreviousSessionContext(cwd, currentSessionID string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	projectDir := filepath.Join(home, ".claude", "projects", encodeProjectPath(cwd))
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return ""
+	}
+
+	// Collect .jsonl files excluding the current session.
+	type fileInfo struct {
+		path    string
+		modTime time.Time
+	}
+	var candidates []fileInfo
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		sessionID := strings.TrimSuffix(name, ".jsonl")
+		if sessionID == currentSessionID {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		candidates = append(candidates, fileInfo{
+			path:    filepath.Join(projectDir, name),
+			modTime: info.ModTime(),
+		})
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	// Pick most recent by ModTime.
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if c.modTime.After(best.modTime) {
+			best = c
+		}
+	}
+
+	data, err := os.ReadFile(best.path) //nolint:gosec // G304: path is constructed from known home dir + encoded cwd
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	// Take last 50 lines.
+	if len(lines) > 50 {
+		lines = lines[len(lines)-50:]
+	}
+
+	type contentItem struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	type message struct {
+		Role    string        `json:"role"`
+		Content []contentItem `json:"content"`
+	}
+	type record struct {
+		Type    string  `json:"type"`
+		Message message `json:"message"`
+	}
+
+	const maxMsgLen = 200
+	const maxTotalLen = 2000
+
+	var sb strings.Builder
+	sb.WriteString("Previous session context (last session before this one):\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var rec record
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			continue
+		}
+		if rec.Type != "user" && rec.Type != "assistant" {
+			continue
+		}
+		role := rec.Message.Role
+		if role == "" {
+			role = rec.Type
+		}
+		var textParts []string
+		for _, item := range rec.Message.Content {
+			if item.Type != "text" || item.Text == "" {
+				continue
+			}
+			t := item.Text
+			if len(t) > maxMsgLen {
+				t = t[:maxMsgLen]
+			}
+			textParts = append(textParts, t)
+		}
+		if len(textParts) == 0 {
+			continue
+		}
+		line := fmt.Sprintf("  [%s] %s\n", role, strings.Join(textParts, " "))
+		if sb.Len()+len(line) > maxTotalLen {
+			break
+		}
+		sb.WriteString(line)
+	}
+
+	result := sb.String()
+	// If nothing was appended beyond the header, return empty.
+	if result == "Previous session context (last session before this one):\n" {
+		return ""
+	}
+	return result
 }
 
 // spawnRetrospectiveBackground creates a temp file sentinel and launches
