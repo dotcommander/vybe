@@ -109,7 +109,7 @@ func SetMemory(db *sql.DB, key, value, valueType, scope, scopeID string, expires
 // UpsertMemoryWithEventIdempotent performs canonical-key memory upsert once per (agent_name, request_id).
 // If a canonical-key match already exists in the same scope, it is updated/reinforced.
 //
-//nolint:gocognit,gocyclo,funlen,nestif,revive // upsert+reinforce logic requires a structured goto to share the event-log path; splitting obscures the race-condition recovery sequence
+//nolint:gocognit,gocyclo,funlen,nestif,revive // upsert+reinforce logic requires shared event-log path across insert and update branches; splitting obscures the race-condition recovery sequence
 func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, confidence *float64, sourceEventID *int64) (int64, bool, float64, string, error) {
 	if err := validateValueType(valueType); err != nil {
 		return 0, false, 0, "", err
@@ -167,6 +167,7 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 			newConfidence = ClampConfidence(*confidence)
 		}
 
+		inserted := false
 		if errors.Is(err, sql.ErrNoRows) {
 			_, execErr := tx.ExecContext(context.Background(), `
 				INSERT INTO memory (
@@ -203,8 +204,7 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 					return idemResult{}, fmt.Errorf("failed to insert memory: %w", execErr)
 				}
 			} else {
-				// Insert succeeded, skip to event logging
-				goto logEvent
+				inserted = true
 			}
 		} else {
 			reinforced = existingValue == value && existingValueType == valueType
@@ -218,37 +218,37 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 		}
 
 		// Update path (shared by initial lookup and race-condition retry)
-		if sourceEventID != nil {
-			_, err = tx.ExecContext(context.Background(), `
-				UPDATE memory
-				SET key = ?,
-				    canonical_key = ?,
-				    value = ?,
-				    value_type = ?,
-				    expires_at = ?,
-				    confidence = ?,
-				    last_seen_at = CURRENT_TIMESTAMP,
-				    source_event_id = ?
-				WHERE id = ?
-			`, key, canonicalKey, value, valueType, expiresAt, newConfidence, *sourceEventID, existingID)
-		} else {
-			_, err = tx.ExecContext(context.Background(), `
-				UPDATE memory
-				SET key = ?,
-				    canonical_key = ?,
-				    value = ?,
-				    value_type = ?,
-				    expires_at = ?,
-				    confidence = ?,
-				    last_seen_at = CURRENT_TIMESTAMP
-				WHERE id = ?
-			`, key, canonicalKey, value, valueType, expiresAt, newConfidence, existingID)
+		if !inserted {
+			if sourceEventID != nil {
+				_, err = tx.ExecContext(context.Background(), `
+					UPDATE memory
+					SET key = ?,
+					    canonical_key = ?,
+					    value = ?,
+					    value_type = ?,
+					    expires_at = ?,
+					    confidence = ?,
+					    last_seen_at = CURRENT_TIMESTAMP,
+					    source_event_id = ?
+					WHERE id = ?
+				`, key, canonicalKey, value, valueType, expiresAt, newConfidence, *sourceEventID, existingID)
+			} else {
+				_, err = tx.ExecContext(context.Background(), `
+					UPDATE memory
+					SET key = ?,
+					    canonical_key = ?,
+					    value = ?,
+					    value_type = ?,
+					    expires_at = ?,
+					    confidence = ?,
+					    last_seen_at = CURRENT_TIMESTAMP
+					WHERE id = ?
+				`, key, canonicalKey, value, valueType, expiresAt, newConfidence, existingID)
+			}
+			if err != nil {
+				return idemResult{}, fmt.Errorf("failed to update memory: %w", err)
+			}
 		}
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to update memory: %w", err)
-		}
-
-	logEvent:
 
 		eventKind := models.EventKindMemoryUpserted
 		if reinforced {
