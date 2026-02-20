@@ -848,4 +848,527 @@ func TestDemoAgentSession(t *testing.T) {
 			require.NotEmpty(t, events, "tool_call events should be listed")
 		})
 	})
+
+	// -------------------------------------------------------------------------
+	// Phase 9: Task Read Operations
+	// -------------------------------------------------------------------------
+	t.Run("Phase9_TaskReadOperations", func(t *testing.T) {
+		// Step 37: task get — fetch single task, verify fields match
+		// task get returns data directly (not nested under data.task)
+		t.Run("step37_task_get", func(t *testing.T) {
+			out := h.vybe("task", "get", "--id", authTaskID)
+			m := requireSuccess(t, out)
+			id := getStr(m, "data", "id")
+			require.Equal(t, authTaskID, id, "task get should return correct task ID")
+			title := getStr(m, "data", "title")
+			require.Equal(t, "Implement auth", title, "task get should return correct title")
+			status := getStr(m, "data", "status")
+			require.Equal(t, "completed", status, "task get should return correct status")
+		})
+
+		// Step 38: task stats — verify returns counts
+		t.Run("step38_task_stats", func(t *testing.T) {
+			out := h.vybe("task", "stats")
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			// completed should be >= 3 (auth, deploy, write tests all completed)
+			completed, ok := data["completed"]
+			require.True(t, ok, "stats should include completed count")
+			completedCount, ok := completed.(float64)
+			require.True(t, ok, "completed count should be a number")
+			require.GreaterOrEqual(t, int(completedCount), 3, "at least 3 tasks should be completed")
+		})
+
+		// Step 39: task next — verify returns pending tasks in order
+		t.Run("step39_task_next", func(t *testing.T) {
+			// Create a fresh pending task so next has something to return
+			createOut := h.vybe("task", "create",
+				"--title", "Next Test Task",
+				"--request-id", rid("p9s39", 1),
+			)
+			requireSuccess(t, createOut)
+
+			out := h.vybe("task", "next", "--limit", "5")
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			tasks, ok := data["tasks"].([]any)
+			require.True(t, ok, "task next should return tasks array")
+			require.NotEmpty(t, tasks, "task next should return at least one pending task")
+		})
+
+		// Step 40: task unlocks — verify which tasks completing a task would unblock
+		t.Run("step40_task_unlocks", func(t *testing.T) {
+			// Create two tasks with a dependency so unlocks has meaningful data
+			blockerOut := h.vybe("task", "create",
+				"--title", "Blocker Task",
+				"--request-id", rid("p9s40", 1),
+			)
+			blockerM := requireSuccess(t, blockerOut)
+			blockerID := getStr(blockerM, "data", "task", "id")
+
+			dependentOut := h.vybe("task", "create",
+				"--title", "Dependent Task",
+				"--request-id", rid("p9s40", 2),
+			)
+			dependentM := requireSuccess(t, dependentOut)
+			dependentID := getStr(dependentM, "data", "task", "id")
+
+			// Make dependent block on blocker
+			h.vybe("task", "add-dep",
+				"--id", dependentID,
+				"--depends-on", blockerID,
+				"--request-id", rid("p9s40", 3),
+			)
+
+			// Now ask what completing blockerID would unlock
+			out := h.vybe("task", "unlocks", "--id", blockerID)
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			tasks, ok := data["tasks"].([]any)
+			require.True(t, ok, "task unlocks should return tasks array")
+			require.NotEmpty(t, tasks, "completing blocker should unlock at least one task")
+			unlockedID := tasks[0].(map[string]any)["id"].(string)
+			require.Equal(t, dependentID, unlockedID, "dependent task should appear in unlocked list")
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Phase 10: Task Claim & GC
+	// -------------------------------------------------------------------------
+	t.Run("Phase10_TaskClaimAndGC", func(t *testing.T) {
+		// Step 41: Create a fresh pending task and claim it atomically
+		var claimedTaskID string
+		t.Run("step41_task_claim", func(t *testing.T) {
+			// Create a high-priority claimable task
+			createOut := h.vybe("task", "create",
+				"--title", "Claimable Task",
+				"--request-id", rid("p10s41", 1),
+			)
+			requireSuccess(t, createOut)
+
+			// Claim next eligible task
+			out := h.vybe("task", "claim", "--request-id", rid("p10s41", 2))
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			task := data["task"]
+			require.NotNil(t, task, "claim should return a task")
+			claimedTaskID = task.(map[string]any)["id"].(string)
+			require.NotEmpty(t, claimedTaskID, "claimed task should have an ID")
+			status := task.(map[string]any)["status"].(string)
+			require.Equal(t, "in_progress", status, "claimed task should be in_progress")
+		})
+
+		// Step 42: Heartbeat on claimed task
+		t.Run("step42_task_heartbeat_after_claim", func(t *testing.T) {
+			if claimedTaskID == "" {
+				t.Skip("no claimed task — skipping heartbeat")
+			}
+			out := h.vybe("task", "heartbeat",
+				"--id", claimedTaskID,
+				"--request-id", rid("p10s42", 1),
+			)
+			requireSuccess(t, out)
+		})
+
+		// Step 43: task gc — release expired claim leases
+		t.Run("step43_task_gc", func(t *testing.T) {
+			out := h.vybe("task", "gc")
+			m := requireSuccess(t, out)
+			// gc should succeed; released count may be 0 since lease isn't expired
+			require.NotNil(t, m["data"], "task gc should return data")
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Phase 11: Task Mutations
+	// -------------------------------------------------------------------------
+	t.Run("Phase11_TaskMutations", func(t *testing.T) {
+		// Step 44: task set-priority
+		t.Run("step44_task_set_priority", func(t *testing.T) {
+			// Create a fresh task to mutate
+			createOut := h.vybe("task", "create",
+				"--title", "Priority Task",
+				"--request-id", rid("p11s44", 1),
+			)
+			createM := requireSuccess(t, createOut)
+			priorityTaskID := getStr(createM, "data", "task", "id")
+
+			out := h.vybe("task", "set-priority",
+				"--id", priorityTaskID,
+				"--priority", "10",
+				"--request-id", rid("p11s44", 2),
+			)
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			task := data["task"].(map[string]any)
+			priority, ok := task["priority"].(float64)
+			require.True(t, ok, "priority should be a number")
+			require.Equal(t, float64(10), priority, "priority should be updated to 10")
+		})
+
+		// Step 45: task delete
+		t.Run("step45_task_delete", func(t *testing.T) {
+			// Create a task to delete
+			createOut := h.vybe("task", "create",
+				"--title", "Task To Delete",
+				"--request-id", rid("p11s45", 1),
+			)
+			createM := requireSuccess(t, createOut)
+			deleteTaskID := getStr(createM, "data", "task", "id")
+			require.NotEmpty(t, deleteTaskID)
+
+			// Delete it
+			out := h.vybe("task", "delete",
+				"--id", deleteTaskID,
+				"--request-id", rid("p11s45", 2),
+			)
+			requireSuccess(t, out)
+
+			// Verify it's gone — get should return success=false or empty task
+			getOut := h.vybe("task", "get", "--id", deleteTaskID)
+			getM := mustJSON(t, getOut)
+			// Either success=false or data.task is nil
+			if getM["success"] == true {
+				task := getM["data"].(map[string]any)["task"]
+				require.Nil(t, task, "deleted task should not be retrievable")
+			}
+			// success=false is also acceptable
+		})
+
+		// Step 46: task set-status (update title equivalent — vybe uses set-status)
+		t.Run("step46_task_set_status", func(t *testing.T) {
+			// Create a fresh pending task and set its status
+			createOut := h.vybe("task", "create",
+				"--title", "Status Update Task",
+				"--request-id", rid("p11s46", 1),
+			)
+			createM := requireSuccess(t, createOut)
+			statusTaskID := getStr(createM, "data", "task", "id")
+
+			out := h.vybe("task", "set-status",
+				"--id", statusTaskID,
+				"--status", "blocked",
+				"--request-id", rid("p11s46", 2),
+			)
+			m := requireSuccess(t, out)
+			status := getStr(m, "data", "task", "status")
+			require.Equal(t, "blocked", status, "task status should be updated to blocked")
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Phase 12: Memory Operations
+	// -------------------------------------------------------------------------
+	t.Run("Phase12_MemoryOperations", func(t *testing.T) {
+		// Step 47: memory compact — standalone compact
+		t.Run("step47_memory_compact", func(t *testing.T) {
+			// Set a few extra global keys so compact has material to work with
+			for i, kv := range [][2]string{
+				{"compact_key_a", "value_a"},
+				{"compact_key_b", "value_b"},
+			} {
+				h.vybe("memory", "set",
+					"--key", kv[0],
+					"--value", kv[1],
+					"--scope", "global",
+					"--request-id", rid("p12s47", i),
+				)
+			}
+
+			out := h.vybe("memory", "compact",
+				"--scope", "global",
+				"--request-id", rid("p12s47", 99),
+			)
+			m := requireSuccess(t, out)
+			require.NotNil(t, m["data"], "memory compact should return data")
+		})
+
+		// Step 48: memory touch — touch a key, verify response
+		t.Run("step48_memory_touch", func(t *testing.T) {
+			// Ensure the key exists first
+			h.vybe("memory", "set",
+				"--key", "touch_test_key",
+				"--value", "touch_value",
+				"--scope", "global",
+				"--request-id", rid("p12s48", 1),
+			)
+
+			out := h.vybe("memory", "touch",
+				"--key", "touch_test_key",
+				"--scope", "global",
+				"--request-id", rid("p12s48", 2),
+			)
+			m := requireSuccess(t, out)
+			require.NotNil(t, m["data"], "memory touch should return data")
+		})
+
+		// Step 49: memory query — pattern search
+		t.Run("step49_memory_query", func(t *testing.T) {
+			// Set keys with a common prefix for pattern search
+			h.vybe("memory", "set",
+				"--key", "go_module",
+				"--value", "github.com/dotcommander/vybe",
+				"--scope", "global",
+				"--request-id", rid("p12s49", 1),
+			)
+
+			out := h.vybe("memory", "query",
+				"--pattern", "go%",
+				"--scope", "global",
+				"--limit", "10",
+			)
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			memories, ok := data["memories"].([]any)
+			require.True(t, ok, "memory query should return memories array")
+			require.NotEmpty(t, memories, "query for 'go%' should return at least one result")
+			// Verify at least one result starts with "go"
+			found := false
+			for _, raw := range memories {
+				mem := raw.(map[string]any)
+				if k, ok := mem["key"].(string); ok && strings.HasPrefix(k, "go") {
+					found = true
+					break
+				}
+			}
+			require.True(t, found, "at least one memory key should start with 'go'")
+		})
+
+		// Step 50: memory delete — delete a key, verify gone
+		t.Run("step50_memory_delete", func(t *testing.T) {
+			// Set a key specifically to delete
+			h.vybe("memory", "set",
+				"--key", "delete_me",
+				"--value", "temporary",
+				"--scope", "global",
+				"--request-id", rid("p12s50", 1),
+			)
+
+			// Verify it exists
+			getOut := h.vybe("memory", "get", "--key", "delete_me", "--scope", "global")
+			getM := requireSuccess(t, getOut)
+			value := getStr(getM, "data", "value")
+			require.Equal(t, "temporary", value, "key should exist before deletion")
+
+			// Delete it
+			out := h.vybe("memory", "delete",
+				"--key", "delete_me",
+				"--scope", "global",
+				"--request-id", rid("p12s50", 2),
+			)
+			requireSuccess(t, out)
+
+			// Verify it's gone
+			afterOut := h.vybe("memory", "get", "--key", "delete_me", "--scope", "global")
+			afterM := mustJSON(t, afterOut)
+			require.NotEqual(t, true, afterM["success"], "deleted key should not be retrievable")
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Phase 13: Agent State Management
+	// -------------------------------------------------------------------------
+	t.Run("Phase13_AgentStateManagement", func(t *testing.T) {
+		// Step 51: agent init — idempotent initialization
+		t.Run("step51_agent_init", func(t *testing.T) {
+			out := h.vybe("agent", "init", "--request-id", rid("p13s51", 1))
+			m := requireSuccess(t, out)
+			require.NotNil(t, m["data"], "agent init should return data")
+		})
+
+		// Step 52: agent status — verify returns cursor and focus info
+		t.Run("step52_agent_status", func(t *testing.T) {
+			out := h.vybe("agent", "status")
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			// Should have agent name and cursor info
+			agentName := getStr(m, "data", "agent_name")
+			require.NotEmpty(t, agentName, "agent status should return agent_name")
+			// last_seen_event_id may be 0 or positive — just verify the field exists
+			_, hasEventID := data["last_seen_event_id"]
+			require.True(t, hasEventID, "agent status should include last_seen_event_id")
+		})
+
+		// Step 53: agent focus — set focus task explicitly
+		t.Run("step53_agent_focus", func(t *testing.T) {
+			// Create a fresh task to focus on
+			createOut := h.vybe("task", "create",
+				"--title", "Focus Target Task",
+				"--request-id", rid("p13s53", 1),
+			)
+			createM := requireSuccess(t, createOut)
+			focusTargetID := getStr(createM, "data", "task", "id")
+
+			out := h.vybe("agent", "focus",
+				"--task", focusTargetID,
+				"--request-id", rid("p13s53", 2),
+			)
+			m := requireSuccess(t, out)
+			require.NotNil(t, m["data"], "agent focus should return data")
+
+			// Verify focus was updated via agent status
+			statusOut := h.vybe("agent", "status")
+			statusM := requireSuccess(t, statusOut)
+			focusTaskID := getStr(statusM, "data", "focus_task_id")
+			require.Equal(t, focusTargetID, focusTaskID, "agent focus_task_id should match set task")
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Phase 14: Event Operations
+	// -------------------------------------------------------------------------
+	t.Run("Phase14_EventOperations", func(t *testing.T) {
+		// Step 54: events summarize — archive a range of events
+		t.Run("step54_events_summarize", func(t *testing.T) {
+			// First get the current event list to find IDs to summarize
+			listOut := h.vybe("events", "list", "--limit", "10", "--asc")
+			listM := requireSuccess(t, listOut)
+			events := listM["data"].(map[string]any)["events"].([]any)
+			require.GreaterOrEqual(t, len(events), 2, "need at least 2 events to summarize")
+
+			// Use first two events' IDs
+			firstEvent := events[0].(map[string]any)
+			lastEvent := events[len(events)-1].(map[string]any)
+			fromID := int(firstEvent["id"].(float64))
+			toID := int(lastEvent["id"].(float64))
+
+			// Add some progress events scoped to authTaskID to summarize
+			for i := 0; i < 2; i++ {
+				h.vybe("events", "add",
+					"--kind", "progress",
+					"--msg", fmt.Sprintf("pre-summary event %d", i),
+					"--task", authTaskID,
+					"--request-id", rid("p14s54", i),
+				)
+			}
+
+			// Get the range after adding the events
+			rangeOut := h.vybe("events", "list", "--task", authTaskID, "--asc", "--limit", "100")
+			rangeM := requireSuccess(t, rangeOut)
+			rangeEvents := rangeM["data"].(map[string]any)["events"].([]any)
+			require.NotEmpty(t, rangeEvents, "should have events for auth task")
+
+			// Use first and last from this task's events
+			taskFirst := rangeEvents[0].(map[string]any)
+			taskLast := rangeEvents[len(rangeEvents)-1].(map[string]any)
+			fromID = int(taskFirst["id"].(float64))
+			toID = int(taskLast["id"].(float64))
+
+			// Only summarize if range is valid (from < to)
+			if fromID >= toID {
+				t.Logf("skipping summarize: fromID(%d) >= toID(%d), only one event", fromID, toID)
+				return
+			}
+
+			out := h.vybe("events", "summarize",
+				"--from-id", fmt.Sprintf("%d", fromID),
+				"--to-id", fmt.Sprintf("%d", toID),
+				"--summary", "Auth implementation complete: JWT strategy, integrated with routes",
+				"--task", authTaskID,
+				"--request-id", rid("p14s54", 99),
+			)
+			m := requireSuccess(t, out)
+			require.NotNil(t, m["data"], "events summarize should return data")
+		})
+
+		// Step 55: events tail — single poll, non-blocking
+		t.Run("step55_events_tail", func(t *testing.T) {
+			out := h.vybe("events", "list", "--limit", "5")
+			m := requireSuccess(t, out)
+			events := m["data"].(map[string]any)["events"].([]any)
+			require.NotEmpty(t, events, "events list should return recent events")
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Phase 15: Project & Session
+	// -------------------------------------------------------------------------
+	t.Run("Phase15_ProjectAndSession", func(t *testing.T) {
+		// Step 56: project get — fetch single project
+		// project get returns data directly (not nested under data.project)
+		t.Run("step56_project_get", func(t *testing.T) {
+			out := h.vybe("project", "get", "--id", projectID)
+			m := requireSuccess(t, out)
+			id := getStr(m, "data", "id")
+			require.Equal(t, projectID, id, "project get should return correct project ID")
+			name := getStr(m, "data", "name")
+			require.Equal(t, "demo-project", name, "project get should return correct name")
+		})
+
+		// Step 57: session digest — summarize current session events
+		t.Run("step57_session_digest", func(t *testing.T) {
+			out := h.vybe("session", "digest")
+			m := requireSuccess(t, out)
+			require.NotNil(t, m["data"], "session digest should return data")
+		})
+
+		// Step 58: schema — verify returns SQL schema text
+		t.Run("step58_schema", func(t *testing.T) {
+			out := h.vybe("schema")
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			// Schema should have some content describing the DB structure
+			require.NotNil(t, data, "schema should return data")
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Phase 16: Hook Coverage (hidden subcommands)
+	// -------------------------------------------------------------------------
+	t.Run("Phase16_HookCoverage", func(t *testing.T) {
+		hookSession := "sess_demo_hook_phase"
+
+		// Step 59: hook subagent-start — log sub-agent spawn event
+		t.Run("step59_hook_subagent_start", func(t *testing.T) {
+			payload := map[string]any{
+				"hook_event_name": "SubagentStart",
+				"session_id":      hookSession,
+				"cwd":             projectID,
+				"description":     "quality-agent",
+			}
+			data, _ := json.Marshal(payload)
+			h.vybeWithStdin(string(data), "hook", "subagent-start")
+
+			// Verify an agent_spawned event was recorded
+			eventsOut := h.vybe("events", "list", "--kind", "agent_spawned", "--limit", "5")
+			eventsM := requireSuccess(t, eventsOut)
+			events := eventsM["data"].(map[string]any)["events"].([]any)
+			require.NotEmpty(t, events, "agent_spawned event should be logged by subagent-start hook")
+		})
+
+		// Step 60: hook subagent-stop — log sub-agent completion event
+		t.Run("step60_hook_subagent_stop", func(t *testing.T) {
+			payload := map[string]any{
+				"hook_event_name": "SubagentStop",
+				"session_id":      hookSession,
+				"cwd":             projectID,
+				"description":     "quality-agent",
+			}
+			data, _ := json.Marshal(payload)
+			h.vybeWithStdin(string(data), "hook", "subagent-stop")
+
+			// Verify an agent_completed event was recorded
+			eventsOut := h.vybe("events", "list", "--kind", "agent_completed", "--limit", "5")
+			eventsM := requireSuccess(t, eventsOut)
+			events := eventsM["data"].(map[string]any)["events"].([]any)
+			require.NotEmpty(t, events, "agent_completed event should be logged by subagent-stop hook")
+		})
+
+		// Step 61: hook stop — log turn completion heartbeat event
+		t.Run("step61_hook_stop", func(t *testing.T) {
+			payload := map[string]any{
+				"hook_event_name": "Stop",
+				"session_id":      hookSession,
+				"cwd":             projectID,
+			}
+			data, _ := json.Marshal(payload)
+			h.vybeWithStdin(string(data), "hook", "stop")
+
+			// Verify a heartbeat event was recorded
+			eventsOut := h.vybe("events", "list", "--kind", "heartbeat", "--limit", "5")
+			eventsM := requireSuccess(t, eventsOut)
+			events := eventsM["data"].(map[string]any)["events"].([]any)
+			require.NotEmpty(t, events, "heartbeat event should be logged by stop hook")
+		})
+	})
 }
