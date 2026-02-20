@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
 
@@ -7,7 +9,16 @@ linters:
     - errcheck
     - govet
     - gosec
-    - gosimple
     - ineffassign
     - staticcheck
     - unused
+  exclusions:
+    rules:
+      # G104: unhandled errors (accepted pattern for best-effort cleanups)
+      # G301: directory permissions (0755 is standard for config dirs)
+      # G304: file inclusion via variable (config file paths are trusted)
+      - linters: [gosec]
+        text: "G104|G301|G304"
+      # Test files: relax gosec (executable scripts require 0755)
+      - linters: [gosec]
+        path: "_test\\.go"
