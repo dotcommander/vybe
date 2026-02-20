@@ -189,9 +189,25 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 						LIMIT 1
 					`, scope, scopeID, canonicalKey).Scan(&existingID, &existingValue, &existingValueType, &existingConfidence)
 					if retryErr != nil {
-						return idemResult{}, fmt.Errorf("failed to lookup canonical memory after race: %w", retryErr)
+						if errors.Is(retryErr, sql.ErrNoRows) {
+							// Row was deleted between our INSERT attempt and retry lookup (concurrent GC).
+							// Re-attempt the INSERT since the canonical_key slot is now free.
+							_, reinsertErr := tx.ExecContext(context.Background(), `
+								INSERT INTO memory (
+									key, canonical_key, value, value_type, scope, scope_id,
+									expires_at, confidence, last_seen_at, source_event_id
+								)
+								VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+							`, key, canonicalKey, value, valueType, scope, scopeID, expiresAt, newConfidence, sourceEventID)
+							if reinsertErr != nil {
+								return idemResult{}, fmt.Errorf("failed to re-insert memory after GC race: %w", reinsertErr)
+							}
+							inserted = true
+						} else {
+							return idemResult{}, fmt.Errorf("failed to lookup canonical memory after race: %w", retryErr)
+						}
 					}
-					// Fall through to update logic below
+					// Fall through to update logic below (only when inserted is false)
 					reinforced = existingValue == value && existingValueType == valueType
 					if confidence == nil {
 						if reinforced {
@@ -558,10 +574,17 @@ func GCMemoryWithEventIdempotent(db *sql.DB, agentName, requestID string, limit 
 			return idemResult{}, fmt.Errorf("failed iterating memory gc candidates: %w", rowsErr)
 		}
 
-		for _, id := range ids {
-			_, deleteErr := tx.ExecContext(context.Background(), `DELETE FROM memory WHERE id = ?`, id)
+		if len(ids) > 0 {
+			placeholders := strings.Repeat("?,", len(ids))
+			placeholders = placeholders[:len(placeholders)-1]
+			args := make([]any, len(ids))
+			for i, id := range ids {
+				args[i] = id
+			}
+			_, deleteErr := tx.ExecContext(context.Background(),
+				`DELETE FROM memory WHERE id IN (`+placeholders+`)`, args...)
 			if deleteErr != nil {
-				return idemResult{}, fmt.Errorf("failed deleting memory row %d: %w", id, deleteErr)
+				return idemResult{}, fmt.Errorf("failed batch deleting %d memory rows: %w", len(ids), deleteErr)
 			}
 		}
 
