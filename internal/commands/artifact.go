@@ -43,10 +43,10 @@ func newArtifactAddCmd() *cobra.Command {
 				return cmdErr(err)
 			}
 			if taskID == "" {
-				return errors.New("--task is required")
+				return cmdErr(errors.New("--task is required"))
 			}
 			if filePath == "" {
-				return errors.New("--path is required")
+				return cmdErr(errors.New("--path is required"))
 			}
 
 			var (
@@ -87,7 +87,7 @@ func newArtifactGetCmd() *cobra.Command {
 		Short: "Get artifact by id",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if id == "" {
-				return errors.New("--id is required")
+				return cmdErr(errors.New("--id is required"))
 			}
 
 			var artifact *models.Artifact
@@ -121,7 +121,7 @@ func newArtifactListCmd() *cobra.Command {
 		Short: "List artifacts for a task",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if taskID == "" {
-				return errors.New("--task is required")
+				return cmdErr(errors.New("--task is required"))
 			}
 
 			var artifacts []*models.Artifact

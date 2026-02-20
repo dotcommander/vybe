@@ -48,10 +48,10 @@ func newEventsAddCmd() *cobra.Command {
 				return cmdErr(err)
 			}
 			if kind == "" {
-				return errors.New("--kind is required")
+				return cmdErr(errors.New("--kind is required"))
 			}
 			if message == "" {
-				return errors.New("--msg is required")
+				return cmdErr(errors.New("--msg is required"))
 			}
 
 			var eventID int64

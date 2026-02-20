@@ -58,7 +58,7 @@ func newTaskCreateCmd() *cobra.Command {
 			}
 
 			if title == "" {
-				return errors.New("--title is required")
+				return cmdErr(errors.New("--title is required"))
 			}
 
 			var task *models.Task
@@ -110,10 +110,10 @@ func newTaskSetStatusCmd() *cobra.Command {
 			}
 
 			if taskID == "" {
-				return errors.New("--id is required")
+				return cmdErr(errors.New("--id is required"))
 			}
 			if status == "" {
-				return errors.New("--status is required")
+				return cmdErr(errors.New("--status is required"))
 			}
 
 			var (
@@ -153,7 +153,7 @@ func newTaskBeginCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			if taskID == "" {
-				return errors.New("--id is required")
+				return cmdErr(errors.New("--id is required"))
 			}
 
 			agentName, err := requireActorName(cmd, "")
@@ -194,7 +194,7 @@ func newTaskHeartbeatCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			if taskID == "" {
-				return errors.New("--id is required")
+				return cmdErr(errors.New("--id is required"))
 			}
 
 			agentName, err := requireActorName(cmd, "")
@@ -273,13 +273,13 @@ func newTaskGetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			if taskID != "" && len(args) == 1 {
-				return errors.New("provide either --id or a positional task id, not both")
+				return cmdErr(errors.New("provide either --id or a positional task id, not both"))
 			}
 			if taskID == "" && len(args) == 1 {
 				taskID = args[0]
 			}
 			if taskID == "" {
-				return errors.New("--id is required")
+				return cmdErr(errors.New("--id is required"))
 			}
 
 			var task *models.Task
@@ -311,10 +311,10 @@ func newTaskDepCmd(use, short, successFmt string, apply func(db *DB, agentName, 
 			taskID, _ := cmd.Flags().GetString("id")
 			dependsOn, _ := cmd.Flags().GetString("depends-on")
 			if taskID == "" {
-				return errors.New("--id is required")
+				return cmdErr(errors.New("--id is required"))
 			}
 			if dependsOn == "" {
-				return errors.New("--depends-on is required")
+				return cmdErr(errors.New("--depends-on is required"))
 			}
 
 			agentName, err := requireActorName(cmd, "")
@@ -460,13 +460,13 @@ func newTaskCompleteCmd() *cobra.Command {
 			blockedReason, _ := cmd.Flags().GetString("blocked-reason")
 
 			if taskID == "" {
-				return errors.New("--id is required")
+				return cmdErr(errors.New("--id is required"))
 			}
 			if outcome == "" {
-				return errors.New("--outcome is required (done|blocked)")
+				return cmdErr(errors.New("--outcome is required (done|blocked)"))
 			}
 			if summary == "" {
-				return errors.New("--summary is required")
+				return cmdErr(errors.New("--summary is required"))
 			}
 
 			agentName, err := requireActorName(cmd, "")
@@ -547,7 +547,7 @@ func newTaskSetPriorityCmd() *cobra.Command {
 			}
 
 			if taskID == "" {
-				return errors.New("--id is required")
+				return cmdErr(errors.New("--id is required"))
 			}
 
 			var (
@@ -625,7 +625,7 @@ func newTaskUnlocksCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			if taskID == "" {
-				return errors.New("--id is required")
+				return cmdErr(errors.New("--id is required"))
 			}
 
 			var tasks []store.PipelineTask
