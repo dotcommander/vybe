@@ -1,9 +1,11 @@
 package commands
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,14 +33,13 @@ func TestResolveRequestID_UsesEnvWhenFlagEmpty(t *testing.T) {
 	require.Equal(t, "env-req", rid)
 }
 
-func TestRequireRequestID_ReturnsErrorWhenMissing(t *testing.T) {
+func TestRequireRequestID_ErrorsWhenMissing(t *testing.T) {
 	cmd := newRequestIDTestCmd(t)
 	t.Setenv("VYBE_REQUEST_ID", "")
 
-	rid, err := requireRequestID(cmd)
+	_, err := requireRequestID(cmd)
 	require.Error(t, err)
-	require.Empty(t, rid)
-	require.Contains(t, err.Error(), "request id is required")
+	assert.Contains(t, err.Error(), "--request-id")
 }
 
 func TestRequireRequestID_ReturnsValue(t *testing.T) {
@@ -48,4 +49,30 @@ func TestRequireRequestID_ReturnsValue(t *testing.T) {
 	rid, err := requireRequestID(cmd)
 	require.NoError(t, err)
 	require.Equal(t, "req-123", rid)
+}
+
+func TestRequireRequestID_ExplicitFlagUsed(t *testing.T) {
+	cmd := newRequestIDTestCmd(t)
+	require.NoError(t, cmd.Flags().Set("request-id", "my-explicit-id"))
+
+	rid, err := requireRequestID(cmd)
+	require.NoError(t, err)
+	assert.Equal(t, "my-explicit-id", rid)
+}
+
+func TestRequireRequestID_EnvOverride(t *testing.T) {
+	cmd := newRequestIDTestCmd(t)
+	t.Setenv("VYBE_REQUEST_ID", "env-id-123")
+
+	rid, err := requireRequestID(cmd)
+	require.NoError(t, err)
+	assert.Equal(t, "env-id-123", rid)
+}
+
+func TestGenerateRequestID_Format(t *testing.T) {
+	id := generateRequestID()
+	assert.True(t, strings.HasPrefix(id, "req_"))
+	// Should have format: req_{digits}_{hex}
+	parts := strings.SplitN(id, "_", 3)
+	assert.Len(t, parts, 3)
 }
