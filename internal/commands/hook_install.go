@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"bufio"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/dotcommander/vybe/internal/output"
 	"github.com/dotcommander/vybe/internal/store"
-	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
 
@@ -474,24 +472,8 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 					if string(existing) == opencodeBridgePluginSource {
 						status = "skipped"
 					} else {
-						// File differs — confirm with user if interactive, auto-overwrite otherwise
-						if isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd()) {
-							fmt.Fprintf(os.Stderr, "OpenCode bridge plugin at %s differs from embedded version.\n", path)
-							fmt.Fprintf(os.Stderr, "Overwrite with updated version? [Y/n] ")
-							scanner := bufio.NewScanner(os.Stdin)
-							if scanner.Scan() {
-								answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
-								if answer == "n" || answer == "no" {
-									status = "skipped_declined"
-								} else {
-									status = "updated"
-								}
-							} else {
-								status = "updated"
-							}
-						} else {
-							status = "updated"
-						}
+						// File differs — auto-overwrite with updated version
+						status = "updated"
 					}
 				}
 
@@ -531,8 +513,6 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 					parts = append(parts, "OpenCode bridge plugin installed")
 				case "updated":
 					parts = append(parts, "OpenCode bridge plugin updated")
-				case "skipped_declined":
-					parts = append(parts, "OpenCode bridge plugin skipped (user declined overwrite)")
 				default:
 					parts = append(parts, "OpenCode bridge plugin already installed")
 				}
