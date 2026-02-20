@@ -379,8 +379,26 @@ func buildAgentPrompt(r *actions.ResumeResponse) string {
 }
 
 // spawnAgent runs the external command with the prompt and returns the exit code.
+// The prompt is passed via a temp file to avoid macOS's 256KB CLI argument size limit.
 func spawnAgent(command, prompt, project string, timeout time.Duration) int {
-	args := []string{"-p", prompt}
+	tmpFile, err := os.CreateTemp("", "vybe-prompt-*.txt")
+	if err != nil {
+		slog.Default().Error("failed to create temp file for prompt", "error", err)
+		return 1
+	}
+	defer os.Remove(tmpFile.Name()) //nolint:errcheck // best-effort cleanup
+
+	if _, err := tmpFile.WriteString(prompt); err != nil {
+		slog.Default().Error("failed to write prompt to temp file", "error", err)
+		_ = tmpFile.Close()
+		return 1
+	}
+	if err := tmpFile.Close(); err != nil {
+		slog.Default().Error("failed to close temp file", "error", err)
+		return 1
+	}
+
+	args := []string{"-p", "@" + tmpFile.Name()}
 	if project != "" {
 		args = append([]string{"--project", project}, args...)
 	}
