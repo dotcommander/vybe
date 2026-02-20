@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	sqlite "modernc.org/sqlite"
 )
 
 // ErrIdempotencyInProgress is returned when a request is still being processed by another agent.
@@ -54,7 +56,11 @@ func beginIdempotencyTx(tx *sql.Tx, agentName, requestID, command string) (exist
 	if strings.TrimSpace(resultJSON) == "" {
 		// We should never see this if callers keep begin+work+complete in one tx,
 		// but handle it defensively so concurrent workers can back off.
-		return "", false, fmt.Errorf("%w: agent=%q request_id=%q command=%q", ErrIdempotencyInProgress, agentName, requestID, command)
+		return "", false, &IdempotencyInProgressError{
+			AgentName: agentName,
+			RequestID: requestID,
+			Command:   command,
+		}
 	}
 	return resultJSON, true, nil
 }
@@ -82,19 +88,26 @@ func completeIdempotencyTx(tx *sql.Tx, agentName, requestID, resultJSON string) 
 	return nil
 }
 
-// IsUniqueConstraintErr checks for SQLite unique constraint violations.
+// IsUniqueConstraintErr checks for SQLite duplicate-key violations.
 // Exported for use by batch operations in actions layer.
 //
-// Detection relies on modernc.org/sqlite error message format (v1.45+):
-//
-//	"constraint failed: UNIQUE constraint failed: table.col (2067)"
-//
-// If modernc changes its error format in a major version bump, update
-// the string match below.
+// Covers both UNIQUE constraints (2067) and PRIMARY KEY constraints (1555),
+// since both signal the same semantic: a row with that key already exists.
+// Uses typed sqlite.Error code matching first, falling back to string matching
+// for wrapped errors that lose the concrete type.
 func IsUniqueConstraintErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "UNIQUE constraint failed")
+	// Typed detection:
+	//   SQLITE_CONSTRAINT_UNIQUE      = 2067  (19 | (11 << 8))
+	//   SQLITE_CONSTRAINT_PRIMARYKEY  = 1555  (19 | (6 << 8))
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		code := sqliteErr.Code()
+		return code == 2067 || code == 1555
+	}
+	// Fallback for wrapped errors. Baseline: modernc.org/sqlite v1.45+.
+	return strings.Contains(err.Error(), "UNIQUE constraint failed") ||
+		strings.Contains(err.Error(), "PRIMARY KEY constraint failed")
 }

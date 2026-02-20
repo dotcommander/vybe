@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // RetryWithBackoff wraps an operation with exponential backoff retry logic.
@@ -36,24 +38,41 @@ func RetryWithBackoff(operation func() error) error {
 
 // isRetryableError determines if an error should be retried.
 //
-// Error detection relies on modernc.org/sqlite error message strings.
-// If modernc changes its error format in a major version bump, update
-// the string matchers below. Current baseline: modernc.org/sqlite v1.45+.
+// Uses typed sqlite.Error code matching first (belt), then string matching
+// as a fallback for wrapped errors that may lose the concrete type (suspenders).
 func isRetryableError(err error) bool {
 	// Idempotency in-progress rows should be treated as transient contention.
 	if errors.Is(err, ErrIdempotencyInProgress) {
 		return true
 	}
 
-	errStr := err.Error()
+	// Version conflicts are NOT retryable — they signal a real concurrency conflict
+	// that the caller must handle by reloading and retrying the business logic.
+	var vce *VersionConflictError
+	if errors.As(err, &vce) {
+		return false
+	}
 
-	// SQLite busy/locked errors are retryable
+	// Typed sqlite error code matching (preferred — immune to string format changes).
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		// Primary code is lower 8 bits; extended codes carry subtype in upper bits.
+		primaryCode := sqliteErr.Code() & 0xFF
+		switch primaryCode {
+		case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED:
+			return true
+		case sqlite3.SQLITE_CONSTRAINT:
+			return false
+		}
+	}
+
+	// Fallback: string matching for wrapped errors that lose the concrete type.
+	// Baseline: modernc.org/sqlite v1.45+. Update if error format changes.
+	errStr := err.Error()
 	if strings.Contains(errStr, "database is locked") ||
 		strings.Contains(errStr, "SQLITE_BUSY") {
 		return true
 	}
-
-	// Version conflicts and constraint violations are NOT retryable
 	if strings.Contains(errStr, "UNIQUE constraint") ||
 		strings.Contains(errStr, "FOREIGN KEY constraint") ||
 		strings.Contains(errStr, "version conflict") {
