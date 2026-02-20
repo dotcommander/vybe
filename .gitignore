@@ -22,6 +22,11 @@ coverage.txt
 *.db-shm
 *.db-wal
 
+# SQLite in-memory test artifacts (created when :memory: is used as a literal path)
+**/:memory:
+**/:memory:-shm
+**/:memory:-wal
+
 # IDE
 .idea/
 .vscode/
