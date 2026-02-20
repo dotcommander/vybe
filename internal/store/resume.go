@@ -651,8 +651,9 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 		var query string
 		var args []any
 
+		recencyInterval := fmt.Sprintf("-%d days", MemoryRecencyDays)
 		if projectID != "" {
-			query = fmt.Sprintf(`
+			query = `
 				SELECT id, key, canonical_key, value, value_type, scope, scope_id,
 				       confidence, last_seen_at, source_event_id, superseded_by, expires_at, created_at
 				FROM memory
@@ -665,14 +666,14 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 				AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 				AND (
 					confidence >= ?
-					OR COALESCE(last_seen_at, created_at) >= datetime('now', '-%d days')
+					OR COALESCE(last_seen_at, created_at) >= datetime('now', ?)
 				)
 				ORDER BY confidence DESC, COALESCE(last_seen_at, created_at) DESC, created_at DESC
 				LIMIT 50
-			`, MemoryRecencyDays)
-			args = []any{taskID, projectID, MinMemoryConfidence}
+			`
+			args = []any{taskID, projectID, MinMemoryConfidence, recencyInterval}
 		} else {
-			query = fmt.Sprintf(`
+			query = `
 				SELECT id, key, canonical_key, value, value_type, scope, scope_id,
 				       confidence, last_seen_at, source_event_id, superseded_by, expires_at, created_at
 				FROM memory
@@ -685,12 +686,12 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 				AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 				AND (
 					confidence >= ?
-					OR COALESCE(last_seen_at, created_at) >= datetime('now', '-%d days')
+					OR COALESCE(last_seen_at, created_at) >= datetime('now', ?)
 				)
 				ORDER BY confidence DESC, COALESCE(last_seen_at, created_at) DESC, created_at DESC
 				LIMIT 50
-			`, MemoryRecencyDays)
-			args = []any{taskID, MinMemoryConfidence}
+			`
+			args = []any{taskID, MinMemoryConfidence, recencyInterval}
 		}
 
 		rows, err := db.QueryContext(context.Background(), query, args...)
