@@ -127,7 +127,7 @@ func runLoop(opts runOptions) error {
 		completed      int
 		failed         int
 		totalRun       int
-		consecuteFails int
+		consecutiveFails int
 		results        []taskResult
 	)
 
@@ -210,25 +210,25 @@ func runLoop(opts runOptions) error {
 		case exitCode != 0 && duration >= opts.taskTimeout:
 			result.Status = "timeout"
 			markTaskBlocked(opts.agentName, response.FocusTaskID, "timed out")
-			consecuteFails++
+			consecutiveFails++
 			failed++
 		case finalStatus == "completed":
 			result.Status = "completed"
-			consecuteFails = 0
+			consecutiveFails = 0
 			completed++
 		case finalStatus == "in_progress" || finalStatus == "pending":
 			// Agent didn't mark it done — treat as blocked
 			result.Status = "blocked"
 			markTaskBlocked(opts.agentName, response.FocusTaskID, "agent exited without completing")
-			consecuteFails++
+			consecutiveFails++
 			failed++
 		default:
 			result.Status = string(finalStatus)
 			if finalStatus == "blocked" {
-				consecuteFails++
+				consecutiveFails++
 				failed++
 			} else {
-				consecuteFails = 0
+				consecutiveFails = 0
 				completed++
 			}
 		}
@@ -245,8 +245,8 @@ func runLoop(opts runOptions) error {
 		)
 
 		// Circuit breaker
-		if consecuteFails >= opts.maxFails {
-			slog.Default().Warn("circuit breaker tripped", "consecutive_fails", consecuteFails, "max_fails", opts.maxFails)
+		if consecutiveFails >= opts.maxFails {
+			slog.Default().Warn("circuit breaker tripped", "consecutive_fails", consecutiveFails, "max_fails", opts.maxFails)
 			break
 		}
 
