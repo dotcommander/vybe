@@ -1077,21 +1077,26 @@ func spawnRetrospectiveBackground(agentName string) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	exe := vybeExecutable()
-	child := exec.CommandContext(context.Background(), exe, "hook", "retrospective-bg", agentName, tmpFile.Name()) //nolint:gosec // G204: exe is the vybe binary resolved from os.Executable
+	child := exec.CommandContext(ctx, exe, "hook", "retrospective-bg", agentName, tmpFile.Name()) //nolint:gosec // G204: exe is the vybe binary resolved from os.Executable
 	// Detach from parent's I/O so we don't hold the pipe open.
 	child.Stdin = nil
 	child.Stdout = nil
 	child.Stderr = nil
 
 	if err := child.Start(); err != nil {
+		cancel()
 		slog.Default().Error("session-end: spawn retrospective-bg failed", "error", err)
 		_ = os.Remove(tmpFile.Name())
 		return
 	}
 
-	// Release the child — don't wait for it.
-	go func() { _ = child.Wait() }()
+	// Release the child — cancel context after Wait to enforce the 60s timeout.
+	go func() {
+		defer cancel()
+		_ = child.Wait()
+	}()
 
 	slog.Default().Info("session-end: retrospective spawned in background", "pid", child.Process.Pid)
 }
