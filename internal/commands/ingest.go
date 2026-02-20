@@ -107,6 +107,7 @@ func newIngestHistoryCmd() *cobra.Command {
 
 			// Ingest into vybe
 			var imported, skipped int
+			var skipReasons []string
 			if err := withDB(func(db *DB) error {
 				for i := 0; i < len(entries.items); i += batchSize {
 					end := i + batchSize
@@ -136,6 +137,9 @@ func newIngestHistoryCmd() *cobra.Command {
 						})
 						if mErr != nil {
 							skipped++
+							if len(skipReasons) < 5 {
+								skipReasons = append(skipReasons, fmt.Sprintf("marshal: %s", mErr))
+							}
 							continue
 						}
 
@@ -146,6 +150,9 @@ func newIngestHistoryCmd() *cobra.Command {
 						)
 						if err != nil {
 							skipped++
+							if len(skipReasons) < 5 {
+								skipReasons = append(skipReasons, fmt.Sprintf("store: %s", err))
+							}
 							continue
 						}
 						imported++
@@ -157,18 +164,20 @@ func newIngestHistoryCmd() *cobra.Command {
 			}
 
 			type resp struct {
-				Imported int    `json:"imported"`
-				Skipped  int    `json:"skipped"`
-				Total    int    `json:"total"`
-				Source   string `json:"source"`
-				Project  string `json:"project,omitempty"`
+				Imported    int      `json:"imported"`
+				Skipped     int      `json:"skipped"`
+				SkipReasons []string `json:"skip_reasons,omitempty"`
+				Total       int      `json:"total"`
+				Source      string   `json:"source"`
+				Project     string   `json:"project,omitempty"`
 			}
 			return output.PrintSuccess(resp{
-				Imported: imported,
-				Skipped:  skipped,
-				Total:    len(entries.items),
-				Source:   filePath,
-				Project:  project,
+				Imported:    imported,
+				Skipped:     skipped,
+				SkipReasons: skipReasons,
+				Total:       len(entries.items),
+				Source:      filePath,
+				Project:     project,
 			})
 		},
 	}
