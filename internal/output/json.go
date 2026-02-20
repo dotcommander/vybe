@@ -2,16 +2,31 @@ package output
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 )
 
+// recoverableError mirrors models.RecoverableError locally to avoid import
+// cycles between output and store. errors.As requires a concrete or pointer
+// type target — using the interface directly here lets Go's structural typing
+// match any implementor without coupling to the models package.
+type recoverableError interface {
+	error
+	ErrorCode() string
+	Context() map[string]string
+	SuggestedAction() string
+}
+
 // Response represents a standard JSON response
 type Response struct {
-	SchemaVersion string      `json:"schema_version"`
-	Success       bool        `json:"success"`
-	Data          interface{} `json:"data,omitempty"`
-	Error         string      `json:"error,omitempty"`
+	SchemaVersion   string            `json:"schema_version"`
+	Success         bool              `json:"success"`
+	Data            interface{}       `json:"data,omitempty"`
+	Error           string            `json:"error,omitempty"`
+	ErrorCode       string            `json:"error_code,omitempty"`
+	ErrorContext    map[string]string  `json:"error_context,omitempty"`
+	SuggestedAction string            `json:"suggested_action,omitempty"`
 }
 
 // Config holds output configuration
@@ -38,13 +53,20 @@ func Success(data interface{}) Response {
 	}
 }
 
-// Error wraps an error in a response
+// Error wraps an error in a response, enriching with structured metadata if available.
 func Error(err error) Response {
-	return Response{
+	resp := Response{
 		SchemaVersion: "v1",
 		Success:       false,
 		Error:         err.Error(),
 	}
+	var re recoverableError
+	if errors.As(err, &re) {
+		resp.ErrorCode = re.ErrorCode()
+		resp.ErrorContext = re.Context()
+		resp.SuggestedAction = re.SuggestedAction()
+	}
+	return resp
 }
 
 // PrintWith prints a value as JSON to the configured writer
