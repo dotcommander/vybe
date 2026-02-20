@@ -2,10 +2,13 @@ package commands
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 // resolveActorName resolves the agent used for event attribution and agent_state identity.
@@ -44,6 +47,9 @@ func requireActorName(cmd *cobra.Command, perCmdFlag string) (string, error) {
 	agent := resolveActorName(cmd, perCmdFlag)
 	if agent == "" {
 		return "", errors.New("agent is required (set --agent or VYBE_AGENT)")
+	}
+	if len(agent) > store.MaxEventAgentNameLength {
+		return "", fmt.Errorf("agent name exceeds maximum length (%d chars)", store.MaxEventAgentNameLength)
 	}
 	return agent, nil
 }
