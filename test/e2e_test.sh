@@ -1,0 +1,814 @@
+#!/usr/bin/env bash
+# e2e_test.sh — End-to-end tests for the vybe CLI
+# Uses a temporary SQLite DB; cleans up on exit.
+#
+# Usage: bash test/e2e_test.sh
+#   (must be run from the repo root where the vybe binary lives)
+
+set -uo pipefail
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VYBE="${SCRIPT_DIR}/../vybe"
+
+if [[ ! -x "$VYBE" ]]; then
+  echo "ERROR: vybe binary not found at $VYBE — run: go build -o vybe ./cmd/vybe" >&2
+  exit 1
+fi
+
+if ! command -v jq &>/dev/null; then
+  echo "ERROR: jq is required but not installed" >&2
+  exit 1
+fi
+
+DB="/tmp/vybe-e2e-test-$$.db"
+ARTIFACT_FILE="/tmp/vybe-e2e-artifact-$$.txt"
+INT_ART_FILE="/tmp/vybe-e2e-int-artifact-$$.txt"
+export VYBE_AGENT="e2e-test"
+
+cleanup() {
+  local ts
+  ts=$(date +%s)
+  mv "$DB" "/tmp/deleted-e2e-db-${ts}" 2>/dev/null || true
+  mv "${DB}-shm" "/tmp/deleted-e2e-shm-${ts}" 2>/dev/null || true
+  mv "${DB}-wal" "/tmp/deleted-e2e-wal-${ts}" 2>/dev/null || true
+  mv "$ARTIFACT_FILE" "/tmp/deleted-e2e-art-${ts}" 2>/dev/null || true
+  mv "$INT_ART_FILE" "/tmp/deleted-e2e-int-art-${ts}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Initialize DB (run migrations)
+"$VYBE" --db-path "$DB" upgrade 2>/dev/null > /dev/null
+
+PASS=0
+FAIL=0
+FAIL_NAMES=()
+
+# ---------------------------------------------------------------------------
+# Colors
+# ---------------------------------------------------------------------------
+
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+RESET='\033[0m'
+
+section() {
+  echo ""
+  echo -e "${CYAN}=== $1 ===${RESET}"
+}
+
+pass() {
+  echo -e "  ${GREEN}PASS${RESET}  $1"
+  PASS=$((PASS + 1))
+}
+
+fail() {
+  echo -e "  ${RED}FAIL${RESET}  $1"
+  echo -e "         ${YELLOW}$2${RESET}"
+  FAIL=$((FAIL + 1))
+  FAIL_NAMES+=("$1")
+}
+
+# ---------------------------------------------------------------------------
+# Run vybe capturing stdout only (stderr has log lines, not JSON)
+# ---------------------------------------------------------------------------
+vybe() {
+  "$VYBE" --db-path "$DB" "$@" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Assertions
+# ---------------------------------------------------------------------------
+
+# Assert .success == true in JSON envelope
+assert_success() {
+  local test_name="$1"
+  local json="$2"
+  local ok
+  ok=$(echo "$json" | jq -r '.success' 2>/dev/null)
+  if [[ "$ok" == "true" ]]; then
+    pass "$test_name"
+  else
+    local err
+    err=$(echo "$json" | jq -r '.error // empty' 2>/dev/null)
+    fail "$test_name" "success=false error='$err'"
+  fi
+}
+
+# Assert jq expression evaluates to truthy (non-null, non-false, non-empty)
+# Usage: assert_jq "name" "$json" 'jq_expression'
+assert_jq() {
+  local test_name="$1"
+  local json="$2"
+  local expr="$3"
+  local result
+  result=$(echo "$json" | jq -r "$expr" 2>/dev/null)
+  if [[ "$result" == "null" || "$result" == "false" || "$result" == "" ]]; then
+    fail "$test_name" "jq '$expr' => '$result' (expected truthy)"
+  else
+    pass "$test_name"
+  fi
+}
+
+# Assert jq expression with --arg substitution
+# Usage: assert_jq_arg "name" "$json" 'jq_expression' arg_name arg_value
+assert_jq_arg() {
+  local test_name="$1"
+  local json="$2"
+  local expr="$3"
+  local arg_name="$4"
+  local arg_val="$5"
+  local result
+  result=$(echo "$json" | jq -r --arg "$arg_name" "$arg_val" "$expr" 2>/dev/null)
+  if [[ "$result" == "null" || "$result" == "false" || "$result" == "" ]]; then
+    fail "$test_name" "jq --arg $arg_name='$arg_val' '$expr' => '$result' (expected truthy)"
+  else
+    pass "$test_name"
+  fi
+}
+
+# Assert two string values are equal
+assert_eq() {
+  local test_name="$1"
+  local got="$2"
+  local want="$3"
+  if [[ "$got" == "$want" ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "got='$got' want='$want'"
+  fi
+}
+
+# Assert a jq result equals a string
+assert_jq_eq() {
+  local test_name="$1"
+  local json="$2"
+  local expr="$3"
+  local want="$4"
+  local got
+  got=$(echo "$json" | jq -r "$expr" 2>/dev/null)
+  if [[ "$got" == "$want" ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "jq '$expr' => '$got' want '$want'"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Request ID generation — timestamp + RANDOM to avoid collisions.
+# NOTE: rid() is called inside $(...) subshells, so file-based or
+# array-based counters do not work (subshell changes don't persist).
+# Using date nanoseconds + RANDOM gives unique IDs without shared state.
+# ---------------------------------------------------------------------------
+rid() {
+  local prefix="$1"
+  echo "e2e_${prefix}_$(date +%s%N)_${RANDOM}"
+}
+
+# ===========================================================================
+# INDIVIDUAL COMMAND TESTS
+# ===========================================================================
+
+section "schema"
+
+SCHEMA=$(vybe schema)
+assert_success "schema: success" "$SCHEMA"
+assert_jq "schema: data.commands is array" "$SCHEMA" '.data.commands | type == "array"'
+assert_jq "schema: data.commands non-empty" "$SCHEMA" '.data.commands | length > 0'
+
+# ---------------------------------------------------------------------------
+section "status --check"
+
+STATUS=$(vybe status --check)
+assert_success "status: success" "$STATUS"
+assert_jq "status: query_ok is true" "$STATUS" '.data.query_ok == true'
+assert_jq "status: db path set" "$STATUS" '.data.db.path | length > 0'
+
+# ---------------------------------------------------------------------------
+section "project create & list"
+
+PROJ=$(vybe project create --name "test-project" --request-id "$(rid proj_create)")
+assert_success "project create: success" "$PROJ"
+assert_jq "project create: has id" "$PROJ" '.data.project.id | length > 0'
+assert_jq_eq "project create: name matches" "$PROJ" '.data.project.name' "test-project"
+
+PROJECT_ID=$(echo "$PROJ" | jq -r '.data.project.id')
+
+PROJ_LIST=$(vybe project list)
+assert_success "project list: success" "$PROJ_LIST"
+assert_jq "project list: is array" "$PROJ_LIST" '.data.projects | type == "array"'
+assert_jq_arg "project list: contains created project" "$PROJ_LIST" \
+  '.data.projects[] | select(.id == $id) | .name == "test-project"' "id" "$PROJECT_ID"
+
+# ---------------------------------------------------------------------------
+section "task create & list"
+
+TASK=$(vybe task create \
+  --title "Initial Task" \
+  --desc "Task description for e2e" \
+  --project "$PROJECT_ID" \
+  --request-id "$(rid task_create)")
+assert_success "task create: success" "$TASK"
+assert_jq "task create: has id" "$TASK" '.data.task.id | length > 0'
+assert_jq_eq "task create: title matches" "$TASK" '.data.task.title' "Initial Task"
+assert_jq_eq "task create: status is pending" "$TASK" '.data.task.status' "pending"
+assert_jq_arg "task create: project_id matches" "$TASK" \
+  '.data.task.project_id == $pid' "pid" "$PROJECT_ID"
+
+TASK_ID=$(echo "$TASK" | jq -r '.data.task.id')
+
+TASK_LIST=$(vybe task list)
+assert_success "task list: success" "$TASK_LIST"
+assert_jq "task list: tasks is array" "$TASK_LIST" '.data.tasks | type == "array"'
+assert_jq_arg "task list: contains created task" "$TASK_LIST" \
+  '.data.tasks[] | select(.id == $id) | .title == "Initial Task"' "id" "$TASK_ID"
+
+# ---------------------------------------------------------------------------
+section "task get"
+
+TASK_GET=$(vybe task get --id "$TASK_ID")
+assert_success "task get: success" "$TASK_GET"
+# task get returns the task fields directly in .data (not nested under .data.task)
+assert_jq_arg "task get: id matches" "$TASK_GET" '.data.id == $id' "id" "$TASK_ID"
+
+# ---------------------------------------------------------------------------
+section "task begin"
+
+BEGIN=$(vybe task begin --id "$TASK_ID" --agent e2e-test --request-id "$(rid task_begin)")
+assert_success "task begin: success" "$BEGIN"
+assert_jq_eq "task begin: status is in_progress" "$BEGIN" '.data.task.status' "in_progress"
+
+TASK_AFTER_BEGIN=$(vybe task get --id "$TASK_ID")
+assert_jq_eq "task begin: persisted status" "$TASK_AFTER_BEGIN" '.data.status' "in_progress"
+
+# ---------------------------------------------------------------------------
+section "events add & list"
+
+EVT=$(vybe events add \
+  --kind "progress" \
+  --msg "First progress event" \
+  --task "$TASK_ID" \
+  --request-id "$(rid evt_add)")
+assert_success "events add: success" "$EVT"
+assert_jq "events add: has event_id" "$EVT" '.data.event_id > 0'
+assert_jq_eq "events add: kind matches" "$EVT" '.data.kind' "progress"
+
+EVENT_ID=$(echo "$EVT" | jq '.data.event_id')  # integer, not string
+
+EVT_LIST=$(vybe events list --task "$TASK_ID")
+assert_success "events list: success" "$EVT_LIST"
+assert_jq "events list: events is array" "$EVT_LIST" '.data.events | type == "array"'
+# event_id is an integer — use --argjson for comparison, extract result then assert_eq
+EVT_FOUND=$(echo "$EVT_LIST" | jq -r --argjson id "$EVENT_ID" \
+  '.data.events[] | select(.id == $id) | .kind' 2>/dev/null)
+assert_eq "events list: contains created event with correct kind" "$EVT_FOUND" "progress"
+
+# Add a second event with metadata (use distinct rid prefix to avoid command-type collision)
+EVT2=$(vybe events add \
+  --kind "tool_call" \
+  --msg "Called a tool" \
+  --task "$TASK_ID" \
+  --metadata '{"tool":"bash","result":"ok"}' \
+  --request-id "$(rid evt_meta)")
+assert_success "events add with metadata: success" "$EVT2"
+assert_jq "events add with metadata: event_id present" "$EVT2" '.data.event_id > 0'
+
+# ---------------------------------------------------------------------------
+section "memory set, get, list, delete"
+
+MEM=$(vybe memory set \
+  -k "test-key" \
+  -v "hello world" \
+  --scope global \
+  --request-id "$(rid mem_set)")
+assert_success "memory set (global): success" "$MEM"
+assert_jq_eq "memory set (global): key returned" "$MEM" '.data.key' "test-key"
+
+MEM_GET=$(vybe memory get -k "test-key" --scope global)
+assert_success "memory get (global): success" "$MEM_GET"
+assert_jq_eq "memory get (global): value matches" "$MEM_GET" '.data.value' "hello world"
+
+MEM_TASK=$(vybe memory set \
+  -k "task-key" \
+  -v "task-scoped-value" \
+  --scope task \
+  --scope-id "$TASK_ID" \
+  --request-id "$(rid mem_set)")
+assert_success "memory set (task-scoped): success" "$MEM_TASK"
+assert_jq_eq "memory set (task-scoped): key returned" "$MEM_TASK" '.data.key' "task-key"
+
+MEM_TASK_GET=$(vybe memory get -k "task-key" --scope task --scope-id "$TASK_ID")
+assert_success "memory get (task-scoped): success" "$MEM_TASK_GET"
+assert_jq_eq "memory get (task-scoped): value matches" "$MEM_TASK_GET" '.data.value' "task-scoped-value"
+
+MEM_LIST=$(vybe memory list --scope global)
+assert_success "memory list (global): success" "$MEM_LIST"
+assert_jq "memory list (global): memories is array" "$MEM_LIST" '.data.memories | type == "array"'
+assert_jq "memory list (global): contains test-key" "$MEM_LIST" \
+  '.data.memories[] | select(.key == "test-key") | .value == "hello world"'
+
+MEM_DEL=$(vybe memory delete -k "test-key" --scope global --request-id "$(rid mem_del)")
+assert_success "memory delete: success" "$MEM_DEL"
+assert_jq_eq "memory delete: key in response" "$MEM_DEL" '.data.key' "test-key"
+
+MEM_LIST_AFTER=$(vybe memory list --scope global)
+KEY_GONE=$(echo "$MEM_LIST_AFTER" | jq '[.data.memories[] | select(.key == "test-key")] | length == 0')
+assert_eq "memory delete: key removed from list" "$KEY_GONE" "true"
+
+# ---------------------------------------------------------------------------
+section "memory gc"
+
+GC=$(vybe memory gc --request-id "$(rid mem_gc)")
+assert_success "memory gc: success" "$GC"
+
+# ---------------------------------------------------------------------------
+section "memory query"
+
+vybe memory set -k "queryable-key" -v "queryable value" --scope global \
+  --request-id "$(rid mem_set)" > /dev/null
+
+QUERY=$(vybe memory query --pattern "queryable%" --scope global)
+assert_success "memory query: success" "$QUERY"
+assert_jq "memory query: results is array" "$QUERY" '.data.memories | type == "array"'
+assert_jq "memory query: contains matching entry" "$QUERY" \
+  '.data.memories[] | select(.key == "queryable-key") | .key == "queryable-key"'
+
+# ---------------------------------------------------------------------------
+section "memory with TTL"
+
+MEM_TTL=$(vybe memory set \
+  -k "expiring-key" \
+  -v "expires soon" \
+  --scope global \
+  --expires-in "24h" \
+  --request-id "$(rid mem_set)")
+assert_success "memory set with TTL: success" "$MEM_TTL"
+assert_jq_eq "memory set with TTL: key returned" "$MEM_TTL" '.data.key' "expiring-key"
+
+# Verify expires_at by getting it back
+MEM_TTL_GET=$(vybe memory get -k "expiring-key" --scope global)
+assert_success "memory get TTL entry: success" "$MEM_TTL_GET"
+assert_jq "memory get TTL entry: expires_at set" "$MEM_TTL_GET" '.data.expires_at != null'
+
+# ---------------------------------------------------------------------------
+section "artifact add & list"
+
+echo "test artifact content" > "$ARTIFACT_FILE"
+
+ART=$(vybe artifact add \
+  --task "$TASK_ID" \
+  --path "$ARTIFACT_FILE" \
+  --type "text/plain" \
+  --request-id "$(rid art_add)")
+assert_success "artifact add: success" "$ART"
+assert_jq_arg "artifact add: file_path matches" "$ART" \
+  '.data.artifact.file_path == $path' "path" "$ARTIFACT_FILE"
+
+ART_LIST=$(vybe artifact list --task "$TASK_ID")
+assert_success "artifact list: success" "$ART_LIST"
+assert_jq "artifact list: artifacts is array" "$ART_LIST" '.data.artifacts | type == "array"'
+assert_jq_arg "artifact list: contains artifact" "$ART_LIST" \
+  '.data.artifacts[] | select(.file_path == $path) | .file_path == $path' "path" "$ARTIFACT_FILE"
+
+# ---------------------------------------------------------------------------
+section "agent init & status"
+
+AGENT_INIT=$(vybe agent init --agent e2e-test --request-id "$(rid agent_init)")
+assert_success "agent init: success" "$AGENT_INIT"
+assert_jq_eq "agent init: agent_name returned" "$AGENT_INIT" '.data.agent_name' "e2e-test"
+
+AGENT_STATUS=$(vybe agent status --agent e2e-test)
+assert_success "agent status: success" "$AGENT_STATUS"
+assert_jq_eq "agent status: agent_name matches" "$AGENT_STATUS" '.data.agent_name' "e2e-test"
+
+# ---------------------------------------------------------------------------
+section "agent focus"
+
+FOCUS=$(vybe agent focus \
+  --agent e2e-test \
+  --task "$TASK_ID" \
+  --project "$PROJECT_ID" \
+  --request-id "$(rid agent_focus)")
+assert_success "agent focus: success" "$FOCUS"
+assert_jq_arg "agent focus: task_id matches" "$FOCUS" '.data.task_id == $id' "id" "$TASK_ID"
+assert_jq_arg "agent focus: project_id matches" "$FOCUS" '.data.project_id == $id' "id" "$PROJECT_ID"
+
+# ---------------------------------------------------------------------------
+section "brief"
+
+BRIEF=$(vybe brief --agent e2e-test)
+assert_success "brief: success" "$BRIEF"
+assert_jq "brief: has brief field" "$BRIEF" '.data.brief != null'
+assert_jq "brief: brief.task is not null" "$BRIEF" '.data.brief.task != null'
+assert_jq_arg "brief: brief.task.id matches" "$BRIEF" \
+  '.data.brief.task.id == $id' "id" "$TASK_ID"
+assert_jq "brief: has relevant_memory" "$BRIEF" '.data.brief.relevant_memory != null'
+assert_jq "brief: has recent_events" "$BRIEF" '.data.brief.recent_events != null'
+assert_jq "brief: has artifacts" "$BRIEF" '.data.brief.artifacts != null'
+
+# ---------------------------------------------------------------------------
+section "resume"
+
+RESUME=$(vybe resume --agent e2e-test --request-id "$(rid resume)")
+assert_success "resume: success" "$RESUME"
+assert_jq "resume: has brief field" "$RESUME" '.data.brief != null'
+assert_jq "resume: brief.task is not null" "$RESUME" '.data.brief.task != null'
+assert_jq_arg "resume: brief.task.id matches" "$RESUME" \
+  '.data.brief.task.id == $id' "id" "$TASK_ID"
+
+# ---------------------------------------------------------------------------
+section "snapshot"
+
+SNAP=$(vybe snapshot --agent e2e-test --request-id "$(rid snapshot)")
+assert_success "snapshot: success" "$SNAP"
+assert_jq "snapshot: has data" "$SNAP" '.data != null'
+
+# ---------------------------------------------------------------------------
+section "task complete"
+
+COMPLETE=$(vybe task complete \
+  --id "$TASK_ID" \
+  --outcome done \
+  --summary "All done" \
+  --agent e2e-test \
+  --request-id "$(rid task_complete)")
+assert_success "task complete: success" "$COMPLETE"
+assert_jq_eq "task complete: status is completed" "$COMPLETE" '.data.task.status' "completed"
+
+TASK_AFTER_COMPLETE=$(vybe task get --id "$TASK_ID")
+assert_jq_eq "task complete: persisted status" "$TASK_AFTER_COMPLETE" '.data.status' "completed"
+
+# ---------------------------------------------------------------------------
+section "task set-status (blocked)"
+
+BLOCK_TASK=$(vybe task create \
+  --title "Blocked Task" \
+  --desc "This will be blocked" \
+  --request-id "$(rid task_create)")
+BLOCK_TASK_ID=$(echo "$BLOCK_TASK" | jq -r '.data.task.id')
+
+BLOCK=$(vybe task set-status \
+  --id "$BLOCK_TASK_ID" \
+  --status blocked \
+  --request-id "$(rid task_setstatus)")
+assert_success "task set-status (blocked): success" "$BLOCK"
+assert_jq_eq "task set-status (blocked): status is blocked" "$BLOCK" '.data.task.status' "blocked"
+
+# ---------------------------------------------------------------------------
+section "task stats"
+
+STATS=$(vybe task stats)
+assert_success "task stats: success" "$STATS"
+# Stats returns {pending, in_progress, completed, blocked} directly in .data
+assert_jq "task stats: has completed key" "$STATS" '.data | has("completed")'
+assert_jq "task stats: completed >= 1" "$STATS" '.data.completed >= 1'
+
+# ---------------------------------------------------------------------------
+section "task list with status filter"
+
+PENDING_LIST=$(vybe task list --status pending)
+assert_success "task list --status pending: success" "$PENDING_LIST"
+# tasks may be null when no results; coerce to empty array for type check
+assert_jq "task list --status pending: tasks is array or null" "$PENDING_LIST" \
+  '(.data.tasks // []) | type == "array"'
+
+COMPLETED_LIST=$(vybe task list --status completed)
+assert_success "task list --status completed: success" "$COMPLETED_LIST"
+assert_jq "task list --status completed: tasks is array or null" "$COMPLETED_LIST" \
+  '(.data.tasks // []) | type == "array"'
+assert_jq_arg "task list --status completed: contains completed task" "$COMPLETED_LIST" \
+  '(.data.tasks // [])[] | select(.id == $id) | .status == "completed"' "id" "$TASK_ID"
+
+# ---------------------------------------------------------------------------
+section "events list with kind filter"
+
+KIND_LIST=$(vybe events list --kind progress --task "$TASK_ID")
+assert_success "events list --kind: success" "$KIND_LIST"
+assert_jq "events list --kind: events is array" "$KIND_LIST" '.data.events | type == "array"'
+# All returned events must match the filter kind
+ALL_MATCH=$(echo "$KIND_LIST" | jq '[.data.events[] | select(.kind != "progress")] | length == 0')
+assert_eq "events list --kind: all events match kind" "$ALL_MATCH" "true"
+
+# ---------------------------------------------------------------------------
+section "session digest"
+
+SESSION=$(vybe session digest --agent e2e-test)
+assert_success "session digest: success" "$SESSION"
+assert_jq "session digest: has data" "$SESSION" '.data != null'
+
+# ===========================================================================
+# INTEGRATION FLOW
+# ===========================================================================
+
+section "Integration Flow: project -> task -> events -> memory -> artifact -> brief -> resume"
+
+# 1. Create project
+INT_PROJ=$(vybe project create \
+  --name "integration-project" \
+  --metadata '{"env":"e2e"}' \
+  --request-id "$(rid int_proj)")
+assert_success "integration: project create" "$INT_PROJ"
+INT_PROJECT_ID=$(echo "$INT_PROJ" | jq -r '.data.project.id')
+
+# 2. Create task in project
+INT_TASK=$(vybe task create \
+  --title "Integration Task" \
+  --desc "Full integration test task" \
+  --project "$INT_PROJECT_ID" \
+  --request-id "$(rid int_task)")
+assert_success "integration: task create" "$INT_TASK"
+INT_TASK_ID=$(echo "$INT_TASK" | jq -r '.data.task.id')
+assert_jq_arg "integration: task project_id matches" "$INT_TASK" \
+  '.data.task.project_id == $pid' "pid" "$INT_PROJECT_ID"
+
+# 3. Begin the task
+INT_BEGIN=$(vybe task begin \
+  --id "$INT_TASK_ID" \
+  --agent e2e-test \
+  --request-id "$(rid int_begin)")
+assert_success "integration: task begin" "$INT_BEGIN"
+assert_jq_eq "integration: task in_progress after begin" "$INT_BEGIN" '.data.task.status' "in_progress"
+
+# 4. Add events to task
+vybe events add \
+  --kind "task_started" \
+  --msg "Integration task started" \
+  --task "$INT_TASK_ID" \
+  --agent e2e-test \
+  --request-id "$(rid int_evt)" > /dev/null
+vybe events add \
+  --kind "progress" \
+  --msg "Integration step 1 complete" \
+  --task "$INT_TASK_ID" \
+  --agent e2e-test \
+  --request-id "$(rid int_evt)" > /dev/null
+
+INT_EVENTS=$(vybe events list --task "$INT_TASK_ID")
+assert_jq "integration: events recorded (>= 2)" "$INT_EVENTS" '.data.events | length >= 2'
+
+# 5. Set task-scoped memory
+vybe memory set \
+  -k "int-task-context" \
+  -v "integration context value" \
+  --scope task \
+  --scope-id "$INT_TASK_ID" \
+  --request-id "$(rid int_mem)" > /dev/null
+
+# 6. Set global memory
+vybe memory set \
+  -k "int-global-key" \
+  -v "global value for integration" \
+  --scope global \
+  --request-id "$(rid int_mem)" > /dev/null
+
+INT_GMEM=$(vybe memory get -k "int-global-key" --scope global)
+assert_jq_eq "integration: global memory set and retrieved" \
+  "$INT_GMEM" '.data.value' "global value for integration"
+
+# 7. Add artifact to task
+echo "integration artifact" > "$INT_ART_FILE"
+vybe artifact add \
+  --task "$INT_TASK_ID" \
+  --path "$INT_ART_FILE" \
+  --agent e2e-test \
+  --request-id "$(rid int_art)" > /dev/null
+
+# 8. Focus on integration task then get brief
+vybe agent focus \
+  --agent e2e-test \
+  --task "$INT_TASK_ID" \
+  --project "$INT_PROJECT_ID" \
+  --request-id "$(rid int_focus)" > /dev/null
+
+INT_BRIEF=$(vybe brief --agent e2e-test)
+assert_success "integration: brief success" "$INT_BRIEF"
+assert_jq "integration: brief has task" "$INT_BRIEF" '.data.brief.task != null'
+assert_jq_arg "integration: brief task id matches" "$INT_BRIEF" \
+  '.data.brief.task.id == $id' "id" "$INT_TASK_ID"
+assert_jq "integration: brief has relevant_memory" "$INT_BRIEF" '.data.brief.relevant_memory != null'
+assert_jq "integration: brief has recent_events" "$INT_BRIEF" '.data.brief.recent_events != null'
+assert_jq "integration: brief has artifacts" "$INT_BRIEF" '.data.brief.artifacts != null'
+assert_jq "integration: brief artifacts non-empty" "$INT_BRIEF" '.data.brief.artifacts | length > 0'
+
+INT_RESUME=$(vybe resume --agent e2e-test --request-id "$(rid int_resume)")
+assert_success "integration: resume success" "$INT_RESUME"
+assert_jq "integration: resume brief has task" "$INT_RESUME" '.data.brief.task != null'
+
+# 9. Complete the integration task
+INT_DONE=$(vybe task complete \
+  --id "$INT_TASK_ID" \
+  --outcome done \
+  --summary "Integration flow completed" \
+  --agent e2e-test \
+  --request-id "$(rid int_complete)")
+assert_success "integration: task complete" "$INT_DONE"
+assert_jq_eq "integration: task status is completed" "$INT_DONE" '.data.task.status' "completed"
+
+# 10. Create second task; verify resume auto-advances to it
+INT_TASK2=$(vybe task create \
+  --title "Second Integration Task" \
+  --project "$INT_PROJECT_ID" \
+  --request-id "$(rid int_task)")
+assert_success "integration: second task create" "$INT_TASK2"
+INT_TASK2_ID=$(echo "$INT_TASK2" | jq -r '.data.task.id')
+
+INT_RESUME2=$(vybe resume --agent e2e-test --request-id "$(rid int_resume)")
+assert_success "integration: resume after complete" "$INT_RESUME2"
+INT_RESUME2_TASK_ID=$(echo "$INT_RESUME2" | jq -r '.data.brief.task.id // empty')
+assert_eq "integration: resume auto-advances to second task" \
+  "$INT_RESUME2_TASK_ID" "$INT_TASK2_ID"
+
+# ===========================================================================
+# IDEMPOTENCY TESTS
+# ===========================================================================
+
+section "Idempotency: repeat create with same request-id"
+
+IDEM_ID="e2e_idem_fixed_1"
+IDEM1=$(vybe task create \
+  --title "Idempotent Task" \
+  --desc "First call" \
+  --request-id "$IDEM_ID")
+assert_success "idempotency: first create succeeds" "$IDEM1"
+IDEM1_ID=$(echo "$IDEM1" | jq -r '.data.task.id')
+
+IDEM2=$(vybe task create \
+  --title "Idempotent Task Changed" \
+  --desc "Second call same request-id" \
+  --request-id "$IDEM_ID")
+assert_success "idempotency: second create succeeds (replayed)" "$IDEM2"
+IDEM2_ID=$(echo "$IDEM2" | jq -r '.data.task.id')
+
+assert_eq "idempotency: same request-id returns same task id" "$IDEM1_ID" "$IDEM2_ID"
+assert_jq_eq "idempotency: result title is original (not updated)" \
+  "$IDEM2" '.data.task.title' "Idempotent Task"
+
+# ===========================================================================
+# EDGE CASES
+# ===========================================================================
+
+section "Edge Cases"
+
+# Invalid scope — should return success=false
+INVALID_SCOPE_OUT=$(VYBE_AGENT="e2e-test" "$VYBE" --db-path "$DB" memory set \
+  -k "bad-key" -v "bad" --scope invalid_scope --request-id "$(rid edge)" 2>/dev/null)
+INVALID_SCOPE_OK=$(echo "$INVALID_SCOPE_OUT" | jq -r '.success' 2>/dev/null)
+if [[ "$INVALID_SCOPE_OK" == "false" || -z "$INVALID_SCOPE_OK" ]]; then
+  pass "edge: invalid scope returns error"
+else
+  fail "edge: invalid scope returns error" "expected success=false, got success=$INVALID_SCOPE_OK"
+fi
+
+# Missing required --agent — should return success=false
+EMPTY_AGENT_OUT=$(VYBE_AGENT="" "$VYBE" --db-path "$DB" task create \
+  --title "no agent" --request-id "$(rid edge)" 2>/dev/null)
+EMPTY_AGENT_OK=$(echo "$EMPTY_AGENT_OUT" | jq -r '.success' 2>/dev/null)
+if [[ "$EMPTY_AGENT_OK" == "false" || -z "$EMPTY_AGENT_OK" ]]; then
+  pass "edge: missing agent name returns error"
+else
+  fail "edge: missing agent name returns error" "expected success=false, got success=$EMPTY_AGENT_OK"
+fi
+
+# Task with priority
+PRIO_TASK=$(vybe task create \
+  --title "Priority Task" \
+  --priority 10 \
+  --request-id "$(rid edge_prio)")
+assert_success "edge: task with priority: success" "$PRIO_TASK"
+assert_jq "edge: task with priority: priority set to 10" "$PRIO_TASK" '.data.task.priority == 10'
+
+# Task get for non-existent ID — should return success=false
+BAD_GET=$(vybe task get --id "task_nonexistent_0000")
+BAD_GET_OK=$(echo "$BAD_GET" | jq -r '.success')
+if [[ "$BAD_GET_OK" == "false" ]]; then
+  pass "edge: task get non-existent returns error"
+else
+  fail "edge: task get non-existent returns error" "expected success=false, got success=$BAD_GET_OK"
+fi
+
+# Task-scoped memory without scope-id — should return success=false
+NO_SCOPE_ID_OUT=$(VYBE_AGENT="e2e-test" "$VYBE" --db-path "$DB" memory set \
+  -k "bad" -v "bad" --scope task --request-id "$(rid edge)" 2>/dev/null)
+NO_SCOPE_ID_OK=$(echo "$NO_SCOPE_ID_OUT" | jq -r '.success' 2>/dev/null)
+if [[ "$NO_SCOPE_ID_OK" == "false" || -z "$NO_SCOPE_ID_OK" ]]; then
+  pass "edge: task-scoped memory without scope-id returns error"
+else
+  fail "edge: task-scoped memory without scope-id returns error" "expected success=false, got success=$NO_SCOPE_ID_OK"
+fi
+
+# ===========================================================================
+# TASK DEPENDENCY TESTS
+# ===========================================================================
+
+section "Task Dependencies"
+
+DEP_A=$(vybe task create \
+  --title "Dependency A" \
+  --request-id "$(rid dep_a)")
+DEP_A_ID=$(echo "$DEP_A" | jq -r '.data.task.id')
+
+DEP_B=$(vybe task create \
+  --title "Dependency B (depends on A)" \
+  --request-id "$(rid dep_b)")
+DEP_B_ID=$(echo "$DEP_B" | jq -r '.data.task.id')
+
+ADD_DEP=$(vybe task add-dep \
+  --id "$DEP_B_ID" \
+  --depends-on "$DEP_A_ID" \
+  --request-id "$(rid dep_add)")
+assert_success "task add-dep: success" "$ADD_DEP"
+
+DEP_UNLOCKS=$(vybe task unlocks --id "$DEP_A_ID")
+assert_success "task unlocks: success" "$DEP_UNLOCKS"
+assert_jq "task unlocks: tasks is array" "$DEP_UNLOCKS" '.data.tasks | type == "array"'
+assert_jq_arg "task unlocks: B is in unlocks of A" "$DEP_UNLOCKS" \
+  '.data.tasks[] | select(.id == $id) | .id == $id' "id" "$DEP_B_ID"
+
+REMOVE_DEP=$(vybe task remove-dep \
+  --id "$DEP_B_ID" \
+  --depends-on "$DEP_A_ID" \
+  --request-id "$(rid dep_rem)")
+assert_success "task remove-dep: success" "$REMOVE_DEP"
+
+# Verify dep removed: B should no longer be in unlocks of A
+DEP_UNLOCKS_AFTER=$(vybe task unlocks --id "$DEP_A_ID")
+STILL_BLOCKED=$(echo "$DEP_UNLOCKS_AFTER" | jq --arg id "$DEP_B_ID" \
+  '[.data.tasks[] | select(.id == $id)] | length == 0')
+assert_eq "task remove-dep: B no longer in unlocks of A" "$STILL_BLOCKED" "true"
+
+# ===========================================================================
+# EVENTS SUMMARIZE TEST
+# ===========================================================================
+
+section "events summarize"
+
+SUM_TASK=$(vybe task create \
+  --title "Summarize Test Task" \
+  --request-id "$(rid sum_task)")
+SUM_TASK_ID=$(echo "$SUM_TASK" | jq -r '.data.task.id')
+
+for i in 1 2 3; do
+  vybe events add \
+    --kind "progress" \
+    --msg "Step $i done" \
+    --task "$SUM_TASK_ID" \
+    --request-id "$(rid sum_evt)" > /dev/null
+done
+
+SUM_EVENTS=$(vybe events list --task "$SUM_TASK_ID" --asc)
+assert_success "events summarize: list succeeds" "$SUM_EVENTS"
+FIRST_ID=$(echo "$SUM_EVENTS" | jq -r '.data.events[0].id')
+LAST_ID=$(echo "$SUM_EVENTS" | jq -r '.data.events[-1].id')
+
+SUM=$(vybe events summarize \
+  --from-id "$FIRST_ID" \
+  --to-id "$LAST_ID" \
+  --summary "Completed steps 1-3" \
+  --task "$SUM_TASK_ID" \
+  --request-id "$(rid sum)")
+assert_success "events summarize: success" "$SUM"
+
+# ===========================================================================
+# TASK SET-PRIORITY TEST
+# ===========================================================================
+
+section "task set-priority"
+
+PRIO_T=$(vybe task create \
+  --title "Priority Change Task" \
+  --priority 0 \
+  --request-id "$(rid prio_task)")
+PRIO_T_ID=$(echo "$PRIO_T" | jq -r '.data.task.id')
+
+PRIO_SET=$(vybe task set-priority \
+  --id "$PRIO_T_ID" \
+  --priority 5 \
+  --request-id "$(rid prio_set)")
+assert_success "task set-priority: success" "$PRIO_SET"
+assert_jq "task set-priority: priority updated to 5" "$PRIO_SET" '.data.task.priority == 5'
+
+# ===========================================================================
+# FINAL REPORT
+# ===========================================================================
+
+echo ""
+echo "========================================"
+TOTAL=$((PASS + FAIL))
+if [[ "$FAIL" -eq 0 ]]; then
+  echo -e "${GREEN}ALL $TOTAL TESTS PASSED${RESET}"
+else
+  echo -e "${RED}$FAIL/$TOTAL TESTS FAILED${RESET}"
+  echo ""
+  echo "Failed tests:"
+  for name in "${FAIL_NAMES[@]}"; do
+    echo -e "  ${RED}x${RESET} $name"
+  done
+fi
+echo "========================================"
+
+[[ "$FAIL" -eq 0 ]]
