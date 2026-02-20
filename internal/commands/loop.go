@@ -374,7 +374,7 @@ func spawnAgent(command, prompt, project string, timeout time.Duration) int {
 	}
 
 	cmd := exec.CommandContext(context.Background(), command, args...) //nolint:gosec // G204: command is user-configured and intentional for autonomous agent spawning
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
