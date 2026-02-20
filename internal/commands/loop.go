@@ -302,8 +302,20 @@ func runLoop(opts runOptions) error {
 }
 
 // execPostRunHook pipes run results JSON to an external command via stdin.
+//
+// Security model: --post-hook is operator-supplied at agent invocation time, not
+// derived from task content. Results JSON is passed only via stdin (not interpolated
+// into the command string), so task data cannot influence the shell command itself.
+// A 30-second timeout prevents runaway hook processes from blocking the loop.
 func execPostRunHook(command string, resultsJSON []byte) error {
-	cmd := exec.CommandContext(context.Background(), "sh", "-c", command) //nolint:gosec // G204: sh is a known system tool
+	if command == "" {
+		return fmt.Errorf("post-run hook command must not be empty")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", command) //nolint:gosec // G204: operator-supplied hook, not derived from task data
 	cmd.Stdin = bytes.NewReader(resultsJSON)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
