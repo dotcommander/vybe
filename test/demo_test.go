@@ -1371,4 +1371,115 @@ func TestDemoAgentSession(t *testing.T) {
 			require.NotEmpty(t, events, "heartbeat event should be logged by stop hook")
 		})
 	})
+
+	// -------------------------------------------------------------------------
+	// Phase 17: Remaining Command Coverage
+	// -------------------------------------------------------------------------
+	t.Run("Phase17_RemainingCommandCoverage", func(t *testing.T) {
+		// Step 62: artifact get — fetch a single artifact by ID
+		t.Run("step62_artifact_get", func(t *testing.T) {
+			// Artifacts were added to authTaskID in Phase 2 (step 14)
+			artListOut := h.vybe("artifact", "list", "--task", authTaskID)
+			artListM := requireSuccess(t, artListOut)
+			artifacts := artListM["data"].(map[string]any)["artifacts"].([]any)
+			require.NotEmpty(t, artifacts, "artifacts should exist for auth task from Phase 2")
+
+			artifactID := artifacts[0].(map[string]any)["id"].(string)
+			require.NotEmpty(t, artifactID, "artifact should have an ID")
+
+			out := h.vybe("artifact", "get", "--id", artifactID)
+			m := requireSuccess(t, out)
+			gotID := getStr(m, "data", "id")
+			require.Equal(t, artifactID, gotID, "artifact get should return the correct artifact ID")
+			gotTaskID := getStr(m, "data", "task_id")
+			require.Equal(t, authTaskID, gotTaskID, "artifact get should return the correct task_id")
+		})
+
+		// Step 63: hook retrospective — SessionEnd-style stdin, must not error
+		t.Run("step63_hook_retrospective", func(t *testing.T) {
+			// Add a couple of events so the retrospective has material (needs >= 2)
+			h.vybe("events", "add",
+				"--kind", "progress",
+				"--msg", "retrospective event A",
+				"--request-id", rid("p17s63", 1),
+			)
+			h.vybe("events", "add",
+				"--kind", "progress",
+				"--msg", "retrospective event B",
+				"--request-id", rid("p17s63", 2),
+			)
+
+			payload := map[string]any{
+				"hook_event_name": "SessionEnd",
+				"session_id":      sessionID,
+				"cwd":             projectID,
+			}
+			data, _ := json.Marshal(payload)
+			// hook retrospective is best-effort; it may log to stderr and produce no stdout.
+			// We only require it exits without panic — no stdout assertion.
+			h.vybeWithStdin(string(data), "hook", "retrospective")
+		})
+
+		// Step 64: ingest history — import JSONL history fixture
+		t.Run("step64_ingest_history", func(t *testing.T) {
+			// Write a temporary JSONL fixture with 3 Claude Code history entries
+			histFile := filepath.Join(t.TempDir(), "history.jsonl")
+			histContent := strings.Join([]string{
+				`{"type":"human","display":"Fix the auth bug","project":"/tmp/test","sessionId":"sess_ingest_1","timestamp":1700000000000}`,
+				`{"type":"human","display":"Add unit tests","project":"/tmp/test","sessionId":"sess_ingest_1","timestamp":1700000001000}`,
+				`{"type":"human","display":"Deploy to prod","project":"/tmp/test","sessionId":"sess_ingest_2","timestamp":1700000002000}`,
+			}, "\n")
+			require.NoError(t, os.WriteFile(histFile, []byte(histContent), 0600))
+
+			out := h.vybe("ingest", "history",
+				"--file", histFile,
+				"--request-id", rid("p17s64", 1),
+			)
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			imported, ok := data["imported"].(float64)
+			require.True(t, ok, "ingest history response should have imported count")
+			require.GreaterOrEqual(t, int(imported), 1, "at least 1 entry should be imported")
+		})
+
+		// Step 65: loop stats — verify returns JSON without error
+		t.Run("step65_loop_stats", func(t *testing.T) {
+			out := h.vybe("loop", "stats")
+			m := requireSuccess(t, out)
+			data := m["data"].(map[string]any)
+			// Verify expected fields are present (may be zero since no loops have run)
+			_, hasRuns := data["runs"]
+			require.True(t, hasRuns, "loop stats should include a runs field")
+		})
+
+		// Step 66: project delete — create a throwaway project then delete it
+		t.Run("step66_project_delete", func(t *testing.T) {
+			// Create the throwaway project
+			createOut := h.vybe("project", "create",
+				"--name", "Delete Me",
+				"--request-id", rid("p17s66", 1),
+			)
+			createM := requireSuccess(t, createOut)
+			deleteProjectID := getStr(createM, "data", "project", "id")
+			require.NotEmpty(t, deleteProjectID, "throwaway project should have an ID")
+
+			// Delete it
+			deleteOut := h.vybe("project", "delete",
+				"--id", deleteProjectID,
+				"--request-id", rid("p17s66", 2),
+			)
+			deleteM := requireSuccess(t, deleteOut)
+			deletedID := getStr(deleteM, "data", "project_id")
+			require.Equal(t, deleteProjectID, deletedID, "project delete should return the deleted project ID")
+
+			// Verify it no longer appears in the list
+			listOut := h.vybe("project", "list")
+			listM := requireSuccess(t, listOut)
+			projects := listM["data"].(map[string]any)["projects"].([]any)
+			for _, raw := range projects {
+				p := raw.(map[string]any)
+				require.NotEqual(t, deleteProjectID, p["id"].(string), "deleted project should not appear in list")
+			}
+		})
+	})
 }
