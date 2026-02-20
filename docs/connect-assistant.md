@@ -27,7 +27,9 @@ Use this to connect any coding assistant (CLI, IDE, web agent, plugin host) to `
 
 - Success payload comes from `stdout` JSON envelope:
   `{ schema_version, success, data }`.
-- Failure details come from structured JSON logs on `stderr`.
+- Error payload comes from `stdout` JSON envelope:
+  `{ schema_version, success, error }`.
+- Diagnostic logs (slog) go to `stderr`.
 - Do not parse human prose.
 
 ### Project scope
@@ -112,7 +114,7 @@ Examples:
 2. Replaying same write with same `--request-id` does not duplicate events.
 3. Task updates are visible in `vybe task list`.
 4. Memory from one session appears in next resume/brief.
-5. Assistant handles write failures by reading `stderr` JSON and retrying safely.
+5. Assistant handles write failures by reading `stdout` error envelope and retrying safely.
 
 ## Related docs
 
