@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/output"
+	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -76,17 +78,23 @@ func upgradeViaGitPull(srcDir string) error {
 
 	newVersion := getGitVersion(srcDir)
 
+	migrated, migrateErr := migrateAfterUpgrade()
+
 	type result struct {
-		Source    string `json:"source"`
-		OldCommit string `json:"old_commit"`
-		NewCommit string `json:"new_commit"`
-		Updated   bool   `json:"updated"`
+		Source       string `json:"source"`
+		OldCommit    string `json:"old_commit"`
+		NewCommit    string `json:"new_commit"`
+		Updated      bool   `json:"updated"`
+		Migrated     bool   `json:"migrated"`
+		MigrateError string `json:"migrate_error,omitempty"`
 	}
 	return output.PrintSuccess(result{
-		Source:    srcDir,
-		OldCommit: oldVersion,
-		NewCommit: newVersion,
-		Updated:   oldVersion != newVersion,
+		Source:       srcDir,
+		OldCommit:    oldVersion,
+		NewCommit:    newVersion,
+		Updated:      oldVersion != newVersion,
+		Migrated:     migrated,
+		MigrateError: migrateErr,
 	})
 }
 
@@ -98,14 +106,37 @@ func upgradeViaGoInstall() error {
 		return cmdErr(fmt.Errorf("go install failed: %w", err))
 	}
 
+	migrated, migrateErr := migrateAfterUpgrade()
+
 	type result struct {
-		Source string `json:"source"`
-		Method string `json:"method"`
+		Source       string `json:"source"`
+		Method       string `json:"method"`
+		Migrated     bool   `json:"migrated"`
+		MigrateError string `json:"migrate_error,omitempty"`
 	}
 	return output.PrintSuccess(result{
-		Source: "github.com/dotcommander/vybe@latest",
-		Method: "go install",
+		Source:       "github.com/dotcommander/vybe@latest",
+		Method:       "go install",
+		Migrated:     migrated,
+		MigrateError: migrateErr,
 	})
+}
+
+// migrateAfterUpgrade opens the database and runs pending migrations.
+func migrateAfterUpgrade() (bool, string) {
+	dbPath, err := app.GetDBPath()
+	if err != nil {
+		return false, err.Error()
+	}
+	db, err := store.OpenDB(dbPath)
+	if err != nil {
+		return false, err.Error()
+	}
+	defer func() { _ = store.CloseDB(db) }()
+	if err := store.MigrateDB(db, dbPath); err != nil {
+		return false, err.Error()
+	}
+	return true, ""
 }
 
 func getGitVersion(dir string) string {
