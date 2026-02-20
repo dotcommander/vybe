@@ -18,7 +18,6 @@ import (
 var memoryKeyWhitespace = regexp.MustCompile(`\s+`)
 
 const memoryCompactionSummaryKey = "memory_summary"
-const memoryScopeTask = "task"
 
 // compactionCandidate represents a memory row eligible for compaction.
 type compactionCandidate struct {
@@ -129,7 +128,7 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 	}
 
 	taskID := ""
-	if scope == memoryScopeTask {
+	if scope == string(models.MemoryScopeTask) {
 		taskID = scopeID
 	}
 
@@ -774,7 +773,7 @@ func TouchMemoryIdempotent(db *sql.DB, agentName, requestID, key, scope, scopeID
 	}
 
 	taskID := ""
-	if scope == memoryScopeTask {
+	if scope == string(models.MemoryScopeTask) {
 		taskID = scopeID
 	}
 
@@ -1053,14 +1052,10 @@ func validateValueType(valueType string) error {
 
 // validateScope ensures scope and scope_id are valid.
 func validateScope(scope, scopeID string) error {
-	validScopes := map[string]bool{
-		"global":  true,
-		"project": true,
-		"task":    true,
-		"agent":   true,
-	}
-
-	if !validScopes[scope] {
+	switch scope {
+	case "global", "project", "task", "agent":
+		// valid
+	default:
 		return fmt.Errorf("invalid scope: %s (must be one of: global, project, task, agent)", scope)
 	}
 
