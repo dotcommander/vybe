@@ -41,7 +41,7 @@ func setAgentFocusTx(tx *sql.Tx, agentName, taskID string) (focusEventID int64, 
 		return 0, fmt.Errorf("failed to check rows affected: %w", err)
 	}
 	if ra == 0 {
-		return 0, ErrVersionConflict
+		return 0, &VersionConflictError{Entity: "agent_state", ID: agentName, Version: agentVersion}
 	}
 
 	id, err := InsertEventTx(tx, models.EventKindAgentFocus, agentName, taskID, fmt.Sprintf("Focus set: %s", taskID), "")
@@ -109,7 +109,7 @@ func markTaskInProgressTx(tx *sql.Tx, agentName, taskID string) (int64, error) {
 		return 0, fmt.Errorf("failed to check rows affected: %w", err)
 	}
 	if ra == 0 {
-		return 0, ErrVersionConflict
+		return 0, &VersionConflictError{Entity: "task", ID: taskID, Version: version}
 	}
 
 	id, err := InsertEventTx(tx, models.EventKindTaskStatus, agentName, taskID, "Status changed to: in_progress", "")

@@ -53,7 +53,15 @@ func ClaimTaskTx(tx *sql.Tx, agentName, taskID string, ttlMinutes int) error {
 	}
 
 	if rowsAffected == 0 {
-		return ErrClaimContention
+		// Query current owner for enriched error context
+		var currentOwner sql.NullString
+		_ = tx.QueryRowContext(context.Background(),
+			`SELECT claimed_by FROM tasks WHERE id = ?`, taskID).Scan(&currentOwner)
+		return &ClaimContentionError{
+			TaskID:       taskID,
+			CurrentOwner: currentOwner.String,
+			RequestedBy:  agentName,
+		}
 	}
 
 	return nil
@@ -116,7 +124,10 @@ func HeartbeatTaskTx(tx *sql.Tx, agentName, taskID string, ttlMinutes int) error
 		return fmt.Errorf("failed to check rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		return ErrClaimNotOwned
+		return &ClaimNotOwnedError{
+			TaskID:      taskID,
+			RequestedBy: agentName,
+		}
 	}
 
 	return nil

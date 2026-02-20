@@ -99,7 +99,7 @@ func UpdateTaskStatusWithEventTx(tx *sql.Tx, agentName, taskID, status string, v
 		return 0, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		return 0, ErrVersionConflict
+		return 0, &VersionConflictError{Entity: "task", ID: taskID, Version: version}
 	}
 
 	eventID, err := InsertEventTx(tx, models.EventKindTaskStatus, agentName, taskID, fmt.Sprintf("Status changed to: %s", status), "")
@@ -129,7 +129,7 @@ func UpdateTaskStatus(db *sql.DB, taskID, status string, version int) error {
 		}
 
 		if rowsAffected == 0 {
-			return ErrVersionConflict
+			return &VersionConflictError{Entity: "task", ID: taskID, Version: version}
 		}
 
 		return nil
@@ -214,7 +214,7 @@ func UpdateTaskPriorityWithEventTx(tx *sql.Tx, agentName, taskID string, priorit
 		return 0, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		return 0, ErrVersionConflict
+		return 0, &VersionConflictError{Entity: "task", ID: taskID, Version: version}
 	}
 
 	eventID, err := InsertEventTx(tx, models.EventKindTaskPriorityChanged, agentName, taskID, fmt.Sprintf("Priority changed to: %d", priority), "")

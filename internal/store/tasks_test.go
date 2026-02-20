@@ -95,7 +95,7 @@ func TestUpdateTaskStatusVersionConflict(t *testing.T) {
 	// Try to update with old version (should fail)
 	err = UpdateTaskStatus(db, task.ID, "completed", task.Version)
 	assert.Error(t, err)
-	assert.Equal(t, ErrVersionConflict, err)
+	assert.ErrorIs(t, err, ErrVersionConflict)
 }
 
 func TestListTasks(t *testing.T) {
@@ -168,7 +168,7 @@ func TestConcurrentTaskUpdates(t *testing.T) {
 	// Second update with old version fails
 	err = UpdateTaskStatus(db, task.ID, "completed", task.Version)
 	assert.Error(t, err)
-	assert.Equal(t, ErrVersionConflict, err)
+	assert.ErrorIs(t, err, ErrVersionConflict)
 
 	// Verify final state
 	final, err := GetTask(db, task.ID)

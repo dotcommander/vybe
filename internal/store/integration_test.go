@@ -31,8 +31,12 @@ func TestInitDBIntegration(t *testing.T) {
 	if err != nil {
 		// Some environments (including sandboxed runners) may not allow
 		// opening/creating files under the resolved config path.
-		if strings.Contains(err.Error(), "unable to open database file") {
-			t.Skipf("InitDB not supported in this environment (db_path=%s): %v", configPath, err)
+		// Also skip if the database is locked (another process holds it).
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "unable to open database file") ||
+			strings.Contains(errMsg, "SQLITE_BUSY") ||
+			strings.Contains(errMsg, "database is locked") {
+			t.Skipf("InitDB not available in this environment (db_path=%s): %v", configPath, err)
 		}
 		t.Fatalf("InitDB failed (db_path=%s): %v", configPath, err)
 	}
