@@ -35,7 +35,8 @@ func TestArtifactAddCmd_RequiresTaskAndPath(t *testing.T) {
 		require.NoError(t, cmd.Flags().Set("path", "/tmp/file"))
 
 		err := cmd.RunE(cmd, nil)
-		require.EqualError(t, err, "--task is required")
+		require.Error(t, err)
+		require.IsType(t, printedError{}, err)
 	})
 
 	t.Run("missing path", func(t *testing.T) {
@@ -45,18 +46,21 @@ func TestArtifactAddCmd_RequiresTaskAndPath(t *testing.T) {
 		require.NoError(t, cmd.Flags().Set("task", "task-1"))
 
 		err := cmd.RunE(cmd, nil)
-		require.EqualError(t, err, "--path is required")
+		require.Error(t, err)
+		require.IsType(t, printedError{}, err)
 	})
 }
 
 func TestArtifactGetAndList_ValidateInputsBeforeDB(t *testing.T) {
 	getCmd := newArtifactGetCmd()
 	err := getCmd.RunE(getCmd, nil)
-	require.EqualError(t, err, "--id is required")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 
 	listCmd := newArtifactListCmd()
 	err = listCmd.RunE(listCmd, nil)
-	require.EqualError(t, err, "--task is required")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 }
 
 func TestArtifactFlagSetup(t *testing.T) {

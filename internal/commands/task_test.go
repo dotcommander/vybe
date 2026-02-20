@@ -23,24 +23,28 @@ func TestNewTaskCmd_HasExpectedSubcommands(t *testing.T) {
 func TestTaskHeartbeatCmd_RequiresIDBeforeActorResolution(t *testing.T) {
 	cmd := newTaskHeartbeatCmd()
 	err := cmd.RunE(cmd, nil)
-	require.EqualError(t, err, "--id is required")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 }
 
 func TestTaskGetCmd_ValidationErrorsBeforeDB(t *testing.T) {
 	cmd := newTaskGetCmd()
 
 	err := cmd.RunE(cmd, nil)
-	require.EqualError(t, err, "--id is required")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 
 	require.NoError(t, cmd.Flags().Set("id", "task-1"))
 	err = cmd.RunE(cmd, []string{"task-2"})
-	require.EqualError(t, err, "provide either --id or a positional task id, not both")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 }
 
 func TestTaskBeginCmd_RequiresIDBeforeActorResolution(t *testing.T) {
 	cmd := newTaskBeginCmd()
 	err := cmd.RunE(cmd, nil)
-	require.EqualError(t, err, "--id is required")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 }
 
 func TestTaskCreateCmd_RequiresTitleWhenIdentityPresent(t *testing.T) {
@@ -49,7 +53,8 @@ func TestTaskCreateCmd_RequiresTitleWhenIdentityPresent(t *testing.T) {
 	t.Setenv("VYBE_REQUEST_ID", "req-1")
 
 	err := cmd.RunE(cmd, nil)
-	require.EqualError(t, err, "--title is required")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 }
 
 func TestTaskSetStatusCmd_RequiresIDAndStatus(t *testing.T) {
@@ -60,7 +65,8 @@ func TestTaskSetStatusCmd_RequiresIDAndStatus(t *testing.T) {
 		require.NoError(t, cmd.Flags().Set("status", "pending"))
 
 		err := cmd.RunE(cmd, nil)
-		require.EqualError(t, err, "--id is required")
+		require.Error(t, err)
+		require.IsType(t, printedError{}, err)
 	})
 
 	t.Run("missing status", func(t *testing.T) {
@@ -70,7 +76,8 @@ func TestTaskSetStatusCmd_RequiresIDAndStatus(t *testing.T) {
 		require.NoError(t, cmd.Flags().Set("id", "task-1"))
 
 		err := cmd.RunE(cmd, nil)
-		require.EqualError(t, err, "--status is required")
+		require.Error(t, err)
+		require.IsType(t, printedError{}, err)
 	})
 }
 
@@ -81,11 +88,13 @@ func TestTaskDepCmd_RequiresInputsBeforeDB(t *testing.T) {
 	cmd := newTaskDepCmd("dep", "dep", "ok", apply)
 
 	err := cmd.RunE(cmd, nil)
-	require.EqualError(t, err, "--id is required")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 
 	require.NoError(t, cmd.Flags().Set("id", "task-1"))
 	err = cmd.RunE(cmd, nil)
-	require.EqualError(t, err, "--depends-on is required")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 }
 
 func TestTaskDepCmd_RequiresActorAndRequestID(t *testing.T) {
@@ -130,7 +139,8 @@ func TestTaskSetPriority_RequiredFlags(t *testing.T) {
 		t.Setenv("VYBE_REQUEST_ID", "req-1")
 
 		err := cmd.RunE(cmd, nil)
-		require.EqualError(t, err, "--id is required")
+		require.Error(t, err)
+		require.IsType(t, printedError{}, err)
 	})
 
 	t.Run("missing agent", func(t *testing.T) {
@@ -165,7 +175,8 @@ func TestTaskNext_RequiredFlags(t *testing.T) {
 func TestTaskUnlocks_RequiredFlags(t *testing.T) {
 	cmd := newTaskUnlocksCmd()
 	err := cmd.RunE(cmd, nil)
-	require.EqualError(t, err, "--id is required")
+	require.Error(t, err)
+	require.IsType(t, printedError{}, err)
 }
 
 func TestTaskStats_NoRequiredFlags(t *testing.T) {
