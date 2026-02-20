@@ -55,7 +55,7 @@ func GetLastCheckpointEvent(db *sql.DB, agentName, projectID string) (*models.Ev
 		args := []interface{}{models.EventKindCheckpoint, agentName}
 
 		if projectID != "" {
-			where = append(where, ProjectScopeClause)
+			where = append(where, ProjectOrGlobalScopeClause)
 			args = append(args, projectID)
 		}
 

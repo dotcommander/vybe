@@ -73,7 +73,8 @@ type BriefPacket struct {
 }
 
 // FetchEventsSince retrieves events after a cursor position.
-// When projectID is non-empty, events are scoped to that project plus global events.
+// When projectID is non-empty, events are scoped to that project plus global events,
+// so agents resuming into a project context also see global continuity events.
 //
 //nolint:dupl // FetchSessionEvents has a similar structure but different SQL filter and default limit
 func FetchEventsSince(db *sql.DB, cursorID int64, limit int, projectID string) ([]*models.Event, error) {
@@ -91,7 +92,7 @@ func FetchEventsSince(db *sql.DB, cursorID int64, limit int, projectID string) (
 		`
 		args := []any{cursorID}
 		if projectID != "" {
-			query += " AND " + ProjectScopeClause
+			query += " AND " + ProjectOrGlobalScopeClause
 			args = append(args, projectID)
 		}
 		query += " ORDER BY id ASC LIMIT ?"
@@ -411,7 +412,7 @@ func FetchPriorReasoning(db *sql.DB, projectID string, limit int) ([]*models.Eve
 				SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 				FROM events
 				WHERE kind = 'reasoning' AND archived_at IS NULL
-				  AND ` + ProjectScopeClause + `
+				  AND ` + ProjectOrGlobalScopeClause + `
 				ORDER BY id DESC LIMIT ?
 			`
 			args = []any{projectID, limit}

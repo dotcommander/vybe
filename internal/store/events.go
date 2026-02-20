@@ -18,9 +18,15 @@ const (
 	MaxEventMessageLength   = 4096
 	MaxEventMetadataLength  = 16384
 
-	// ProjectScopeClause is the SQL fragment for filtering events to a specific
-	// project plus global (NULL project_id) events. Use with a single ? arg.
-	ProjectScopeClause = "(project_id = ? OR project_id IS NULL)"
+	// ProjectScopeClause filters events to a specific project ONLY (strict).
+	// Use with a single ? arg. Apply for queries/archives where only that project's
+	// events are wanted (listing, archiving, run summaries, session retrospective).
+	ProjectScopeClause = "(project_id = ?)"
+
+	// ProjectOrGlobalScopeClause filters to a specific project plus global (NULL project_id) events.
+	// Use with a single ? arg. Apply for resume/brief building and checkpoint lookup where
+	// agents need global context alongside project-scoped context.
+	ProjectOrGlobalScopeClause = "(project_id = ? OR project_id IS NULL)"
 )
 
 // ValidateEventPayload enforces event payload constraints for durability and safety.
