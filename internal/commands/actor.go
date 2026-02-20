@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -17,18 +18,26 @@ import (
 // Deprecation plan: --actor is kept for backward compatibility through v0.x.
 // It will be removed in v1.0. Callers should migrate to --agent or VYBE_AGENT.
 func resolveActorName(cmd *cobra.Command, perCmdFlag string) string {
+	raw := ""
 	if perCmdFlag != "" {
 		if v, err := cmd.Flags().GetString(perCmdFlag); err == nil && v != "" {
-			return v
+			raw = v
 		}
 	}
-	if v, err := cmd.Flags().GetString("agent"); err == nil && v != "" {
-		return v
+	if raw == "" {
+		if v, err := cmd.Flags().GetString("agent"); err == nil && v != "" {
+			raw = v
+		}
 	}
-	if v, err := cmd.Flags().GetString("actor"); err == nil && v != "" {
-		return v
+	if raw == "" {
+		if v, err := cmd.Flags().GetString("actor"); err == nil && v != "" {
+			raw = v
+		}
 	}
-	return os.Getenv("VYBE_AGENT")
+	if raw == "" {
+		raw = os.Getenv("VYBE_AGENT")
+	}
+	return strings.ToLower(strings.TrimSpace(raw))
 }
 
 func requireActorName(cmd *cobra.Command, perCmdFlag string) (string, error) {
