@@ -45,12 +45,13 @@ func NewStatusCmd() *cobra.Command {
 			}
 
 			type resp struct {
-				DB         dbInfo              `json:"db"`
-				Hooks      hooksInfo           `json:"hooks"`
-				Counts     *store.StatusCounts `json:"counts,omitempty"`
-				QueryOK    *bool               `json:"query_ok,omitempty"`
-				QueryError string              `json:"query_error,omitempty"`
-				Hint       string              `json:"hint,omitempty"`
+				DB          dbInfo              `json:"db"`
+				Hooks       hooksInfo           `json:"hooks"`
+				Counts      *store.StatusCounts  `json:"counts,omitempty"`
+				QueryOK     *bool                `json:"query_ok,omitempty"`
+				QueryError  string               `json:"query_error,omitempty"`
+				Hint        string               `json:"hint,omitempty"`
+				Diagnostics []store.Diagnostic   `json:"diagnostics,omitempty"`
 			}
 
 			result := resp{
@@ -65,7 +66,7 @@ func NewStatusCmd() *cobra.Command {
 			result.Hooks.OpenCode = checkOpenCodeHookDetail()
 
 			// 4. Try to open DB
-			db, err := store.InitDBWithPath(dbPath)
+			db, err := store.OpenDB(dbPath)
 			if err != nil {
 				result.DB.OK = false
 				result.DB.Error = err.Error()
@@ -100,6 +101,11 @@ func NewStatusCmd() *cobra.Command {
 				result.QueryOK = &qOK
 				if !qOK {
 					result.QueryError = qErr.Error()
+				}
+
+				// Run consistency diagnostics
+				if diagnostics, diagErr := store.RunDiagnostics(db); diagErr == nil {
+					result.Diagnostics = diagnostics
 				}
 			}
 
