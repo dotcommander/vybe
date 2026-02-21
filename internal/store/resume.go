@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/dotcommander/vybe/internal/models"
 )
@@ -627,7 +626,7 @@ func estimateApproxTokensFromEventMessages(events []*models.Event) int {
 
 // fetchRelevantMemory retrieves memory relevant to a task and/or project.
 // When projectID is non-empty, only project-scoped memory for that project is included.
-// When projectID is empty, all project-scoped memory is included (legacy behavior).
+// When projectID is empty, all project-scoped memory is included.
 func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory, error) {
 	var memories []*models.Memory
 
@@ -784,35 +783,40 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 		return fmt.Errorf("failed to load agent state: %w", err)
 	}
 
-	setClauses := []string{
-		"last_seen_event_id = MAX(last_seen_event_id, ?)",
-		"last_active_at = CURRENT_TIMESTAMP",
-		"version = version + 1",
-	}
-	args := []any{newCursor}
-
-	// focusTaskID: empty means clear (NULL), non-empty means set
+	taskSetFlag := 0
 	if focusTaskID != "" {
-		setClauses = append(setClauses, "focus_task_id = ?")
-		args = append(args, focusTaskID)
-	} else {
-		setClauses = append(setClauses, "focus_task_id = NULL")
+		taskSetFlag = 1
 	}
 
-	// focusProjectID: nil means preserve, non-nil empty means clear, non-nil non-empty means set
+	// focusProjectID mode:
+	// 0 = preserve current value
+	// 1 = set provided value
+	// 2 = clear to NULL
+	projectMode := 0
+	projectValue := ""
 	if focusProjectID != nil {
-		if *focusProjectID != "" {
-			setClauses = append(setClauses, "focus_project_id = ?")
-			args = append(args, *focusProjectID)
+		if *focusProjectID == "" {
+			projectMode = 2
 		} else {
-			setClauses = append(setClauses, "focus_project_id = NULL")
+			projectMode = 1
+			projectValue = *focusProjectID
 		}
 	}
 
-	query := "UPDATE agent_state SET " + strings.Join(setClauses, ", ") + " WHERE agent_name = ? AND version = ?"
-	args = append(args, agentName, currentVersion)
-
-	result, err := tx.ExecContext(context.Background(), query, args...)
+	result, err := tx.ExecContext(context.Background(), `
+		UPDATE agent_state
+		SET
+			last_seen_event_id = MAX(last_seen_event_id, ?),
+			last_active_at = CURRENT_TIMESTAMP,
+			version = version + 1,
+			focus_task_id = CASE WHEN ? = 1 THEN ? ELSE NULL END,
+			focus_project_id = CASE
+				WHEN ? = 0 THEN focus_project_id
+				WHEN ? = 1 THEN ?
+				ELSE NULL
+			END
+		WHERE agent_name = ? AND version = ?
+	`, newCursor, taskSetFlag, focusTaskID, projectMode, projectMode, projectValue, agentName, currentVersion)
 	if err != nil {
 		return fmt.Errorf("failed to update agent state: %w", err)
 	}

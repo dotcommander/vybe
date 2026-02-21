@@ -2,13 +2,7 @@ package store
 
 import (
 	"strconv"
-
-	"github.com/dotcommander/vybe/internal/models"
 )
-
-// RecoverableError is an alias for models.RecoverableError, retained for
-// backward compatibility with callers that reference store.RecoverableError.
-type RecoverableError = models.RecoverableError
 
 // VersionConflictError replaces ErrVersionConflict with structured context.
 type VersionConflictError struct {

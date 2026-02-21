@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func TestRecoverableError_Is(t *testing.T) {
 func TestRecoverableError_ErrorCode(t *testing.T) {
 	tests := []struct {
 		name     string
-		err      RecoverableError
+		err      models.RecoverableError
 		wantCode string
 	}{
 		{
@@ -79,7 +80,7 @@ func TestRecoverableError_Context(t *testing.T) {
 func TestRecoverableError_SuggestedAction(t *testing.T) {
 	tests := []struct {
 		name string
-		err  RecoverableError
+		err  models.RecoverableError
 	}{
 		{
 			name: "VersionConflictError",
@@ -102,7 +103,7 @@ func TestRecoverableError_SuggestedAction(t *testing.T) {
 func TestRecoverableError_ErrorMessage(t *testing.T) {
 	tests := []struct {
 		name     string
-		err      RecoverableError
+		err      models.RecoverableError
 		sentinel error
 	}{
 		{
