@@ -139,133 +139,189 @@ func buildResumeResponse(agentName string, pkt *resumePacket) *ResumeResponse {
 //   - Number the commands so models can reference them
 //   - Explain $RANDOM simply: "do not replace it, bash fills it in"
 //   - Separate reading (context) from doing (commands) with clear headers
-//
-//nolint:gocognit,gocyclo,funlen,revive // prompt template requires many conditional sections; splitting into helpers degrades locality and readability
 func buildPrompt(agentName string, brief *store.BriefPacket, recentPrompts []*models.Event) string {
 	var b strings.Builder
 
 	// Header: what vybe is
 	b.WriteString("== VYBE (task tracker) ==\n")
-
-	// --- Context section: read this ---
-	if brief != nil && brief.Task != nil {
-		t := brief.Task
-		b.WriteString("\nYour current task:\n")
-		fmt.Fprintf(&b, "  Title: %s\n", t.Title)
-		fmt.Fprintf(&b, "  Status: %s\n", t.Status)
-		fmt.Fprintf(&b, "  ID: %s\n", t.ID)
-		if t.Description != "" {
-			fmt.Fprintf(&b, "  Description: %s\n", t.Description)
-		}
-		// Count actionable tasks (current + pending pipeline)
-		actionable := 1 // the focus task itself
-		if brief.Counts != nil {
-			actionable = brief.Counts.Pending + brief.Counts.InProgress
-		}
-		fmt.Fprintf(&b, "\n%d task(s) awaiting action in this project.\n", actionable)
-	} else {
-		b.WriteString("\nNo task assigned. You can work freely.\n")
-	}
-
-	if brief != nil && len(brief.RelevantMemory) > 0 {
-		b.WriteString("\nSaved notes from previous sessions:\n")
-		limit := min(len(brief.RelevantMemory), promptMemoryLimit)
-		for i := range limit {
-			m := brief.RelevantMemory[i]
-			fmt.Fprintf(&b, "  %s = %s\n", m.Key, m.Value)
-		}
-	}
-
-	if brief != nil && len(brief.RecentEvents) > 0 {
-		b.WriteString("\nRecent activity:\n")
-		limit := min(len(brief.RecentEvents), promptEventLimit)
-		for i := range limit {
-			e := brief.RecentEvents[i]
-			fmt.Fprintf(&b, "  [%s] %s\n", e.Kind, e.Message)
-		}
-	}
-
-	if len(recentPrompts) > 0 {
-		b.WriteString("\nWhat the user was working on recently:\n")
-		for _, e := range recentPrompts {
-			msg := e.Message
-			if len(msg) > 120 {
-				msg = msg[:120] + "..."
-			}
-			fmt.Fprintf(&b, "  - %s\n", msg)
-		}
-	}
-
-	if brief != nil && len(brief.PriorReasoning) > 0 {
-		b.WriteString("\nPrior reasoning from previous sessions:\n")
-		for _, e := range brief.PriorReasoning {
-			intent, approach := extractReasoningFields(e.Metadata)
-			switch {
-			case intent != "" && approach != "":
-				fmt.Fprintf(&b, "  - Intent: %s | Approach: %s\n", intent, approach)
-			case intent != "":
-				fmt.Fprintf(&b, "  - Intent: %s\n", intent)
-			case approach != "":
-				fmt.Fprintf(&b, "  - Approach: %s\n", approach)
-			default:
-				msg := e.Message
-				if len(msg) > 200 {
-					msg = msg[:200] + "..."
-				}
-				fmt.Fprintf(&b, "  - %s\n", msg)
-			}
-		}
-	}
-
-	// --- Discovery section: pipeline awareness ---
-	if brief != nil && brief.Counts != nil {
-		c := brief.Counts
-		total := c.Pending + c.InProgress + c.Completed + c.Blocked
-		if total > 0 {
-			fmt.Fprintf(&b, "\nProgress: %d pending, %d in_progress, %d completed, %d blocked (%d total)\n",
-				c.Pending, c.InProgress, c.Completed, c.Blocked, total)
-		}
-	}
-
-	if brief != nil && len(brief.Pipeline) > 0 {
-		b.WriteString("\nUp next:\n")
-		for _, pt := range brief.Pipeline {
-			fmt.Fprintf(&b, "  - %s (%s)\n", pt.Title, pt.ID)
-		}
-	}
-
-	if brief != nil && len(brief.Unlocks) > 0 {
-		b.WriteString("\nCompleting this task unlocks:\n")
-		for _, pt := range brief.Unlocks {
-			fmt.Fprintf(&b, "  - %s (%s)\n", pt.Title, pt.ID)
-		}
-	}
-
-	// --- Commands section: do this ---
-	if brief != nil && brief.Task != nil {
-		t := brief.Task
-		b.WriteString("\n== COMMANDS (run in Bash) ==\n")
-		b.WriteString("Copy-paste these commands exactly. Only replace UPPER_CASE words.\n\n")
-
-		fmt.Fprintf(&b, "1. DONE — when you finish the task:\n")
-		fmt.Fprintf(&b, "   vybe task set-status --agent=%s --request-id=done_$RANDOM --id=%s --status=completed\n\n", agentName, t.ID)
-
-		fmt.Fprintf(&b, "2. STUCK — if you cannot complete the task:\n")
-		fmt.Fprintf(&b, "   vybe task set-status --agent=%s --request-id=block_$RANDOM --id=%s --status=blocked\n\n", agentName, t.ID)
-
-		fmt.Fprintf(&b, "3. LOG — to record progress (replace YOUR_MESSAGE):\n")
-		fmt.Fprintf(&b, "   vybe push --agent=%s --request-id=log_$RANDOM --json '{\"task_id\":\"%s\",\"event\":{\"kind\":\"progress\",\"message\":\"YOUR_MESSAGE\"}}'\n\n", agentName, t.ID)
-
-		fmt.Fprintf(&b, "4. SAVE — to save a note for future sessions (replace YOUR_KEY and YOUR_VALUE):\n")
-		fmt.Fprintf(&b, "   vybe memory set --agent=%s --request-id=mem_$RANDOM --key=YOUR_KEY --value=\"YOUR_VALUE\" --scope=task --scope-id=%s\n\n", agentName, t.ID)
-
-		fmt.Fprintf(&b, "5. THINK — after interpreting what the user wants, capture your reasoning:\n")
-		fmt.Fprintf(&b, "   vybe push --agent=%s --request-id=reason_$RANDOM --json '{\"task_id\":\"%s\",\"event\":{\"kind\":\"reasoning\",\"message\":\"INTENT_SUMMARY\",\"metadata\":{\"intent\":\"...\",\"approach\":\"...\",\"files\":[]}}}'\n\n", agentName, t.ID)
-
-		b.WriteString("$RANDOM is a bash variable that generates a unique number. Do not replace it.\n")
-	}
+	task := getBriefTask(brief)
+	appendTaskContext(&b, brief, task)
+	appendMemoryContext(&b, brief)
+	appendEventContext(&b, brief)
+	appendRecentPromptsContext(&b, recentPrompts)
+	appendReasoningContext(&b, brief)
+	appendPipelineContext(&b, brief)
+	appendTaskCommands(&b, agentName, task)
 
 	return b.String()
+}
+
+func getBriefTask(brief *store.BriefPacket) *models.Task {
+	if brief == nil {
+		return nil
+	}
+
+	return brief.Task
+}
+
+func appendTaskContext(b *strings.Builder, brief *store.BriefPacket, task *models.Task) {
+	if task == nil {
+		b.WriteString("\nNo task assigned. You can work freely.\n")
+		return
+	}
+
+	b.WriteString("\nYour current task:\n")
+	fmt.Fprintf(b, "  Title: %s\n", task.Title)
+	fmt.Fprintf(b, "  Status: %s\n", task.Status)
+	fmt.Fprintf(b, "  ID: %s\n", task.ID)
+	if task.Description != "" {
+		fmt.Fprintf(b, "  Description: %s\n", task.Description)
+	}
+
+	actionable := 1
+	if brief != nil && brief.Counts != nil {
+		actionable = brief.Counts.Pending + brief.Counts.InProgress
+	}
+	fmt.Fprintf(b, "\n%d task(s) awaiting action in this project.\n", actionable)
+}
+
+func appendMemoryContext(b *strings.Builder, brief *store.BriefPacket) {
+	if brief == nil || len(brief.RelevantMemory) == 0 {
+		return
+	}
+
+	b.WriteString("\nSaved notes from previous sessions:\n")
+	limit := min(len(brief.RelevantMemory), promptMemoryLimit)
+	for i := 0; i < limit; i++ {
+		memory := brief.RelevantMemory[i]
+		fmt.Fprintf(b, "  %s = %s\n", memory.Key, memory.Value)
+	}
+}
+
+func appendEventContext(b *strings.Builder, brief *store.BriefPacket) {
+	if brief == nil || len(brief.RecentEvents) == 0 {
+		return
+	}
+
+	b.WriteString("\nRecent activity:\n")
+	limit := min(len(brief.RecentEvents), promptEventLimit)
+	for i := 0; i < limit; i++ {
+		event := brief.RecentEvents[i]
+		fmt.Fprintf(b, "  [%s] %s\n", event.Kind, event.Message)
+	}
+}
+
+func appendRecentPromptsContext(b *strings.Builder, recentPrompts []*models.Event) {
+	if len(recentPrompts) == 0 {
+		return
+	}
+
+	b.WriteString("\nWhat the user was working on recently:\n")
+	for _, event := range recentPrompts {
+		msg := event.Message
+		if len(msg) > 120 {
+			msg = msg[:120] + "..."
+		}
+		fmt.Fprintf(b, "  - %s\n", msg)
+	}
+}
+
+func appendReasoningContext(b *strings.Builder, brief *store.BriefPacket) {
+	if brief == nil || len(brief.PriorReasoning) == 0 {
+		return
+	}
+
+	b.WriteString("\nPrior reasoning from previous sessions:\n")
+	for _, event := range brief.PriorReasoning {
+		intent, approach := extractReasoningFields(event.Metadata)
+		switch {
+		case intent != "" && approach != "":
+			fmt.Fprintf(b, "  - Intent: %s | Approach: %s\n", intent, approach)
+		case intent != "":
+			fmt.Fprintf(b, "  - Intent: %s\n", intent)
+		case approach != "":
+			fmt.Fprintf(b, "  - Approach: %s\n", approach)
+		default:
+			msg := event.Message
+			if len(msg) > 200 {
+				msg = msg[:200] + "..."
+			}
+			fmt.Fprintf(b, "  - %s\n", msg)
+		}
+	}
+}
+
+func appendPipelineContext(b *strings.Builder, brief *store.BriefPacket) {
+	if brief == nil {
+		return
+	}
+
+	appendProgressCountsContext(b, brief)
+	appendPipelineTasksContext(b, brief.Pipeline)
+	appendUnlocksContext(b, brief.Unlocks)
+}
+
+func appendProgressCountsContext(b *strings.Builder, brief *store.BriefPacket) {
+	if brief.Counts == nil {
+		return
+	}
+
+	counts := brief.Counts
+	total := counts.Pending + counts.InProgress + counts.Completed + counts.Blocked
+	if total == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "\nProgress: %d pending, %d in_progress, %d completed, %d blocked (%d total)\n",
+		counts.Pending, counts.InProgress, counts.Completed, counts.Blocked, total)
+}
+
+func appendPipelineTasksContext(b *strings.Builder, pipeline []store.PipelineTask) {
+	if len(pipeline) == 0 {
+		return
+	}
+
+	b.WriteString("\nUp next:\n")
+	for _, task := range pipeline {
+		fmt.Fprintf(b, "  - %s (%s)\n", task.Title, task.ID)
+	}
+}
+
+func appendUnlocksContext(b *strings.Builder, unlocks []store.PipelineTask) {
+	if len(unlocks) == 0 {
+		return
+	}
+
+	b.WriteString("\nCompleting this task unlocks:\n")
+	for _, task := range unlocks {
+		fmt.Fprintf(b, "  - %s (%s)\n", task.Title, task.ID)
+	}
+}
+
+func appendTaskCommands(b *strings.Builder, agentName string, task *models.Task) {
+	if task == nil {
+		return
+	}
+
+	b.WriteString("\n== COMMANDS (run in Bash) ==\n")
+	b.WriteString("Copy-paste these commands exactly. Only replace UPPER_CASE words.\n\n")
+
+	fmt.Fprintf(b, "1. DONE — when you finish the task:\n")
+	fmt.Fprintf(b, "   vybe task set-status --agent=%s --request-id=done_$RANDOM --id=%s --status=completed\n\n", agentName, task.ID)
+
+	fmt.Fprintf(b, "2. STUCK — if you cannot complete the task:\n")
+	fmt.Fprintf(b, "   vybe task set-status --agent=%s --request-id=block_$RANDOM --id=%s --status=blocked\n\n", agentName, task.ID)
+
+	fmt.Fprintf(b, "3. LOG — to record progress (replace YOUR_MESSAGE):\n")
+	fmt.Fprintf(b, "   vybe push --agent=%s --request-id=log_$RANDOM --json '{\"task_id\":\"%s\",\"event\":{\"kind\":\"progress\",\"message\":\"YOUR_MESSAGE\"}}'\n\n", agentName, task.ID)
+
+	fmt.Fprintf(b, "4. SAVE — to save a note for future sessions (replace YOUR_KEY and YOUR_VALUE):\n")
+	fmt.Fprintf(b, "   vybe memory set --agent=%s --request-id=mem_$RANDOM --key=YOUR_KEY --value=\"YOUR_VALUE\" --scope=task --scope-id=%s\n\n", agentName, task.ID)
+
+	fmt.Fprintf(b, "5. THINK — after interpreting what the user wants, capture your reasoning:\n")
+	fmt.Fprintf(b, "   vybe push --agent=%s --request-id=reason_$RANDOM --json '{\"task_id\":\"%s\",\"event\":{\"kind\":\"reasoning\",\"message\":\"INTENT_SUMMARY\",\"metadata\":{\"intent\":\"...\",\"approach\":\"...\",\"files\":[]}}}'\n\n", agentName, task.ID)
+
+	b.WriteString("$RANDOM is a bash variable that generates a unique number. Do not replace it.\n")
 }
 
 // extractReasoningFields parses intent and approach from reasoning event metadata.

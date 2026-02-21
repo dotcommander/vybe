@@ -9,8 +9,7 @@ import (
 
 // setupTestDBWithCleanup creates a test DB with automatic cleanup.
 // The returned cleanup function is a no-op — cleanup is registered via
-// t.Cleanup internally. Callers may ignore the second return value or
-// call it for backward compatibility; both are safe.
+// t.Cleanup internally. Callers may ignore or call the second return value.
 func setupTestDBWithCleanup(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 
