@@ -12,7 +12,7 @@ func TestNewMemoryCmd_HasExpectedSubcommands(t *testing.T) {
 	require.Equal(t, "memory", cmd.Use)
 	require.Equal(t, "Manage memory key-value storage with scoping", cmd.Short)
 
-	for _, name := range []string{"set", "compact", "gc", "get", "list", "delete"} {
+	for _, name := range []string{"set", "gc", "get", "list", "delete"} {
 		sub, _, err := cmd.Find([]string{name})
 		require.NoError(t, err)
 		require.NotNil(t, sub)
@@ -27,18 +27,6 @@ func TestMemorySetCmd_InvalidExpiresInReturnsPrintedError(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("key", "k"))
 	require.NoError(t, cmd.Flags().Set("value", "v"))
 	require.NoError(t, cmd.Flags().Set("expires-in", "bad-duration"))
-
-	err := cmd.RunE(cmd, nil)
-	require.Error(t, err)
-	require.EqualError(t, err, "error already printed")
-	require.IsType(t, printedError{}, err)
-}
-
-func TestMemoryCompactCmd_InvalidMaxAgeReturnsPrintedError(t *testing.T) {
-	cmd := newMemoryCompactCmd()
-	t.Setenv("VYBE_AGENT", "agent-1")
-	t.Setenv("VYBE_REQUEST_ID", "req-1")
-	require.NoError(t, cmd.Flags().Set("max-age", "???"))
 
 	err := cmd.RunE(cmd, nil)
 	require.Error(t, err)
@@ -79,10 +67,6 @@ func TestMemoryFlagSetup(t *testing.T) {
 	requireFlagExists(t, get, "scope")
 	requireFlagExists(t, get, "scope-id")
 	require.Equal(t, "true", get.Flag("key").Annotations[cobra.BashCompOneRequiredFlag][0])
-
-	compact := newMemoryCompactCmd()
-	requireFlagExists(t, compact, "max-age")
-	requireFlagExists(t, compact, "keep-top")
 
 	gc := newMemoryGCCmd()
 	requireFlagExists(t, gc, "limit")

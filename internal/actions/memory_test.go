@@ -1,11 +1,9 @@
 package actions
 
 import (
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/dotcommander/vybe/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -72,28 +70,27 @@ func TestMemorySetIdempotent_RejectsInvalidValueType(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid value_type")
 }
 
-func TestMemoryGet_IncludeSuperseded(t *testing.T) {
+func TestMemoryGet_NotFound(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	_, err := MemoryGet(db, "nonexistent", "global", "")
+	require.ErrorContains(t, err, "not found")
+}
+
+func TestMemoryGet_Found(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-get-1", "k1", "v1", "", "global", "", nil)
 	require.NoError(t, err)
 
-	// Supersede it
-	_, err = db.Exec(`UPDATE memory SET superseded_by = 'memory_x' WHERE key = 'k1' AND scope = 'global'`)
-	require.NoError(t, err)
-
-	// Not found without include-superseded
-	_, err = MemoryGet(db, "k1", "global", "", false)
-	require.ErrorContains(t, err, "not found")
-
-	// Found with include-superseded
-	mem, err := MemoryGet(db, "k1", "global", "", true)
+	mem, err := MemoryGet(db, "k1", "global", "")
 	require.NoError(t, err)
 	require.Equal(t, "v1", mem.Value)
 }
 
-func TestMemoryList_IncludeSuperseded(t *testing.T) {
+func TestMemoryList_Basic(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -102,42 +99,9 @@ func TestMemoryList_IncludeSuperseded(t *testing.T) {
 	_, err = MemorySetIdempotent(db, "agent-a", "req-mem-list-2", "x2", "v2", "", "global", "", nil)
 	require.NoError(t, err)
 
-	_, err = db.Exec(`UPDATE memory SET superseded_by = 'memory_x' WHERE key = 'x2' AND scope = 'global'`)
-	require.NoError(t, err)
-
-	// Without superseded
-	list, err := MemoryList(db, "global", "", false)
-	require.NoError(t, err)
-	require.Len(t, list, 1)
-
-	// With superseded
-	list, err = MemoryList(db, "global", "", true)
+	list, err := MemoryList(db, "global", "")
 	require.NoError(t, err)
 	require.Len(t, list, 2)
-}
-
-func TestMemoryTouchIdempotent(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-touch-setup-1", "t1", "v", "", "global", "", nil)
-	require.NoError(t, err)
-
-	result, err := MemoryTouchIdempotent(db, "agent-a", "req_touch_act_1", "t1", "global", "", 0.1)
-	require.NoError(t, err)
-	require.Greater(t, result.Confidence, 0.5)
-	require.Greater(t, result.EventID, int64(0))
-}
-
-func TestMemoryTouchIdempotent_RequiresAgent(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, err := MemoryTouchIdempotent(db, "", "req1", "k", "global", "", 0.1)
-	require.ErrorContains(t, err, "agent name is required")
-
-	_, err = MemoryTouchIdempotent(db, "agent", "", "k", "global", "", 0.1)
-	require.ErrorContains(t, err, "request id is required")
 }
 
 func TestMemoryQuery(t *testing.T) {
@@ -156,21 +120,13 @@ func TestMemoryQuery(t *testing.T) {
 	require.Len(t, results, 2)
 }
 
-func TestMemoryCompactAndGCIdempotent(t *testing.T) {
+func TestMemoryGCIdempotent(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	for i := 0; i < 4; i++ {
-		require.NoError(t, store.SetMemory(db, "k"+strconv.Itoa(i), "v", "string", "project", "proj-a", nil))
-	}
-
-	compact, err := MemoryCompactIdempotent(db, "agent1", "req_compact_action", "project", "proj-a", 0, 1)
-	require.NoError(t, err)
-	require.NotNil(t, compact)
-	assert.Equal(t, 3, compact.Compacted)
-
 	expired := time.Now().UTC().Add(-1 * time.Hour)
-	require.NoError(t, store.SetMemory(db, "expired", "v", "string", "global", "", &expired))
+	_, err := MemorySetIdempotent(db, "agent1", "req_expire_setup", "expired", "v", "string", "global", "", &expired)
+	require.NoError(t, err)
 
 	gc, err := MemoryGCIdempotent(db, "agent1", "req_gc_action", 100)
 	require.NoError(t, err)

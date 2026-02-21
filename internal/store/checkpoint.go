@@ -114,7 +114,7 @@ func ComputeCheckpointDiff(db *sql.DB, agentName string, sinceEventID int64, pro
 			}
 		case models.EventKindTaskClosed:
 			diff.TasksCompleted++
-		case models.EventKindMemoryUpserted, models.EventKindMemoryReinforced:
+		case models.EventKindMemoryUpserted:
 			// Parse metadata for key
 			key := extractMemoryKeyFromEvent(e)
 			if key != "" {
