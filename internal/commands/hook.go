@@ -345,7 +345,9 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 					if _, err := store.EnsureProjectByID(db, hctx.CWD, filepath.Base(hctx.CWD)); err != nil {
 						slog.Default().Warn("project ensure failed", "error", err, "cwd", hctx.CWD)
 					} else {
-						_ = store.SetAgentFocusProject(db, hctx.AgentName, hctx.CWD)
+						if _, err := store.SetAgentFocusProjectWithEventIdempotent(db, hctx.AgentName, requestID+"_projfocus", hctx.CWD); err != nil {
+							slog.Default().Warn("project focus failed", "error", err, "cwd", hctx.CWD)
+						}
 					}
 				}
 
