@@ -6,68 +6,24 @@ Use this page for full command parity checks. For workflows, use `setup.md`, `co
 
 ## Top-level commands
 
-- `agent`
-- `artifact`
-- `brief`
-- `events`
 - `help`
 - `hook`
-- `ingest`
 - `loop`
 - `memory`
-- `project`
 - `push`
 - `resume`
-- `schema`
-- `session`
-- `snapshot`
 - `status`
 - `task`
 - `upgrade`
 
 ## Subcommands by command
 
-### `agent`
-
-- `focus`
-- `init`
-- `status`
-
-### `artifact`
-
-- `add`
-- `get`
-- `list`
-
-### `events`
-
-- `add`
-- `list`
-- `summarize`
-- `tail`
-
 ### `hook`
 
 - `install`
-- `checkpoint`
-- `prompt`
-- `retrospective`
-- `retrospective-bg`
-- `session-end`
-- `session-start`
-- `stop`
-- `subagent-start`
-- `subagent-stop`
-- `task-completed`
-- `tool-failure`
-- `tool-success`
 - `uninstall`
 
-Note: most hook subcommands are hidden/internal and used by assistant integrations.
-
-### `ingest`
-
-- `history`
+Note: all other hook subcommands (`checkpoint`, `prompt`, `retrospective`, `retrospective-bg`, `session-end`, `session-start`, `stop`, `subagent-start`, `subagent-stop`, `task-completed`, `tool-failure`, `tool-success`) are hidden/internal and used by assistant integrations only.
 
 ### `loop`
 
@@ -75,21 +31,11 @@ Note: most hook subcommands are hidden/internal and used by assistant integratio
 
 ### `memory`
 
-- `compact`
 - `delete`
 - `gc`
 - `get`
 - `list`
-- `query`
 - `set`
-- `touch`
-
-### `project`
-
-- `create`
-- `delete`
-- `get`
-- `list`
 
 ### `push`
 
@@ -111,39 +57,46 @@ Atomic batch mutation — combines event, memories, artifacts, and task status c
 }
 ```
 
-All fields except constraints are optional. `task_id` is required when `artifacts` or `task_status` are provided.
+All fields are optional except where noted. `task_id` is required when `artifacts` or `task_status` are provided.
 
-### `session`
+### `resume`
 
-- `digest`
+Fetch deltas since last cursor position, build a brief packet, and advance the cursor atomically.
+
+**Flags:**
+- `--peek` — Build brief without advancing the cursor (idempotent read)
+- `--focus <task-id>` — Override focus task for this resume
+- `--project <dir>` — Scope focus selection to a project directory
+- `--limit N` — Limit number of recent events returned in the brief
+
+### `status`
+
+Inspect agent and DB state.
+
+**Flags:**
+- `--check` — Exit non-zero if agent has no focus task (health check mode)
+- `--events` — Include recent events in output
+- `--artifacts --task <task-id>` — List artifacts linked to a task
+- `--schema` — Print the current DB schema
 
 ### `task`
 
 - `add-dep`
 - `begin`
-- `claim`
 - `complete`
 - `create`
 - `delete`
-- `gc`
 - `get`
-- `heartbeat`
 - `list`
-- `next`
 - `remove-dep`
 - `set-priority`
 - `set-status`
-- `stats`
-- `unlocks`
 
 ## Direct commands (no subcommands)
 
-- `brief`
 - `help`
 - `push`
 - `resume`
-- `schema`
-- `snapshot`
 - `status`
 - `upgrade`
 
@@ -155,8 +108,9 @@ Run after changing command wiring:
 go run ./cmd/vybe --help
 go run ./cmd/vybe task --help
 go run ./cmd/vybe memory --help
-go run ./cmd/vybe events --help
 go run ./cmd/vybe loop --help
+go run ./cmd/vybe status --help
+go run ./cmd/vybe resume --help
 ```
 
 Pass condition: every command and subcommand listed above appears in help output.

@@ -182,9 +182,9 @@ Deterministic 5-rule system (in `internal/store/resume.go`):
 When `focus_project_id` is set, project-scoped memory is filtered to that project only.
 When unset, all project-scoped memory is included (legacy behavior).
 
-**Resume vs Brief:**
+**Resume vs Peek:**
 - `vybe resume`: Fetch deltas + build brief + advance cursor atomically
-- `vybe brief`: Build brief without cursor advancement (idempotent reads)
+- `vybe resume --peek`: Build brief without cursor advancement (idempotent read)
 
 ## Database Schema
 
@@ -263,16 +263,7 @@ Claude Code is integrated with vybe via hooks. The system automatically:
 When working on multi-step tasks, proactively use vybe for durable state:
 
 ```bash
-#-Store discoveries that should persist across sessions
-vybe memory set --agent=claude --key=<key> --value=<value> --scope=task --scope-id=<task_id> --request-id=mem_$(date +%s)
-
-#-Log significant progress
-vybe events add --agent=claude --kind=progress --task=<task_id> --msg="<what happened>" --request-id=evt_$(date +%s)
-
-#-Link output files to tasks
-vybe artifact add --agent=claude --task=<id> --path=<path> --request-id=art_$(date +%s)
-
-#-Atomic batch push (preferred for multi-mutation reporting)
+#-Atomic batch push (preferred — combines event, memory, artifacts, status in one call)
 vybe push --agent=claude --request-id=push_$(date +%s) --json '{
   "task_id": "<task_id>",
   "event": {"kind": "progress", "message": "<what happened>"},
@@ -280,6 +271,12 @@ vybe push --agent=claude --request-id=push_$(date +%s) --json '{
   "artifacts": [{"file_path": "<path>"}],
   "task_status": {"status": "completed", "summary": "<summary>"}
 }'
+
+#-Store a single memory when push is overkill
+vybe memory set --agent=claude --key=<key> --value=<value> --scope=task --scope-id=<task_id> --request-id=mem_$(date +%s)
+
+#-Read current state without advancing cursor
+vybe resume --agent=claude --peek
 ```
 
 ### After Plan Approval
@@ -309,6 +306,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`
 - Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
-- Command surface: `agent`, `artifact`, `brief`, `events` (add, list, tail, summarize), `hook`, `ingest`, `loop`, `memory`, `project`, `push`, `resume`, `schema`, `session`, `snapshot`, `status` (--check), `task` (begin, complete, ...), `upgrade`
+- Command surface: `hook` (install, uninstall), `loop` (stats), `memory` (set, get, list, delete, gc), `push`, `resume` (--peek, --focus, --project, --limit), `status` (--check, --events, --artifacts, --schema), `task` (create, begin, complete, get, list, delete, add-dep, remove-dep, set-status, set-priority), `upgrade`
 - Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`
 - **After code changes**: rebuild binary and update symlink: `go build -o vybe ./cmd/vybe && ln -sf "$(pwd)/vybe" ~/go/bin/vybe`

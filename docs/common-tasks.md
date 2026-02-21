@@ -18,8 +18,9 @@ set -euo pipefail
 
 AGENT="${VYBE_AGENT:-worker-001}"
 
-vybe agent init --agent "$AGENT" --request-id "init_${AGENT}_1"
-vybe agent status --agent "$AGENT" | jq -r '.data.last_seen_event_id'
+# Resume initializes agent state on first run; --peek avoids cursor advancement
+vybe resume --agent "$AGENT" --peek | jq -r '.data.focus_task_id // ""'
+vybe status --agent "$AGENT" | jq -r '.data.last_seen_event_id'
 ```
 
 ## 2) Create task and start work
@@ -62,11 +63,12 @@ set -euo pipefail
 AGENT="${VYBE_AGENT:-worker-001}"
 TASK_ID="$1"
 
-vybe events add --agent "$AGENT" --request-id "log_progress_1" \
-  --kind progress --task "$TASK_ID" --msg "Processed 500/1000 items"
-
-vybe task complete --agent "$AGENT" --request-id "task_close_1" \
-  --id "$TASK_ID" --outcome done --summary "Completed"
+# Log progress via push (preferred — single atomic call)
+vybe push --agent "$AGENT" --request-id "log_progress_1" --json "{
+  \"task_id\": \"$TASK_ID\",
+  \"event\": {\"kind\": \"progress\", \"message\": \"Processed 500/1000 items\"},
+  \"task_status\": {\"status\": \"completed\", \"summary\": \"Completed\"}
+}"
 ```
 
 ## 5) Save and read memory
@@ -95,11 +97,13 @@ set -euo pipefail
 AGENT="${VYBE_AGENT:-worker-001}"
 TASK_ID="$1"
 
-vybe artifact add --agent "$AGENT" --request-id "artifact_add_1" \
-  --task "$TASK_ID" --path /tmp/output.json --type application/json
+vybe push --agent "$AGENT" --request-id "artifact_add_1" --json "{
+  \"task_id\": \"$TASK_ID\",
+  \"artifacts\": [{\"file_path\": \"/tmp/output.json\"}]
+}"
 ```
 
-## 7) Claim next task (queue workers)
+## 7) Pick and complete the next task
 
 ```bash
 #!/usr/bin/env bash
@@ -107,12 +111,16 @@ set -euo pipefail
 
 AGENT="${VYBE_AGENT:-worker-001}"
 
-CLAIM=$(vybe task claim --agent "$AGENT" --request-id "claim_1" --ttl-minutes 10)
-TASK_ID=$(echo "$CLAIM" | jq -r '.data.task.id // ""')
+# resume selects the next pending task deterministically
+TASK_ID=$(vybe resume --agent "$AGENT" --request-id "resume_work_1" | jq -r '.data.focus_task_id // ""')
 
 if [ -n "$TASK_ID" ]; then
-  vybe task complete --agent "$AGENT" --request-id "close_1" \
-    --id "$TASK_ID" --outcome done --summary "Processed successfully"
+  vybe task begin --agent "$AGENT" --request-id "begin_1" --id "$TASK_ID"
+  # ... do work ...
+  vybe push --agent "$AGENT" --request-id "close_1" --json "{
+    \"task_id\": \"$TASK_ID\",
+    \"task_status\": {\"status\": \"completed\", \"summary\": \"Processed successfully\"}
+  }"
 fi
 ```
 
