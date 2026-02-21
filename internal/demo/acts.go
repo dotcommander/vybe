@@ -36,9 +36,8 @@ func BuildActs() []Act {
 			Number: 1,
 			Name:   "Building The World",
 			Narration: []string{
-				"Setting up the world an agent operates in.",
-				"DB init, project scoping, task graph with dependencies, memory at multiple scopes.",
-				"Vybe is the durable backbone — everything an agent knows or intends lives here.",
+				"Set up durable agent context: database, project scope, task graph, and scoped memory.",
+				"Everything the agent knows or intends is persisted before work begins.",
 			},
 			Steps: []Step{
 				{Name: "upgrade_database", Fn: stepUpgradeDatabase, Insight: "Your agent's first command in any environment. Creates all tables — ready to remember everything."},
@@ -53,9 +52,8 @@ func BuildActs() []Act {
 			Number: 2,
 			Name:   "The Agent Works",
 			Narration: []string{
-				"Simulating what happens when Claude Code starts a new session.",
-				"Hooks fire automatically: session-start loads context, tool calls are logged,",
-				"the agent claims work, logs discoveries, links artifacts, and marks tasks complete.",
+				"Run the active work loop for a session: hooks, task begin, progress events, memory, artifacts, and completion.",
+				"This mirrors real Claude/OpenCode execution with machine-readable telemetry.",
 			},
 			Steps: []Step{
 				{Name: "session_start_hook", Fn: stepSessionStartHook, Insight: "Claude Code hook: SessionStart. Fires automatically when a session opens — your agent gets context injected before it even asks."},
@@ -75,8 +73,8 @@ func BuildActs() []Act {
 			Number: 3,
 			Name:   "The Agent Sleeps",
 			Narration: []string{
-				"Graceful shutdown. Agents crash; vybe persists.",
-				"PreCompact compresses the memory space. SessionEnd closes out the session.",
+				"Close the session safely with checkpoint and retrospective extraction.",
+				"State remains durable in SQLite, so crashes do not lose context.",
 			},
 			Steps: []Step{
 				{Name: "memory_checkpoint", Fn: stepMemoryCheckpoint, Insight: "Claude Code hook: PreCompact. Before context compression, vybe prunes stale memory entries."},
@@ -87,9 +85,8 @@ func BuildActs() []Act {
 			Number: 4,
 			Name:   "The Agent Returns",
 			Narration: []string{
-				"A new session starts. The previous agent crashed (or the session ended).",
-				"Can the new agent pick up exactly where the old one left off?",
-				"THIS is the wow moment. This is why vybe exists.",
+				"Start a fresh session and restore continuity from persisted state.",
+				"Focus, memory, and artifacts survive boundaries so a new agent resumes immediately.",
 			},
 			Steps: []Step{
 				{Name: "new_session_start", Fn: stepNewSessionStart, Insight: "New session, fresh context window, zero memory of Act II. Watch vybe restore everything."},
@@ -102,9 +99,8 @@ func BuildActs() []Act {
 			Number: 5,
 			Name:   "The Queue Moves",
 			Narration: []string{
-				"Dependency-driven task flow. Removing blockers, observing focus auto-advance,",
-				"completing the remaining work, and confirming the queue is empty.",
-				"This closes the loop: every task created in Act I is now done.",
+				"Unblock dependencies, let resume pick the next work, and finish remaining tasks.",
+				"The queue drains deterministically to task=null when work is complete.",
 			},
 			Steps: []Step{
 				{Name: "remove_dependency", Fn: stepRemoveDependency, Insight: "Dependency removed, task unblocked. Your agent's queue adapts in real-time."},
@@ -117,8 +113,8 @@ func BuildActs() []Act {
 			Number: 6,
 			Name:   "Auditing The Record",
 			Narration: []string{
-				"Auditing the event stream. Everything vybe recorded is queryable.",
-				"Events, memories (all scopes), artifacts, and system health.",
+				"Audit what happened using event, memory, artifact, and health queries.",
+				"Every continuity primitive is machine-queryable for verification and debugging.",
 			},
 			Steps: []Step{
 				{Name: "query_event_stream", Fn: stepQueryEventStream, Insight: "The complete activity log — every tool call, every progress note, every prompt. Fully queryable by kind."},
@@ -131,9 +127,8 @@ func BuildActs() []Act {
 			Number: 7,
 			Name:   "Crash-Safe Retries",
 			Narration: []string{
-				"Agents crash. Networks fail. Commands get retried.",
-				"Every mutation accepts a --request-id. Replaying the same request-id",
-				"returns the original result — no duplicates, no side effects.",
+				"Retry the same mutation with the same request ID to prove idempotency.",
+				"Replays return original results without duplicates or side effects.",
 			},
 			Steps: []Step{
 				{Name: "replay_task_create", Fn: stepReplayTaskCreate, Insight: "Same request-id, same result. Your agent can retry any command without creating duplicates."},
@@ -144,8 +139,8 @@ func BuildActs() []Act {
 			Number: 8,
 			Name:   "Production Hardening",
 			Narration: []string{
-				"Edge cases that matter in real deployments:",
-				"TTL-based memory expiry, structured event metadata.",
+				"Exercise production safety edges: TTL expiry, garbage collection, and structured metadata.",
+				"These controls keep memory fresh and event logs analyzable at scale.",
 			},
 			Steps: []Step{
 				{Name: "ttl_expiry_and_gc", Fn: stepTTLExpiryAndGC, Insight: "Short-lived memory auto-expires. Your agent stores temporary context that cleans itself up."},
@@ -156,8 +151,8 @@ func BuildActs() []Act {
 			Number: 9,
 			Name:   "Task Intelligence",
 			Narration: []string{
-				"Agents query the task graph to understand what's available and what's completed.",
-				"get and list — ways to read the task state without modifying anything.",
+				"Read task state without mutation using task lookups.",
+				"Agents verify title, status, and dependencies before acting.",
 			},
 			Steps: []Step{
 				{Name: "fetch_single_task", Fn: stepFetchSingleTask, Insight: "Fetch any task by ID — status, title, project, dependencies. Full detail in one call."},
@@ -167,8 +162,8 @@ func BuildActs() []Act {
 			Number: 10,
 			Name:   "Multi-Agent Coordination",
 			Narration: []string{
-				"Atomic task claiming prevents two agents from working on the same task simultaneously.",
-				"`task begin` uses compare-and-swap on the version column — only one agent wins the race.",
+				"Coordinate concurrent workers with atomic task acquisition.",
+				"task begin uses CAS semantics so one worker wins each claim race.",
 			},
 			Steps: []Step{
 				{Name: "atomic_claim", Fn: stepAtomicClaim, Insight: "Status change uses compare-and-swap on the version column. Two agents racing — only one succeeds."},
@@ -178,8 +173,8 @@ func BuildActs() []Act {
 			Number: 11,
 			Name:   "Task Lifecycle",
 			Narration: []string{
-				"Agents mutate task state throughout the work lifecycle.",
-				"Priority boosts urgent work. Delete cleans up obsolete tasks. Status transitions track progress.",
+				"Mutate lifecycle state with priority, status updates, and deletion.",
+				"Agents adapt queue shape quickly as requirements change.",
 			},
 			Steps: []Step{
 				{Name: "priority_boost", Fn: stepPriorityBoost, Insight: "Priority 10 jumps ahead of priority 0. Your agent can escalate urgent work instantly."},
@@ -191,8 +186,8 @@ func BuildActs() []Act {
 			Number: 12,
 			Name:   "Knowledge Management",
 			Narration: []string{
-				"Memory is a first-class system in vybe. Agents read, write, and manage knowledge across sessions.",
-				"Explicit delete keeps knowledge current.",
+				"Maintain long-lived knowledge with explicit memory deletion.",
+				"Removing stale facts improves downstream agent decisions.",
 			},
 			Steps: []Step{
 				{Name: "explicit_deletion", Fn: stepExplicitDeletion, Insight: "Explicit delete for facts that are no longer true. Clean knowledge means better agent decisions."},
@@ -202,11 +197,11 @@ func BuildActs() []Act {
 			Number: 13,
 			Name:   "Agent Identity",
 			Narration: []string{
-				"Each agent has its own cursor and state record in vybe.",
-				"status: read cursor position and current focus. resume --focus: explicitly override focus task.",
+				"Track per-agent cursor and focus in durable agent state.",
+				"Supervising agents can inspect and override focus when orchestration requires it.",
 			},
 			Steps: []Step{
-				{Name: "read_agent_state", Fn: stepReadAgentState, Insight: "Status with --agent shows cursor position and current focus. Operators can see exactly where each agent is."},
+				{Name: "read_agent_state", Fn: stepReadAgentState, Insight: "Status with --agent shows cursor position and current focus. Supervising agents can see exactly where each worker is."},
 				{Name: "override_focus", Fn: stepOverrideFocus, Insight: "Manual focus override via resume --focus. Your agent can skip the queue and work on a specific task when needed."},
 			},
 		},
@@ -214,11 +209,11 @@ func BuildActs() []Act {
 			Number: 14,
 			Name:   "The Event Stream",
 			Narration: []string{
-				"The event log is the source of truth. As it grows, agents need to manage it.",
-				"push: batch-write events atomically. status --events: query the full log.",
+				"Use append-only events as the execution ledger.",
+				"push appends atomically and events list provides fast recent snapshots.",
 			},
 			Steps: []Step{
-				{Name: "compress_history", Fn: stepCompressHistory, Insight: "Push adds events atomically. Status --events queries the log. Together they manage the event history."},
+				{Name: "compress_history", Fn: stepCompressHistory, Insight: "Push adds events atomically. events list queries the log. Together they manage the event history."},
 				{Name: "recent_activity", Fn: stepRecentActivity, Insight: "Quick poll of recent events. Your agent checks what happened since it last looked."},
 			},
 		},
@@ -226,8 +221,8 @@ func BuildActs() []Act {
 			Number: 15,
 			Name:   "System Introspection",
 			Narration: []string{
-				"Schema introspection via status --schema.",
-				"Gives operators and agents a view of all available command arguments.",
+				"Inspect command schemas for autonomous planning.",
+				"Weak models can discover flags, required arguments, and mutation hints safely.",
 			},
 			Steps: []Step{
 				{Name: "inspect_schema", Fn: stepInspectSchema, Insight: "Full command argument schema returned. Agents and operators can inspect the exact CLI surface."},
@@ -237,8 +232,8 @@ func BuildActs() []Act {
 			Number: 16,
 			Name:   "IDE Integration",
 			Narration: []string{
-				"Vybe hooks into the Claude Code IDE lifecycle via hidden subcommands.",
-				"subagent-start/stop: track spawned agents. stop: log turn heartbeats.",
+				"Capture IDE lifecycle signals through hook commands.",
+				"Spawn and completion events plus heartbeats keep the stream aligned with conversation flow.",
 			},
 			Steps: []Step{
 				{Name: "track_subagent_spawn", Fn: stepTrackSubagentSpawn, Insight: "Claude Code hook: SubagentStart. When your agent spawns a sub-agent, vybe logs it for the parent to track."},
@@ -250,12 +245,11 @@ func BuildActs() []Act {
 			Number: 17,
 			Name:   "The Full Surface",
 			Narration: []string{
-				"The remaining commands that round out the vybe surface area.",
-				"Artifact retrieval, retrospective extraction, loop stats,",
-				"read-only briefs, hook management.",
+				"Cover the remaining surface: artifacts, retrospectives, loop controls, and hook lifecycle.",
+				"Background retrospective workers keep heavy extraction asynchronous.",
 			},
 			Steps: []Step{
-				{Name: "artifact_get_by_id", Fn: stepArtifactGetByID, Insight: "List artifacts and inspect their metadata — file path, type, linked task. All via status --artifacts."},
+				{Name: "artifact_get_by_id", Fn: stepArtifactGetByID, Insight: "List artifacts and inspect their metadata — file path, type, linked task. All via artifacts list."},
 				{Name: "retrospective_extraction", Fn: stepRetrospectiveExtraction, Insight: "Retrospectives distill session activity into persistent memory. Your agent learns from its own history."},
 				{Name: "loop_iteration_stats", Fn: stepLoopIterationStats, Insight: "Loop stats track autonomous iteration cadence. Your agent monitors its own loop health."},
 				{Name: "read_only_brief", Fn: stepReadOnlyBrief, Insight: "Resume --peek: brief without cursor advancement. Your agent peeks at context without consuming events."},

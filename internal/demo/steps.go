@@ -182,7 +182,7 @@ func stepPromptLogging(r *Runner, ctx *DemoContext) error {
 	stdin := hookStdin("UserPromptSubmit", ctx.SessionID, ctx.ProjectID, "", "Implement the auth system", "")
 	_, _, _ = r.vybeWithStdin(stdin, "hook", "prompt")
 
-	m, raw, err := r.vybe("status", "--events", "--kind", "user_prompt", "--limit", "5", "--all")
+	m, raw, err := r.vybe("events", "list", "--kind", "user_prompt", "--limit", "5", "--all")
 	if err != nil {
 		return err
 	}
@@ -221,7 +221,7 @@ func stepToolSuccessTracking(r *Runner, ctx *DemoContext) error {
 		map[string]any{"command": "go build ./..."})
 	_, _, _ = r.vybeWithStdin(stdin, "hook", "tool-success")
 
-	m, raw, err := r.vybe("status", "--events", "--kind", "tool_success", "--limit", "5", "--all")
+	m, raw, err := r.vybe("events", "list", "--kind", "tool_success", "--limit", "5", "--all")
 	if err != nil {
 		return err
 	}
@@ -241,7 +241,7 @@ func stepToolFailureTracking(r *Runner, ctx *DemoContext) error {
 		map[string]any{"command": "go test ./..."})
 	_, _, _ = r.vybeWithStdin(stdin, "hook", "tool-failure")
 
-	m, raw, err := r.vybe("status", "--events", "--kind", "tool_failure", "--limit", "5", "--all")
+	m, raw, err := r.vybe("events", "list", "--kind", "tool_failure", "--limit", "5", "--all")
 	if err != nil {
 		return err
 	}
@@ -274,7 +274,7 @@ func stepLogProgressEvents(r *Runner, ctx *DemoContext) error {
 		r.printDetail("Progress: %q", msg)
 	}
 
-	m, raw, err := r.vybe("status", "--events", "--task", ctx.AuthTaskID, "--kind", "progress", "--all")
+	m, raw, err := r.vybe("events", "list", "--task-id", ctx.AuthTaskID, "--kind", "progress", "--all")
 	if err != nil {
 		return err
 	}
@@ -418,8 +418,8 @@ func stepNewSessionStart(r *Runner, ctx *DemoContext) error {
 }
 
 func stepCrossSessionContinuity(r *Runner, ctx *DemoContext) error {
-	// Check artifacts via status --artifacts --task
-	am, araw, err := r.vybe("status", "--artifacts", "--task", ctx.AuthTaskID)
+	// Check artifacts via artifacts list --task-id
+	am, araw, err := r.vybe("artifacts", "list", "--task-id", ctx.AuthTaskID)
 	if err != nil {
 		return err
 	}
@@ -642,7 +642,7 @@ func stepEmptyQueue(r *Runner, ctx *DemoContext) error {
 // Act VI: Auditing The Record
 
 func stepQueryEventStream(r *Runner, ctx *DemoContext) error {
-	m, raw, err := r.vybe("status", "--events", "--all", "--limit", "100")
+	m, raw, err := r.vybe("events", "list", "--all", "--limit", "100")
 	if err != nil {
 		return err
 	}
@@ -719,7 +719,7 @@ func stepQueryAllMemoryScopes(r *Runner, ctx *DemoContext) error {
 }
 
 func stepQueryArtifacts(r *Runner, ctx *DemoContext) error {
-	m, raw, err := r.vybe("status", "--artifacts", "--task", ctx.AuthTaskID)
+	m, raw, err := r.vybe("artifacts", "list", "--task-id", ctx.AuthTaskID)
 	if err != nil {
 		return err
 	}
@@ -913,7 +913,7 @@ func stepStructuredMetadata(r *Runner, ctx *DemoContext) error {
 	}
 	r.printDetail("Event logged: id=%v kind=tool_call", eventID)
 
-	lm, lraw, err := r.vybe("status", "--events", "--kind", "tool_call", "--limit", "10", "--all")
+	lm, lraw, err := r.vybe("events", "list", "--kind", "tool_call", "--limit", "10", "--all")
 	if err != nil {
 		return err
 	}
@@ -1228,7 +1228,7 @@ func stepOverrideFocus(r *Runner, ctx *DemoContext) error {
 
 func stepCompressHistory(r *Runner, ctx *DemoContext) error {
 	// List events to confirm we have a history
-	lm, lraw, err := r.vybe("status", "--events", "--all", "--limit", "10", "--asc")
+	lm, lraw, err := r.vybe("events", "list", "--all", "--limit", "10", "--asc")
 	if err != nil {
 		return err
 	}
@@ -1251,7 +1251,7 @@ func stepCompressHistory(r *Runner, ctx *DemoContext) error {
 	}
 
 	// Verify events exist for auth task
-	rm, rraw, err := r.vybe("status", "--events", "--task", ctx.AuthTaskID, "--all", "--limit", "100")
+	rm, rraw, err := r.vybe("events", "list", "--task-id", ctx.AuthTaskID, "--all", "--limit", "100")
 	if err != nil {
 		return err
 	}
@@ -1267,7 +1267,7 @@ func stepCompressHistory(r *Runner, ctx *DemoContext) error {
 }
 
 func stepRecentActivity(r *Runner, ctx *DemoContext) error {
-	m, raw, err := r.vybe("status", "--events", "--all", "--limit", "5")
+	m, raw, err := r.vybe("events", "list", "--all", "--limit", "5")
 	if err != nil {
 		return err
 	}
@@ -1276,7 +1276,7 @@ func stepRecentActivity(r *Runner, ctx *DemoContext) error {
 	}
 	events, ok := m["data"].(map[string]any)["events"].([]any)
 	if !ok || len(events) == 0 {
-		return fmt.Errorf("status --events should return recent events: %s", raw)
+		return fmt.Errorf("events list should return recent events: %s", raw)
 	}
 	r.printDetail("Recent events: %d returned (limit=5)", len(events))
 	return nil
@@ -1285,7 +1285,7 @@ func stepRecentActivity(r *Runner, ctx *DemoContext) error {
 // Act XV: System Introspection
 
 func stepInspectSchema(r *Runner, ctx *DemoContext) error {
-	m, raw, err := r.vybe("status", "--schema")
+	m, raw, err := r.vybe("schema", "commands")
 	if err != nil {
 		return err
 	}
@@ -1293,7 +1293,7 @@ func stepInspectSchema(r *Runner, ctx *DemoContext) error {
 		return err
 	}
 	if m["data"] == nil {
-		return fmt.Errorf("status --schema should return data: %s", raw)
+		return fmt.Errorf("schema commands should return data: %s", raw)
 	}
 	r.printDetail("Schema fetched")
 	return nil
@@ -1312,7 +1312,7 @@ func stepTrackSubagentSpawn(r *Runner, ctx *DemoContext) error {
 	data, _ := json.Marshal(payload)
 	_, _, _ = r.vybeWithStdin(string(data), "hook", "subagent-start")
 
-	m, raw, err := r.vybe("status", "--events", "--kind", "agent_spawned", "--limit", "5", "--all")
+	m, raw, err := r.vybe("events", "list", "--kind", "agent_spawned", "--limit", "5", "--all")
 	if err != nil {
 		return err
 	}
@@ -1338,7 +1338,7 @@ func stepTrackSubagentCompletion(r *Runner, ctx *DemoContext) error {
 	data, _ := json.Marshal(payload)
 	_, _, _ = r.vybeWithStdin(string(data), "hook", "subagent-stop")
 
-	m, raw, err := r.vybe("status", "--events", "--kind", "agent_completed", "--limit", "5", "--all")
+	m, raw, err := r.vybe("events", "list", "--kind", "agent_completed", "--limit", "5", "--all")
 	if err != nil {
 		return err
 	}
@@ -1363,7 +1363,7 @@ func stepTurnBoundaryHeartbeat(r *Runner, ctx *DemoContext) error {
 	data, _ := json.Marshal(payload)
 	_, _, _ = r.vybeWithStdin(string(data), "hook", "stop")
 
-	m, raw, err := r.vybe("status", "--events", "--kind", "heartbeat", "--limit", "5", "--all")
+	m, raw, err := r.vybe("events", "list", "--kind", "heartbeat", "--limit", "5", "--all")
 	if err != nil {
 		return err
 	}
@@ -1381,8 +1381,8 @@ func stepTurnBoundaryHeartbeat(r *Runner, ctx *DemoContext) error {
 // Act XVII: The Full Surface
 
 func stepArtifactGetByID(r *Runner, ctx *DemoContext) error {
-	// List artifacts via status --artifacts --task
-	lm, lraw, err := r.vybe("status", "--artifacts", "--task", ctx.AuthTaskID)
+	// List artifacts via artifacts list --task-id
+	lm, lraw, err := r.vybe("artifacts", "list", "--task-id", ctx.AuthTaskID)
 	if err != nil {
 		return err
 	}
