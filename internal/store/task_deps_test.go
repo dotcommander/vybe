@@ -465,21 +465,25 @@ func TestGetTaskDependencies_ClosesRows(t *testing.T) {
 	}
 }
 
-func TestStartTaskAndFocus_ClaimContention(t *testing.T) {
+func TestStartTaskAndFocus_MultipleAgents(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	task, err := CreateTask(db, "Contended task", "", "", 0)
+	task, err := CreateTask(db, "Shared task", "", "", 0)
 	require.NoError(t, err)
 
-	// Agent-1 starts and claims the task
+	// Agent-1 starts the task.
 	_, _, err = StartTaskAndFocus(db, "agent-1", task.ID)
 	require.NoError(t, err)
 
-	// Agent-2 should fail to start the same task (claim held by agent-1)
+	// Agent-2 can also start the same task (no exclusive claim).
 	_, _, err = StartTaskAndFocus(db, "agent-2", task.ID)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "claim")
+	require.NoError(t, err)
+
+	// Task should still be in_progress.
+	updated, err := GetTask(db, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.TaskStatusInProgress, updated.Status)
 }
 
 func TestAddTaskDependencyTx_CASCheck(t *testing.T) {
@@ -651,4 +655,3 @@ func TestBlockedReason_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, fetched.BlockedReason)
 }
-

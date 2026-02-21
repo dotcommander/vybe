@@ -9,9 +9,9 @@ import (
 )
 
 func TestClaimNextTaskTx_PriorityOrdering(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	var err error
 
 	// Create tasks with different priorities.
 	low, err := CreateTask(db, "low-priority", "", "", 1)
@@ -21,7 +21,7 @@ func TestClaimNextTaskTx_PriorityOrdering(t *testing.T) {
 
 	var result *ClaimNextTaskResult
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		r, err := ClaimNextTaskTx(tx, "agent1", "", 5)
+		r, err := ClaimNextTaskTx(tx, "agent1", "")
 		if err != nil {
 			return err
 		}
@@ -32,28 +32,27 @@ func TestClaimNextTaskTx_PriorityOrdering(t *testing.T) {
 	require.Equal(t, high.ID, result.TaskID)
 	assert.NotZero(t, result.StatusEventID)
 	assert.NotZero(t, result.FocusEventID)
-	assert.NotZero(t, result.ClaimEventID)
 
 	_ = low // used for setup
 }
 
-func TestClaimNextTaskTx_SkipsClaimed(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+func TestClaimNextTaskTx_SkipsInProgress(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	var err error
 
 	first, err := CreateTask(db, "first", "", "", 0)
 	require.NoError(t, err)
 	second, err := CreateTask(db, "second", "", "", 0)
 	require.NoError(t, err)
 
-	// Claim the first task.
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", first.ID, 5) }))
+	// Set the first task to in_progress directly.
+	require.NoError(t, UpdateTaskStatus(db, first.ID, "in_progress", 1))
 
-	// Next claim should skip the claimed task.
+	// Next claim should skip the in_progress task and pick second.
 	var result *ClaimNextTaskResult
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		r, err := ClaimNextTaskTx(tx, "agent2", "", 5)
+		r, err := ClaimNextTaskTx(tx, "agent2", "")
 		if err != nil {
 			return err
 		}
@@ -65,9 +64,9 @@ func TestClaimNextTaskTx_SkipsClaimed(t *testing.T) {
 }
 
 func TestClaimNextTaskTx_SkipsTasksWithUnresolvedDeps(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	var err error
 
 	blocker, err := CreateTask(db, "blocker", "", "", 0)
 	require.NoError(t, err)
@@ -76,16 +75,9 @@ func TestClaimNextTaskTx_SkipsTasksWithUnresolvedDeps(t *testing.T) {
 
 	require.NoError(t, AddTaskDependency(db, blocked.ID, blocker.ID))
 
-	// Claim blocker first (it's eligible, created first with same priority as any other).
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent0", blocker.ID, 5) }))
-
-	// Create a free task that should be claimable.
-	free, err := CreateTask(db, "free", "", "", 0)
-	require.NoError(t, err)
-
 	var result *ClaimNextTaskResult
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		r, err := ClaimNextTaskTx(tx, "agent1", "", 5)
+		r, err := ClaimNextTaskTx(tx, "agent1", "")
 		if err != nil {
 			return err
 		}
@@ -93,18 +85,20 @@ func TestClaimNextTaskTx_SkipsTasksWithUnresolvedDeps(t *testing.T) {
 		return nil
 	}))
 
-	// blocked task is skipped (dependency), blocker is skipped (claimed), free is selected.
-	require.Equal(t, free.ID, result.TaskID)
+	// blocker is eligible (oldest pending with no deps at priority 0)
+	// blocked is skipped (dependency on blocker)
+	// Result should be blocker (oldest pending task without unresolved deps)
+	require.NotEmpty(t, result.TaskID)
+	require.NotEqual(t, blocked.ID, result.TaskID)
 }
 
 func TestClaimNextTaskTx_EmptyQueue(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
 
 	var result *ClaimNextTaskResult
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		r, err := ClaimNextTaskTx(tx, "agent1", "", 5)
+		r, err := ClaimNextTaskTx(tx, "agent1", "")
 		if err != nil {
 			return err
 		}
@@ -115,13 +109,12 @@ func TestClaimNextTaskTx_EmptyQueue(t *testing.T) {
 	assert.Empty(t, result.TaskID)
 	assert.Zero(t, result.StatusEventID)
 	assert.Zero(t, result.FocusEventID)
-	assert.Zero(t, result.ClaimEventID)
 }
 
 func TestClaimNextTaskTx_ProjectScoping(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	var err error
 
 	// Insert a project first.
 	_, err = db.Exec(`INSERT INTO projects (id, name, created_at) VALUES ('proj1', 'Test', CURRENT_TIMESTAMP)`)
@@ -134,7 +127,7 @@ func TestClaimNextTaskTx_ProjectScoping(t *testing.T) {
 
 	var result *ClaimNextTaskResult
 	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		r, err := ClaimNextTaskTx(tx, "agent1", "proj1", 5)
+		r, err := ClaimNextTaskTx(tx, "agent1", "proj1")
 		if err != nil {
 			return err
 		}
@@ -143,31 +136,4 @@ func TestClaimNextTaskTx_ProjectScoping(t *testing.T) {
 	}))
 
 	require.Equal(t, scoped.ID, result.TaskID)
-}
-
-func TestClaimNextTaskTx_ExpiredClaimReclaim(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	task, err := CreateTask(db, "reclaimable", "", "", 0)
-	require.NoError(t, err)
-
-	// Claim then expire.
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 5) }))
-	_, err = db.Exec(`UPDATE tasks SET claim_expires_at = datetime('now', '-1 minute') WHERE id = ?`, task.ID)
-	require.NoError(t, err)
-
-	// Another agent should be able to claim via ClaimNextTaskTx.
-	var result *ClaimNextTaskResult
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		r, err := ClaimNextTaskTx(tx, "agent2", "", 5)
-		if err != nil {
-			return err
-		}
-		result = r
-		return nil
-	}))
-
-	require.Equal(t, task.ID, result.TaskID)
 }

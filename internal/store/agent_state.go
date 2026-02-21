@@ -88,6 +88,20 @@ func LoadAgentCursorAndFocusTx(tx *sql.Tx, agentName string) (AgentCursorFocus, 
 	return out, nil
 }
 
+// LoadOrCreateAgentCursorAndFocusTx ensures an agent_state row exists and returns
+// the current cursor + focus pointers.
+func LoadOrCreateAgentCursorAndFocusTx(tx *sql.Tx, agentName string) (AgentCursorFocus, error) {
+	if agentName == "" {
+		return AgentCursorFocus{}, errors.New("agent name is required")
+	}
+
+	if err := ensureAgentStateTx(tx, agentName); err != nil {
+		return AgentCursorFocus{}, err
+	}
+
+	return LoadAgentCursorAndFocusTx(tx, agentName)
+}
+
 func runFocusEventIdempotent(db *sql.DB, agentName, requestID, command string, setFocus func(tx *sql.Tx) (int64, error)) (int64, error) {
 	if agentName == "" {
 		return 0, errors.New("agent name is required")

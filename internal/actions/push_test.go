@@ -43,8 +43,8 @@ func TestPushIdempotent_MemoryOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Len(t, result.Memories, 1)
-	assert.NotEmpty(t, result.Memories[0].CanonicalKey)
-	assert.GreaterOrEqual(t, result.Memories[0].Confidence, float64(0))
+	assert.NotEmpty(t, result.Memories[0].Key)
+	assert.Greater(t, result.Memories[0].EventID, int64(0))
 }
 
 func TestPushIdempotent_ArtifactsOnly(t *testing.T) {
@@ -121,7 +121,7 @@ func TestPushIdempotent_AllFour(t *testing.T) {
 
 	assert.Greater(t, result.EventID, int64(0))
 	require.Len(t, result.Memories, 1)
-	assert.NotEmpty(t, result.Memories[0].CanonicalKey)
+	assert.NotEmpty(t, result.Memories[0].Key)
 	require.Len(t, result.Artifacts, 1)
 	assert.Equal(t, "/tmp/all.txt", result.Artifacts[0].FilePath)
 	require.NotNil(t, result.TaskStatus)

@@ -14,14 +14,11 @@ import (
 func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 
-	db, err := store.InitDBWithPath(":memory:")
+	dir := t.TempDir()
+	db, err := store.InitDBWithPath(dir + "/test.db")
 	require.NoError(t, err)
 
-	cleanup := func() {
-		_ = db.Close()
-	}
-
-	return db, cleanup
+	return db, func() { _ = db.Close() }
 }
 
 func TestTaskCreate(t *testing.T) {

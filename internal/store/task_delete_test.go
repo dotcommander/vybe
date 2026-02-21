@@ -133,53 +133,6 @@ func TestDeleteTask_PartialUnblock(t *testing.T) {
 	assert.Equal(t, models.TaskStatusBlocked, dep.Status)
 }
 
-func TestDeleteTask_RefusesInProgressClaimedByOther(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	task, err := CreateTask(db, "Active task", "", "", 0)
-	require.NoError(t, err)
-
-	// agent1 claims and starts the task
-	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 60) })
-	require.NoError(t, err)
-	err = UpdateTaskStatus(db, task.ID, "in_progress", 1)
-	require.NoError(t, err)
-
-	// agent2 tries to delete — should fail
-	err = Transact(db, func(tx *sql.Tx) error {
-		return DeleteTaskTx(tx, "agent2", task.ID)
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "in_progress")
-	assert.Contains(t, err.Error(), "claimed by agent1")
-
-	// agent1 can still delete their own in_progress task
-	err = Transact(db, func(tx *sql.Tx) error {
-		return DeleteTaskTx(tx, "agent1", task.ID)
-	})
-	require.NoError(t, err)
-}
-
-func TestDeleteTask_RefusesClaimedByOther(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	task, err := CreateTask(db, "Claimed task", "", "", 0)
-	require.NoError(t, err)
-
-	// agent1 claims with long TTL
-	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 60) })
-	require.NoError(t, err)
-
-	// agent2 tries to delete — should fail (active claim)
-	err = Transact(db, func(tx *sql.Tx) error {
-		return DeleteTaskTx(tx, "agent2", task.ID)
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "claimed by agent1")
-}
-
 func TestDeleteTask_DoesNotUnblockFailureBlocked(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
@@ -210,27 +163,3 @@ func TestDeleteTask_DoesNotUnblockFailureBlocked(t *testing.T) {
 	assert.Equal(t, newBlockedReasonFailure("timeout"), dep.BlockedReason)
 }
 
-func TestDeleteTask_AllowsExpiredClaim(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	task, err := CreateTask(db, "Stale claim", "", "", 0)
-	require.NoError(t, err)
-
-	// agent1 claims with short TTL
-	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent1", task.ID, 1) })
-	require.NoError(t, err)
-
-	// Expire the claim manually
-	_, err = db.Exec(`UPDATE tasks SET claim_expires_at = datetime('now', '-1 minute') WHERE id = ?`, task.ID)
-	require.NoError(t, err)
-
-	// agent2 can delete — claim is expired
-	err = Transact(db, func(tx *sql.Tx) error {
-		return DeleteTaskTx(tx, "agent2", task.ID)
-	})
-	require.NoError(t, err)
-
-	_, err = GetTask(db, task.ID)
-	assert.Error(t, err)
-}

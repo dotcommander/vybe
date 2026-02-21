@@ -5,18 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 )
 
-// Memory quality thresholds used by fetchRelevantMemory to filter noise.
-// MinMemoryConfidence: entries below this confidence AND older than MemoryRecencyDays are excluded.
-// MemoryRecencyDays: entries younger than this are included regardless of confidence.
 const (
-	MinMemoryConfidence = 0.3
-	MemoryRecencyDays   = 14
-
 	// statusInProgress is the task status constant used in focus selection rules.
 	statusInProgress = "in_progress"
 	// statusBlocked is the task status constant used in focus selection rules.
@@ -162,11 +155,6 @@ func pickAssignedTask(db *sql.DB, taskID, agentName, projectID string) string {
 	}); depErr != nil || hasUnresolved {
 		return ""
 	}
-	if task.ClaimedBy != "" && task.ClaimedBy != agentName {
-		if task.ClaimExpiresAt != nil && task.ClaimExpiresAt.After(time.Now()) {
-			return "" // Claimed by another agent and not expired
-		}
-	}
 	if projectID != "" && task.ProjectID != projectID {
 		return ""
 	}
@@ -202,7 +190,7 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 		}
 	}
 
-	// Rule 4: Select highest priority pending task that is available for claiming.
+	// Rule 4: Select highest priority pending task.
 	// Within same priority, select oldest (by created_at).
 	// When projectID is set, only select tasks in that project.
 	// Exclude tasks with unresolved dependencies.
@@ -212,14 +200,13 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 			err := db.QueryRowContext(context.Background(), `
 				SELECT id FROM tasks
 				WHERE status = 'pending' AND project_id = ?
-				  AND (claimed_by IS NULL OR claimed_by = ? OR claim_expires_at < CURRENT_TIMESTAMP)
 				  AND NOT EXISTS (
 					SELECT 1 FROM task_dependencies td
 					JOIN tasks dep ON dep.id = td.depends_on_task_id
 					WHERE td.task_id = tasks.id AND dep.status != 'completed'
 				  )
 				ORDER BY priority DESC, created_at ASC LIMIT 1
-			`, projectID, agentName).Scan(&taskID)
+			`, projectID).Scan(&taskID)
 			if err == sql.ErrNoRows {
 				taskID = ""
 				return nil
@@ -230,14 +217,13 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 		err := db.QueryRowContext(context.Background(), `
 			SELECT id FROM tasks
 			WHERE status = 'pending'
-			  AND (claimed_by IS NULL OR claimed_by = ? OR claim_expires_at < CURRENT_TIMESTAMP)
 			  AND NOT EXISTS (
 				SELECT 1 FROM task_dependencies td
 				JOIN tasks dep ON dep.id = td.depends_on_task_id
 				WHERE td.task_id = tasks.id AND dep.status != 'completed'
 			  )
 			ORDER BY priority DESC, created_at ASC LIMIT 1
-		`, agentName).Scan(&taskID)
+		`).Scan(&taskID)
 		if err == sql.ErrNoRows {
 			taskID = ""
 			return nil
@@ -463,7 +449,7 @@ func FetchSessionEvents(db *sql.DB, sinceID int64, projectID string, limit int) 
 		`
 		args := []any{sinceID}
 		if projectID != "" {
-			query += " AND " + ProjectScopeClause
+			query += " AND (project_id = ? OR project_id = '' OR project_id IS NULL)"
 			args = append(args, projectID)
 		}
 		query += " ORDER BY id ASC LIMIT ?"
@@ -472,6 +458,50 @@ func FetchSessionEvents(db *sql.DB, sinceID int64, projectID string, limit int) 
 		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to fetch session events: %w", err)
+		}
+		defer func() { _ = rows.Close() }()
+
+		events, err = scanEventRows(rows)
+		return err
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return events, nil
+}
+
+// FetchSessionEventsWindow retrieves actionable session events within an explicit
+// (sinceID, untilID] id window, in chronological order.
+func FetchSessionEventsWindow(db *sql.DB, sinceID, untilID int64, projectID string, limit int) ([]*models.Event, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if untilID <= sinceID {
+		return []*models.Event{}, nil
+	}
+
+	var events []*models.Event
+
+	err := RetryWithBackoff(func() error {
+		query := `
+			SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
+			FROM events
+			WHERE id > ? AND id <= ? AND archived_at IS NULL
+			  AND kind IN ('user_prompt', 'reasoning', 'tool_failure', 'task_status', 'progress')
+		`
+		args := []any{sinceID, untilID}
+		if projectID != "" {
+			query += " AND " + ProjectScopeClause
+			args = append(args, projectID)
+		}
+		query += " ORDER BY id ASC LIMIT ?"
+		args = append(args, limit)
+
+		rows, err := db.QueryContext(context.Background(), query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to fetch session events window: %w", err)
 		}
 		defer func() { _ = rows.Close() }()
 
@@ -531,7 +561,7 @@ func GetTaskStatusCounts(db *sql.DB, projectID string) (*TaskStatusCounts, error
 }
 
 // FetchPipelineTasks returns the next pending tasks in queue order, excluding the
-// current focus task, tasks claimed by other agents, and tasks with unresolved deps.
+// current focus task and tasks with unresolved deps.
 func FetchPipelineTasks(db *sql.DB, excludeTaskID, agentName, projectID string, limit int) ([]PipelineTask, error) {
 	if limit <= 0 {
 		limit = 5
@@ -544,14 +574,13 @@ func FetchPipelineTasks(db *sql.DB, excludeTaskID, agentName, projectID string, 
 			SELECT id, title, priority FROM tasks
 			WHERE status = 'pending'
 			  AND id != ?
-			  AND (claimed_by IS NULL OR claimed_by = ? OR claim_expires_at < CURRENT_TIMESTAMP)
 			  AND NOT EXISTS (
 				SELECT 1 FROM task_dependencies td
 				JOIN tasks dep ON dep.id = td.depends_on_task_id
 				WHERE td.task_id = tasks.id AND dep.status != 'completed'
 			  )
 		`
-		args := []any{excludeTaskID, agentName}
+		args := []any{excludeTaskID}
 		if projectID != "" {
 			query += andProjectIDFilter
 			args = append(args, projectID)
@@ -642,8 +671,6 @@ func estimateApproxTokensFromEventMessages(events []*models.Event) int {
 // fetchRelevantMemory retrieves memory relevant to a task and/or project.
 // When projectID is non-empty, only project-scoped memory for that project is included.
 // When projectID is empty, all project-scoped memory is included (legacy behavior).
-//
-//nolint:funlen // query construction varies across four scope combinations (global, task, project, all-project); reducing requires helper indirection
 func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory, error) {
 	var memories []*models.Memory
 
@@ -651,47 +678,34 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 		var query string
 		var args []any
 
-		recencyInterval := fmt.Sprintf("-%d days", MemoryRecencyDays)
 		if projectID != "" {
 			query = `
-				SELECT id, key, canonical_key, value, value_type, scope, scope_id,
-				       confidence, last_seen_at, source_event_id, superseded_by, expires_at, created_at
+				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at
 				FROM memory
 				WHERE (
 					scope = 'global'
 					OR (scope = 'task' AND scope_id = ?)
 					OR (scope = 'project' AND scope_id = ?)
 				)
-				AND superseded_by IS NULL
 				AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-				AND (
-					confidence >= ?
-					OR COALESCE(last_seen_at, created_at) >= datetime('now', ?)
-				)
-				ORDER BY confidence DESC, COALESCE(last_seen_at, created_at) DESC, created_at DESC
+				ORDER BY updated_at DESC
 				LIMIT 50
 			`
-			args = []any{taskID, projectID, MinMemoryConfidence, recencyInterval}
+			args = []any{taskID, projectID}
 		} else {
 			query = `
-				SELECT id, key, canonical_key, value, value_type, scope, scope_id,
-				       confidence, last_seen_at, source_event_id, superseded_by, expires_at, created_at
+				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at
 				FROM memory
 				WHERE (
 					scope = 'global'
 					OR (scope = 'task' AND scope_id = ?)
 					OR scope = 'project'
 				)
-				AND superseded_by IS NULL
 				AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-				AND (
-					confidence >= ?
-					OR COALESCE(last_seen_at, created_at) >= datetime('now', ?)
-				)
-				ORDER BY confidence DESC, COALESCE(last_seen_at, created_at) DESC, created_at DESC
+				ORDER BY updated_at DESC
 				LIMIT 50
 			`
-			args = []any{taskID, MinMemoryConfidence, recencyInterval}
+			args = []any{taskID}
 		}
 
 		rows, err := db.QueryContext(context.Background(), query, args...)
@@ -703,38 +717,11 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 		memories = make([]*models.Memory, 0)
 		for rows.Next() {
 			var mem models.Memory
-			var (
-				lastSeenAt    sql.NullTime
-				sourceEventID sql.NullInt64
-				supersededBy  sql.NullString
-			)
-			err := rows.Scan(
-				&mem.ID,
-				&mem.Key,
-				&mem.Canonical,
-				&mem.Value,
-				&mem.ValueType,
-				&mem.Scope,
-				&mem.ScopeID,
-				&mem.Confidence,
-				&lastSeenAt,
-				&sourceEventID,
-				&supersededBy,
-				&mem.ExpiresAt,
-				&mem.CreatedAt,
-			)
-			if err != nil {
+			if err := rows.Scan(
+				&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID,
+				&mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt,
+			); err != nil {
 				return fmt.Errorf("failed to scan memory: %w", err)
-			}
-			if lastSeenAt.Valid {
-				mem.LastSeenAt = &lastSeenAt.Time
-			}
-			if sourceEventID.Valid {
-				id := sourceEventID.Int64
-				mem.SourceEventID = &id
-			}
-			if supersededBy.Valid {
-				mem.SupersededBy = supersededBy.String
 			}
 			memories = append(memories, &mem)
 		}

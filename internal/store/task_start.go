@@ -53,12 +53,6 @@ func setAgentFocusTx(tx *sql.Tx, agentName, taskID string) (focusEventID int64, 
 }
 
 func startTaskAndFocusTx(tx *sql.Tx, agentName, taskID string) (statusEventID int64, focusEventID int64, runErr error) {
-	// NOTE: Focus is set before claim. If ClaimTaskTx fails with ErrClaimContention,
-	// focus_task_id will point to an unclaimed task. Resume's DetermineFocusTask
-	// re-evaluates focus on next call, so this is self-healing. The ordering is:
-	// (1) update task status → (2) set agent focus → (3) claim task
-	// Reordering to claim-first would require rolling back focus on claim failure.
-
 	// Transition to in_progress (if not already), emitting a status event.
 	statusEvent, err := markTaskInProgressTx(tx, agentName, taskID)
 	if err != nil {
@@ -69,11 +63,6 @@ func startTaskAndFocusTx(tx *sql.Tx, agentName, taskID string) (statusEventID in
 	focusEvent, err := setAgentFocusTx(tx, agentName, taskID)
 	if err != nil {
 		return 0, 0, err
-	}
-
-	// Claim the task — failure means another agent holds the claim.
-	if err := ClaimTaskTx(tx, agentName, taskID, 5); err != nil {
-		return 0, 0, fmt.Errorf("failed to claim task: %w", err)
 	}
 
 	return statusEvent, focusEvent, nil

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -15,36 +14,24 @@ type ClaimNextTaskResult struct {
 	TaskID        string `json:"task_id"`
 	StatusEventID int64  `json:"status_event_id"`
 	FocusEventID  int64  `json:"focus_event_id"`
-	ClaimEventID  int64  `json:"claim_event_id"`
 }
 
-// ClaimNextTaskTx selects the first eligible pending task, claims it, sets it
-// in_progress, sets agent focus, and emits events — all in one transaction.
+// ClaimNextTaskTx selects the first eligible pending task, sets it in_progress,
+// sets agent focus, and emits events — all in one transaction.
 //
-// Selection: pending, unclaimed or expired claim, no unresolved dependencies,
-// project-scoped when projectID is non-empty.
+// Selection: pending, no unresolved dependencies, project-scoped when projectID is non-empty.
 // ORDER BY priority DESC, created_at ASC.
 //
 // Returns empty TaskID + nil error when no work is available.
-//
-//nolint:funlen // claim-next atomically selects, claims, transitions, and emits two events — all phases must be in the same transaction
-func ClaimNextTaskTx(tx *sql.Tx, agentName, projectID string, ttlMinutes int) (*ClaimNextTaskResult, error) {
+func ClaimNextTaskTx(tx *sql.Tx, agentName, projectID string) (*ClaimNextTaskResult, error) {
 	if agentName == "" {
 		return nil, errors.New("agent name is required")
 	}
-	if ttlMinutes <= 0 {
-		ttlMinutes = 5
-	}
-	if ttlMinutes > 1440 {
-		ttlMinutes = 1440
-	}
 
-	// Build selection query: pending tasks with no unresolved deps,
-	// unclaimed or expired claim.
+	// Build selection query: pending tasks with no unresolved deps.
 	query := `
 		SELECT id, version FROM tasks
 		WHERE status = 'pending'
-		  AND (claimed_by IS NULL OR claim_expires_at < CURRENT_TIMESTAMP)
 		  AND NOT EXISTS (
 			SELECT 1 FROM task_dependencies td
 			JOIN tasks dep ON dep.id = td.depends_on_task_id
@@ -96,27 +83,9 @@ func ClaimNextTaskTx(tx *sql.Tx, agentName, projectID string, ttlMinutes int) (*
 		return nil, fmt.Errorf("failed to set agent focus: %w", err)
 	}
 
-	// Claim the task.
-	if claimErr := ClaimTaskTx(tx, agentName, taskID, ttlMinutes); claimErr != nil {
-		return nil, fmt.Errorf("failed to claim task: %w", claimErr)
-	}
-
-	// Emit task_claimed event with metadata.
-	meta, err := json.Marshal(map[string]any{
-		"ttl_minutes": ttlMinutes,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal claim metadata: %w", err)
-	}
-	claimEventID, err := InsertEventTx(tx, models.EventKindTaskClaimed, agentName, taskID, fmt.Sprintf("Task claimed by %s", agentName), string(meta))
-	if err != nil {
-		return nil, fmt.Errorf("failed to append claim event: %w", err)
-	}
-
 	return &ClaimNextTaskResult{
 		TaskID:        taskID,
 		StatusEventID: statusEventID,
 		FocusEventID:  focusEventID,
-		ClaimEventID:  claimEventID,
 	}, nil
 }

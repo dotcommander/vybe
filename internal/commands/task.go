@@ -21,16 +21,13 @@ func NewTaskCmd() *cobra.Command {
 
 	cmd.AddCommand(newTaskCreateCmd())
 	cmd.AddCommand(newTaskBeginCmd())
-	cmd.AddCommand(newTaskHeartbeatCmd())
 	cmd.AddCommand(newTaskSetStatusCmd())
 	cmd.AddCommand(newTaskGetCmd())
 	cmd.AddCommand(newTaskListCmd())
 	cmd.AddCommand(newTaskAddDepCmd())
 	cmd.AddCommand(newTaskRemoveDepCmd())
 	cmd.AddCommand(newTaskDeleteCmd())
-	cmd.AddCommand(newTaskClaimCmd())
 	cmd.AddCommand(newTaskCompleteCmd())
-	cmd.AddCommand(newTaskGCCmd())
 	cmd.AddCommand(newTaskSetPriorityCmd())
 	cmd.AddCommand(newTaskNextCmd())
 	cmd.AddCommand(newTaskUnlocksCmd())
@@ -184,48 +181,6 @@ func newTaskBeginCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("id", "", "Task ID (required)")
-	return cmd
-}
-
-func newTaskHeartbeatCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "heartbeat",
-		Short: "Refresh claim lease heartbeat for a task",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			taskID, _ := cmd.Flags().GetString("id")
-			if taskID == "" {
-				return cmdErr(errors.New("--id is required"))
-			}
-
-			agentName, err := requireActorName(cmd, "")
-			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
-			}
-			ttlMinutes, _ := cmd.Flags().GetInt("ttl-minutes")
-
-			var result *actions.TaskHeartbeatResult
-			if err := withDB(func(db *DB) error {
-				r, err := actions.TaskHeartbeatIdempotent(db, agentName, requestID, taskID, ttlMinutes)
-				if err != nil {
-					return err
-				}
-				result = r
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			return output.PrintSuccess(result)
-		},
-	}
-
-	cmd.Flags().String("id", "", "Task ID (required)")
-	cmd.Flags().Int("ttl-minutes", 5, "Lease TTL in minutes")
-
 	return cmd
 }
 
@@ -408,45 +363,6 @@ func newTaskDeleteCmd() *cobra.Command {
 	return cmd
 }
 
-func newTaskClaimCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "claim",
-		Short: "Atomically claim the next eligible pending task",
-		Long:  "Server-side selection of next pending task: claim + in_progress + focus in one transaction. Returns null task when queue is empty.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			agentName, err := requireActorName(cmd, "")
-			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
-			}
-			projectID, _ := cmd.Flags().GetString("project")
-			ttlMinutes, _ := cmd.Flags().GetInt("ttl-minutes")
-
-			var result *actions.TaskClaimResult
-			if err := withDB(func(db *DB) error {
-				r, claimErr := actions.TaskClaimIdempotent(db, agentName, requestID, projectID, ttlMinutes)
-				if claimErr != nil {
-					return claimErr
-				}
-				result = r
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			return output.PrintSuccess(result)
-		},
-	}
-
-	cmd.Flags().String("project", "", "Scope claim to project ID")
-	cmd.Flags().Int("ttl-minutes", 5, "Claim lease TTL in minutes")
-
-	return cmd
-}
-
 func newTaskCompleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "complete",
@@ -499,33 +415,6 @@ func newTaskCompleteCmd() *cobra.Command {
 	cmd.Flags().String("summary", "", "Closure summary (required)")
 	cmd.Flags().String("label", "", "Optional label stored in event metadata")
 	cmd.Flags().String("blocked-reason", "", "Reason for blocking (only used with --outcome=blocked)")
-
-	return cmd
-}
-
-func newTaskGCCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "gc",
-		Short: "Release expired task claims",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var released int64
-			if err := withDB(func(db *DB) error {
-				count, gcErr := store.ReleaseExpiredClaims(db)
-				if gcErr != nil {
-					return gcErr
-				}
-				released = count
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			type resp struct {
-				Released int64 `json:"released"`
-			}
-			return output.PrintSuccess(resp{Released: released})
-		},
-	}
 
 	return cmd
 }

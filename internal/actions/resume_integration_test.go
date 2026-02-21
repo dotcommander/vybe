@@ -232,7 +232,10 @@ func TestMonotonicCursorAdvancement(t *testing.T) {
 
 	// Create events
 	for i := 0; i < 5; i++ {
-		if err := store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", agentName, "", "Event", ""); return e }); err != nil {
+		if err := store.Transact(db, func(tx *sql.Tx) error {
+			_, e := store.InsertEventTx(tx, "test.event", agentName, "", "Event", "")
+			return e
+		}); err != nil {
 			t.Fatalf("Failed to append event: %v", err)
 		}
 	}
@@ -271,7 +274,10 @@ func TestMonotonicCursorAdvancement(t *testing.T) {
 
 	// Add more events
 	for i := 0; i < 3; i++ {
-		if appendErr := store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", agentName, "", "New Event", ""); return e }); appendErr != nil {
+		if appendErr := store.Transact(db, func(tx *sql.Tx) error {
+			_, e := store.InsertEventTx(tx, "test.event", agentName, "", "New Event", "")
+			return e
+		}); appendErr != nil {
 			t.Fatalf("Failed to append event: %v", appendErr)
 		}
 	}

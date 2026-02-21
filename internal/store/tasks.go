@@ -57,7 +57,7 @@ func CreateTaskTx(tx *sql.Tx, title, description, projectID string, priority int
 	}
 
 	row := tx.QueryRowContext(context.Background(), `
-		SELECT id, title, description, status, priority, project_id, blocked_reason, claimed_by, claimed_at, claim_expires_at, last_heartbeat_at, attempt, version, created_at, updated_at
+		SELECT id, title, description, status, priority, project_id, blocked_reason, version, created_at, updated_at
 		FROM tasks WHERE id = ?
 	`, taskID)
 
@@ -148,7 +148,7 @@ func getTaskTx(tx *sql.Tx, taskID string) (*models.Task, error) {
 
 func getTaskByQuerier(q Querier, taskID string) (*models.Task, error) {
 	row := q.QueryRow(`
-		SELECT id, title, description, status, priority, project_id, blocked_reason, claimed_by, claimed_at, claim_expires_at, last_heartbeat_at, attempt, version, created_at, updated_at
+		SELECT id, title, description, status, priority, project_id, blocked_reason, version, created_at, updated_at
 		FROM tasks WHERE id = ?
 	`, taskID)
 
@@ -228,7 +228,7 @@ func UpdateTaskPriorityWithEventTx(tx *sql.Tx, agentName, taskID string, priorit
 // ListTasks retrieves all tasks, optionally filtered by status, project, and/or priority.
 // Empty/negative filters are ignored.
 func ListTasks(db *sql.DB, statusFilter, projectFilter string, priorityFilter int) ([]*models.Task, error) {
-	query := `SELECT id, title, description, status, priority, project_id, blocked_reason, claimed_by, claimed_at, claim_expires_at, last_heartbeat_at, attempt, version, created_at, updated_at FROM tasks WHERE 1=1`
+	query := `SELECT id, title, description, status, priority, project_id, blocked_reason, version, created_at, updated_at FROM tasks WHERE 1=1`
 	var args []any
 
 	if statusFilter != "" {

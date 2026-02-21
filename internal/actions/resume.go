@@ -330,22 +330,6 @@ func ResumeWithOptionsIdempotent(db *sql.DB, agentName, requestID string, opts R
 		func(tx *sql.Tx) (ResumeResponse, error) {
 			applied := *resp
 
-			// Claim first — contention clears focus so we never return an unclaimed task.
-			if applied.FocusTaskID != "" {
-				if claimErr := store.ClaimTaskTx(tx, agentName, applied.FocusTaskID, 5); claimErr != nil {
-					if errors.Is(claimErr, store.ErrClaimContention) {
-						slog.Default().Info("resume claim contention, clearing focus",
-							"agent", agentName, "task", applied.FocusTaskID)
-						applied.FocusTaskID = ""
-						if applied.Brief != nil {
-							applied.Brief.Task = nil
-						}
-					} else {
-						return ResumeResponse{}, fmt.Errorf("failed to claim focus task: %w", claimErr)
-					}
-				}
-			}
-
 			// Agents-only heartbeat: always update last_active_at and reconcile head state (cursor/focus).
 			if opts.ProjectDir != "" {
 				if updateErr := store.UpdateAgentStateAtomicWithProjectTx(tx, agentName, applied.NewCursor, applied.FocusTaskID, applied.FocusProjectID); updateErr != nil {

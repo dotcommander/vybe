@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
@@ -149,14 +148,6 @@ func TaskSetStatusIdempotent(db *sql.DB, agentName, requestID, taskID, status, b
 				return idemResult{}, err
 			}
 
-			// Release claim if task is completed or blocked (best-effort, log on error)
-			if status == completedStatus || status == blockedStatus {
-				if releaseErr := store.ReleaseTaskClaimTx(tx, agentName, taskID); releaseErr != nil {
-					slog.Default().Warn("failed to release task claim",
-						"task", taskID, "agent", agentName, "error", releaseErr)
-				}
-			}
-
 			// Unblock dependent tasks atomically if this task is now completed
 			if status == completedStatus {
 				_, ubErr := store.UnblockDependentsTx(tx, taskID)
@@ -218,55 +209,6 @@ func TaskStartIdempotent(db *sql.DB, agentName, requestID, taskID string) (*Task
 	}
 
 	return &TaskStartResult{Task: task, StatusEventID: statusEventID, FocusEventID: focusEventID}, nil
-}
-
-// TaskHeartbeatResult captures heartbeat mutation output.
-type TaskHeartbeatResult struct {
-	Task    *models.Task `json:"task"`
-	EventID int64        `json:"event_id"`
-}
-
-// TaskHeartbeatIdempotent refreshes lease expiry for a task claim owner.
-func TaskHeartbeatIdempotent(db *sql.DB, agentName, requestID, taskID string, ttlMinutes int) (*TaskHeartbeatResult, error) {
-	if agentName == "" {
-		return nil, errors.New("agent name is required")
-	}
-	if requestID == "" {
-		return nil, errors.New("request id is required")
-	}
-	if taskID == "" {
-		return nil, errors.New("task ID is required")
-	}
-	if ttlMinutes <= 0 {
-		ttlMinutes = 5
-	}
-
-	type idemResult struct {
-		EventID int64 `json:"event_id"`
-	}
-
-	r, err := store.RunIdempotent(db, agentName, requestID, "task.heartbeat", func(tx *sql.Tx) (idemResult, error) {
-		if err := store.HeartbeatTaskTx(tx, agentName, taskID, ttlMinutes); err != nil {
-			return idemResult{}, err
-		}
-
-		eventID, err := store.InsertEventTx(tx, models.EventKindTaskHeartbeat, agentName, taskID, "Lease heartbeat refreshed", "")
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to append event: %w", err)
-		}
-
-		return idemResult{EventID: eventID}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	task, err := store.GetTask(db, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch task: %w", err)
-	}
-
-	return &TaskHeartbeatResult{Task: task, EventID: r.EventID}, nil
 }
 
 // TaskGet retrieves a task by ID
@@ -412,15 +354,15 @@ func taskDependencyMessage(taskID, dependsOnTaskID string, adding bool) string {
 }
 
 type taskDependencyParams struct {
-	db               *sql.DB
-	agentName        string
-	taskID           string
-	dependsOnTaskID  string
-	eventKind        string
-	idempotencyCmd   string
-	requestID        string
-	mutate           func(tx *sql.Tx, taskID, dependsOnTaskID string) error
-	adding           bool
+	db              *sql.DB
+	agentName       string
+	taskID          string
+	dependsOnTaskID string
+	eventKind       string
+	idempotencyCmd  string
+	requestID       string
+	mutate          func(tx *sql.Tx, taskID, dependsOnTaskID string) error
+	adding          bool
 }
 
 func mutateTaskDependency(p taskDependencyParams) error {
@@ -474,57 +416,6 @@ func TaskRemoveDependencyIdempotent(db *sql.DB, agentName, requestID, taskID, de
 		eventKind: models.EventKindTaskDependencyRemoved, idempotencyCmd: "task.remove_dependency",
 		requestID: requestID, mutate: store.RemoveTaskDependencyTx, adding: false,
 	})
-}
-
-// TaskClaimResult captures the output of a claim-next operation.
-type TaskClaimResult struct {
-	Task          *models.Task `json:"task"`
-	StatusEventID int64        `json:"status_event_id"`
-	FocusEventID  int64        `json:"focus_event_id"`
-	ClaimEventID  int64        `json:"claim_event_id"`
-}
-
-// TaskClaimIdempotent atomically selects the next eligible pending task,
-// claims it, sets it in_progress, and focuses the agent — once per request-id.
-// Returns nil Task when the queue is empty (not an error).
-func TaskClaimIdempotent(db *sql.DB, agentName, requestID, projectID string, ttlMinutes int) (*TaskClaimResult, error) {
-	if agentName == "" {
-		return nil, errors.New("agent name is required")
-	}
-	if requestID == "" {
-		return nil, errors.New("request id is required")
-	}
-	if ttlMinutes <= 0 {
-		ttlMinutes = 5
-	}
-
-	r, err := store.RunIdempotent(db, agentName, requestID, "task.claim", func(tx *sql.Tx) (store.ClaimNextTaskResult, error) {
-		result, err := store.ClaimNextTaskTx(tx, agentName, projectID, ttlMinutes)
-		if err != nil {
-			return store.ClaimNextTaskResult{}, err
-		}
-		return *result, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Empty queue — success with nil task.
-	if r.TaskID == "" {
-		return &TaskClaimResult{}, nil
-	}
-
-	task, err := store.GetTask(db, r.TaskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch claimed task: %w", err)
-	}
-
-	return &TaskClaimResult{
-		Task:          task,
-		StatusEventID: r.StatusEventID,
-		FocusEventID:  r.FocusEventID,
-		ClaimEventID:  r.ClaimEventID,
-	}, nil
 }
 
 // TaskCloseResult captures the output of a close operation.

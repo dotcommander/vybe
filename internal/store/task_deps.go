@@ -352,4 +352,3 @@ func UnblockDependentsTx(tx *sql.Tx, completedTaskID string) ([]string, error) {
 
 	return unblockedIDs, nil
 }
-

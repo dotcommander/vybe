@@ -50,10 +50,16 @@ func TestResume_WithEvents(t *testing.T) {
 	}
 
 	// Create some events
-	if err = store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", ""); return e }); err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error {
+		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", "")
+		return e
+	}); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
-	if err = store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 2", ""); return e }); err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error {
+		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 2", "")
+		return e
+	}); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
 
@@ -114,7 +120,10 @@ func TestResume_CursorAdvancement(t *testing.T) {
 	defer cleanup()
 
 	// Create events
-	if err := store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", ""); return e }); err != nil {
+	if err := store.Transact(db, func(tx *sql.Tx) error {
+		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", "")
+		return e
+	}); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
 
@@ -133,7 +142,10 @@ func TestResume_CursorAdvancement(t *testing.T) {
 	}
 
 	// Create another event
-	if err = store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 2", ""); return e }); err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error {
+		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 2", "")
+		return e
+	}); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
 
@@ -280,7 +292,10 @@ func TestBrief_DoesNotAdvanceCursor(t *testing.T) {
 		t.Fatalf("Failed to create agent state: %v", err)
 	}
 
-	if err = store.Transact(db, func(tx *sql.Tx) error { _, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", ""); return e }); err != nil {
+	if err = store.Transact(db, func(tx *sql.Tx) error {
+		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", "")
+		return e
+	}); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
 

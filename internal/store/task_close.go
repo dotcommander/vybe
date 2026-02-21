@@ -30,7 +30,7 @@ type CloseTaskParams struct {
 	BlockedReason string // optional, only used when Status is "blocked"
 }
 
-// CloseTaskTx atomically closes a task: CAS status update, release claim,
+// CloseTaskTx atomically closes a task: CAS status update,
 // unblock dependents (if completed), set blocked_reason (if blocked),
 // emit task_status + task_closed events.
 //
@@ -59,11 +59,6 @@ func CloseTaskTx(tx *sql.Tx, p CloseTaskParams) (*CloseTaskResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to update task status: %w", err)
 	}
-
-	// Release claim — best-effort: if release fails (e.g., concurrent GC already
-	// released it, or agent doesn't own the claim), the desired end state (task
-	// closed) is still achieved. Matches existing set-status behavior.
-	_ = ReleaseTaskClaimTx(tx, p.AgentName, p.TaskID)
 
 	// Unblock dependents if completed.
 	if p.Status == taskStatusCompleted {

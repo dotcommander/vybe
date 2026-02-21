@@ -11,47 +11,22 @@ import (
 // Foreign key CASCADE handles cleanup of task_dependencies rows.
 // Before deleting, collects blocked dependents and unblocks any that
 // would have no remaining unresolved dependencies after the delete.
-// Guards against deleting tasks that are in_progress or claimed by another agent.
 // Returns error if the task does not exist.
-//
-//nolint:gocognit,gocyclo,revive // delete guards require ownership check, expiry check, dependent unblock — all in the same transaction
 func DeleteTaskTx(tx *sql.Tx, agentName, taskID string) error {
 	if taskID == "" {
 		return errors.New("task ID is required")
 	}
 
-	// Guard: refuse to delete a task that is actively owned by another agent.
+	// Guard: verify the task exists.
 	var status string
-	var claimedBy sql.NullString
 	err := tx.QueryRowContext(context.Background(), `
-		SELECT status, claimed_by FROM tasks WHERE id = ?`, taskID).
-		Scan(&status, &claimedBy)
+		SELECT status FROM tasks WHERE id = ?`, taskID).
+		Scan(&status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("task not found: %s", taskID)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to check task state: %w", err)
-	}
-
-	if status == "in_progress" {
-		// Only the owning agent (or unclaimed) can delete an in_progress task.
-		if claimedBy.Valid && claimedBy.String != "" && claimedBy.String != agentName {
-			return fmt.Errorf("cannot delete task %s: in_progress and claimed by %s", taskID, claimedBy.String)
-		}
-	}
-
-	// Refuse if claimed by another agent with a non-expired lease.
-	if claimedBy.Valid && claimedBy.String != "" && claimedBy.String != agentName {
-		var active bool
-		err = tx.QueryRowContext(context.Background(), `
-			SELECT claim_expires_at IS NOT NULL AND claim_expires_at > CURRENT_TIMESTAMP
-			FROM tasks WHERE id = ?`, taskID).Scan(&active)
-		if err != nil {
-			return fmt.Errorf("failed to check claim expiry: %w", err)
-		}
-		if active {
-			return fmt.Errorf("cannot delete task %s: claimed by %s", taskID, claimedBy.String)
-		}
 	}
 
 	// Collect blocked tasks that depend on this task BEFORE cascade delete

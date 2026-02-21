@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -10,46 +9,6 @@ import (
 // RecoverableError is an alias for models.RecoverableError, retained for
 // backward compatibility with callers that reference store.RecoverableError.
 type RecoverableError = models.RecoverableError
-
-// ClaimContentionError replaces ErrClaimContention with structured context.
-type ClaimContentionError struct {
-	TaskID       string
-	CurrentOwner string
-	RequestedBy  string
-}
-
-func (e *ClaimContentionError) Error() string { return "task already claimed by another agent" }
-func (e *ClaimContentionError) ErrorCode() string { return "CLAIM_CONTENTION" }
-func (e *ClaimContentionError) Context() map[string]string {
-	return map[string]string{
-		"task_id":       e.TaskID,
-		"current_owner": e.CurrentOwner,
-		"requested_by":  e.RequestedBy,
-	}
-}
-func (e *ClaimContentionError) SuggestedAction() string {
-	return fmt.Sprintf("vybe task begin --id %s --agent %s --request-id <new>", e.TaskID, e.RequestedBy)
-}
-func (e *ClaimContentionError) Is(target error) bool { return target == ErrClaimContention }
-
-// ClaimNotOwnedError replaces ErrClaimNotOwned with structured context.
-type ClaimNotOwnedError struct {
-	TaskID      string
-	RequestedBy string
-}
-
-func (e *ClaimNotOwnedError) Error() string { return "task claim is not owned by agent" }
-func (e *ClaimNotOwnedError) ErrorCode() string { return "CLAIM_NOT_OWNED" }
-func (e *ClaimNotOwnedError) Context() map[string]string {
-	return map[string]string{
-		"task_id":      e.TaskID,
-		"requested_by": e.RequestedBy,
-	}
-}
-func (e *ClaimNotOwnedError) SuggestedAction() string {
-	return fmt.Sprintf("vybe task begin --id %s --agent %s --request-id <new>", e.TaskID, e.RequestedBy)
-}
-func (e *ClaimNotOwnedError) Is(target error) bool { return target == ErrClaimNotOwned }
 
 // VersionConflictError replaces ErrVersionConflict with structured context.
 type VersionConflictError struct {
@@ -81,7 +40,7 @@ type IdempotencyInProgressError struct {
 	Command   string
 }
 
-func (e *IdempotencyInProgressError) Error() string { return "idempotency in progress" }
+func (e *IdempotencyInProgressError) Error() string     { return "idempotency in progress" }
 func (e *IdempotencyInProgressError) ErrorCode() string { return "IDEMPOTENCY_IN_PROGRESS" }
 func (e *IdempotencyInProgressError) Context() map[string]string {
 	return map[string]string{

@@ -18,13 +18,12 @@ type PushEventInput struct {
 
 // PushMemoryInput describes one memory upsert.
 type PushMemoryInput struct {
-	Key        string     `json:"key"`
-	Value      string     `json:"value"`
-	ValueType  string     `json:"value_type,omitempty"`
-	Scope      string     `json:"scope"`
-	ScopeID    string     `json:"scope_id,omitempty"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	Confidence *float64   `json:"confidence,omitempty"`
+	Key       string     `json:"key"`
+	Value     string     `json:"value"`
+	ValueType string     `json:"value_type,omitempty"`
+	Scope     string     `json:"scope"`
+	ScopeID   string     `json:"scope_id,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 // PushArtifactInput describes one artifact to link.
@@ -52,11 +51,8 @@ type PushInput struct {
 
 // PushMemoryResult holds the result of a single memory upsert within push.
 type PushMemoryResult struct {
-	Key          string  `json:"key"`
-	CanonicalKey string  `json:"canonical_key"`
-	Reinforced   bool    `json:"reinforced"`
-	Confidence   float64 `json:"confidence"`
-	EventID      int64   `json:"event_id"`
+	Key     string `json:"key"`
+	EventID int64  `json:"event_id"`
 }
 
 // PushArtifactResult holds the result of a single artifact add within push.
@@ -134,24 +130,15 @@ func PushIdempotent(db *sql.DB, agentName, requestID string, input PushInput) (*
 			if len(input.Memories) > 0 {
 				result.Memories = make([]PushMemoryResult, 0, len(input.Memories))
 				for _, mem := range input.Memories {
-					var sourceEventID *int64
-					if result.EventID != 0 {
-						eid := result.EventID
-						sourceEventID = &eid
-					}
-					eventID, reinforced, confidence, canonicalKey, err := store.UpsertMemoryTx(
-						tx, agentName, mem.Key, mem.Value, mem.ValueType, mem.Scope, mem.ScopeID,
-						mem.ExpiresAt, mem.Confidence, sourceEventID,
+					eventID, err := store.UpsertMemoryTx(
+						tx, agentName, mem.Key, mem.Value, mem.ValueType, mem.Scope, mem.ScopeID, mem.ExpiresAt,
 					)
 					if err != nil {
 						return PushResult{}, fmt.Errorf("failed to upsert memory %q: %w", mem.Key, err)
 					}
 					result.Memories = append(result.Memories, PushMemoryResult{
-						Key:          mem.Key,
-						CanonicalKey: canonicalKey,
-						Reinforced:   reinforced,
-						Confidence:   confidence,
-						EventID:      eventID,
+						Key:     mem.Key,
+						EventID: eventID,
 					})
 				}
 			}

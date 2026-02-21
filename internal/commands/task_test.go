@@ -12,19 +12,12 @@ func TestNewTaskCmd_HasExpectedSubcommands(t *testing.T) {
 	require.Equal(t, "task", cmd.Use)
 	require.Equal(t, "Manage tasks", cmd.Short)
 
-	for _, name := range []string{"create", "begin", "heartbeat", "set-status", "get", "list", "add-dep", "remove-dep", "delete", "gc", "claim", "complete", "set-priority", "next", "unlocks", "stats"} {
+	for _, name := range []string{"create", "begin", "set-status", "get", "list", "add-dep", "remove-dep", "delete", "complete", "set-priority", "next", "unlocks", "stats"} {
 		sub, _, err := cmd.Find([]string{name})
 		require.NoError(t, err)
 		require.NotNil(t, sub)
 		require.Equal(t, name, sub.Name())
 	}
-}
-
-func TestTaskHeartbeatCmd_RequiresIDBeforeActorResolution(t *testing.T) {
-	cmd := newTaskHeartbeatCmd()
-	err := cmd.RunE(cmd, nil)
-	require.Error(t, err)
-	require.IsType(t, printedError{}, err)
 }
 
 func TestTaskGetCmd_ValidationErrorsBeforeDB(t *testing.T) {
