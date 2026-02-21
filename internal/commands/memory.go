@@ -251,4 +251,3 @@ func newMemoryDeleteCmd() *cobra.Command {
 	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
-

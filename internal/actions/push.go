@@ -12,8 +12,8 @@ import (
 
 // PushEventInput describes the optional event to insert.
 type PushEventInput struct {
-	Kind     string `json:"kind"`
-	Message  string `json:"message"`
+	Kind     string          `json:"kind"`
+	Message  string          `json:"message"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 

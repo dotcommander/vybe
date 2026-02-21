@@ -45,7 +45,7 @@ func QueryRunCompletedEvents(db *sql.DB, agentName, projectID string, limit int)
 	var out []RunSummaryRow
 	err := RetryWithBackoff(func() error {
 		where := []string{"kind = ?"}
-		args := []interface{}{models.EventKindRunCompleted}
+		args := []any{models.EventKindRunCompleted}
 
 		if agentName != "" {
 			where = append(where, "agent_name = ?")

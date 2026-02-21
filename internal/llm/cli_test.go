@@ -275,4 +275,3 @@ func TestExtract_StderrCapped(t *testing.T) {
 	// Verify stderr portion of error message is bounded
 	assert.Less(t, len(err.Error()), 5000)
 }
-

@@ -34,7 +34,7 @@ Use --focus <task-id> to set the agent's focus task before resuming (request-id 
 
 			if peek {
 				type briefResponse struct {
-					AgentName string            `json:"agent_name"`
+					AgentName string             `json:"agent_name"`
 					Brief     *store.BriefPacket `json:"brief"`
 				}
 				var resp briefResponse

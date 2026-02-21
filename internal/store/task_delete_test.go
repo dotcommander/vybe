@@ -162,4 +162,3 @@ func TestDeleteTask_DoesNotUnblockFailureBlocked(t *testing.T) {
 	assert.Equal(t, models.TaskStatusBlocked, dep.Status, "failure-blocked task should stay blocked")
 	assert.Equal(t, newBlockedReasonFailure("timeout"), dep.BlockedReason)
 }
-

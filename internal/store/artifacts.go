@@ -233,7 +233,7 @@ func ListArtifactsByTask(db *sql.DB, taskID string, limit int) ([]*models.Artifa
 	return out, nil
 }
 
-func nullIfEmpty(s string) interface{} {
+func nullIfEmpty(s string) any {
 	if s == "" {
 		return nil
 	}

@@ -184,11 +184,11 @@ func runDefaultStatus(cmd *cobra.Command, check bool) error {
 // Schema helper functions (moved from schema.go which is deleted).
 
 type commandArgSchema struct {
-	Command           string                 `json:"command"`
-	Description       string                 `json:"description,omitempty"`
-	ArgsSchema        map[string]interface{} `json:"args_schema"`
-	Mutates           bool                   `json:"mutates"`
-	RequiresRequestID bool                   `json:"requires_request_id"`
+	Command           string         `json:"command"`
+	Description       string         `json:"description,omitempty"`
+	ArgsSchema        map[string]any `json:"args_schema"`
+	Mutates           bool           `json:"mutates"`
+	RequiresRequestID bool           `json:"requires_request_id"`
 }
 
 func collectCommandSchemas(cmd *cobra.Command, out *[]commandArgSchema) {
@@ -202,7 +202,7 @@ func collectCommandSchemas(cmd *cobra.Command, out *[]commandArgSchema) {
 }
 
 func buildCommandSchema(cmd *cobra.Command) commandArgSchema {
-	properties := map[string]interface{}{}
+	properties := map[string]any{}
 	required := make([]string, 0)
 	seen := map[string]bool{}
 
@@ -215,7 +215,7 @@ func buildCommandSchema(cmd *cobra.Command) commandArgSchema {
 		}
 		seen[f.Name] = true
 
-		flagSchema := map[string]interface{}{
+		flagSchema := map[string]any{
 			"type":        normalizeFlagType(f.Value.Type()),
 			"description": f.Usage,
 		}
@@ -238,7 +238,7 @@ func buildCommandSchema(cmd *cobra.Command) commandArgSchema {
 	cmd.InheritedFlags().VisitAll(addFlag)
 	cmd.NonInheritedFlags().VisitAll(addFlag)
 
-	argsSchema := map[string]interface{}{
+	argsSchema := map[string]any{
 		"type":       "object",
 		"properties": properties,
 	}
@@ -280,7 +280,7 @@ func normalizeFlagType(flagType string) string {
 	}
 }
 
-func typedFlagDefault(flagType, raw string) interface{} {
+func typedFlagDefault(flagType, raw string) any {
 	switch flagType {
 	case "bool":
 		v, err := strconv.ParseBool(raw)

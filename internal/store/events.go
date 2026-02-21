@@ -71,7 +71,7 @@ func insertEventRowTx(tx *sql.Tx, kind, agentName, taskID, message, metadata str
 		return 0, err
 	}
 
-	meta := interface{}(nil)
+	meta := any(nil)
 	if metadata != "" {
 		meta = metadata
 	}
@@ -155,12 +155,12 @@ func InsertEventWithProjectTx(tx *sql.Tx, kind, agentName, projectID, taskID, me
 		return 0, err
 	}
 
-	meta := interface{}(nil)
+	meta := any(nil)
 	if metadata != "" {
 		meta = metadata
 	}
 
-	var projVal interface{}
+	var projVal any
 	if projectID != "" {
 		projVal = projectID
 	}

@@ -22,7 +22,7 @@ type recoverableError interface {
 type Response struct {
 	SchemaVersion   string            `json:"schema_version"`
 	Success         bool              `json:"success"`
-	Data            interface{}       `json:"data,omitempty"`
+	Data            any               `json:"data,omitempty"`
 	Error           string            `json:"error,omitempty"`
 	ErrorCode       string            `json:"error_code,omitempty"`
 	ErrorContext    map[string]string `json:"error_context,omitempty"`
@@ -45,7 +45,7 @@ func DefaultConfig() Config {
 }
 
 // Success wraps a successful response with data
-func Success(data interface{}) Response {
+func Success(data any) Response {
 	return Response{
 		SchemaVersion: "v1",
 		Success:       true,
@@ -70,7 +70,7 @@ func Error(err error) Response {
 }
 
 // PrintWith prints a value as JSON to the configured writer
-func PrintWith(cfg Config, v interface{}) error {
+func PrintWith(cfg Config, v any) error {
 	enc := json.NewEncoder(cfg.Writer)
 	if cfg.Pretty {
 		enc.SetIndent("", "  ")
@@ -81,12 +81,12 @@ func PrintWith(cfg Config, v interface{}) error {
 // Print prints a value as JSON to stdout
 // Default to compact JSON to minimize token/output size for agent consumption.
 // Enable pretty JSON for humans via env var: VYBE_PRETTY_JSON=1.
-func Print(v interface{}) error {
+func Print(v any) error {
 	return PrintWith(DefaultConfig(), v)
 }
 
 // PrintSuccess prints a success response
-func PrintSuccess(data interface{}) error {
+func PrintSuccess(data any) error {
 	return Print(Success(data))
 }
 

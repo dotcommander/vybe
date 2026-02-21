@@ -296,7 +296,6 @@ func setAgentFocusTaskWithEventTx(tx *sql.Tx, agentName, taskID string) (int64, 
 	return eventID, nil
 }
 
-
 // SetAgentFocusProjectWithEventIdempotent performs SetAgentFocusProjectWithEvent once per (agent_name, request_id).
 // On retries with the same request id, returns the originally created event id.
 func SetAgentFocusProjectWithEventIdempotent(db *sql.DB, agentName, requestID, projectID string) (int64, error) {
