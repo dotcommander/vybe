@@ -100,11 +100,11 @@ const MUTATING_TOOLS: Record<string, boolean> = {
 // Minimal-intrusion OpenCode -> vybe bridge.
 // Hooks wired:
 // - session.created: hydrate state with vybe resume (project-scoped)
-// - session.deleted: unified session-end hook (checkpoint + retrospective enqueue)
+// - session.deleted: session-end hook (checkpoint gc only)
 // - session.idle: heartbeat event
 // - todo.updated: append a compact snapshot event (debounced 3s)
 // - tool.execute.after: log tool failures + mutating tool successes
-// - experimental.session.compacting: checkpoint before compaction
+// - experimental.session.compacting: checkpoint (gc + retrospective)
 // - chat.message: log user prompts
 // - experimental.chat.system.transform: inject vybe resume context
 export const VybeBridgePlugin: Plugin = async ({ client }) => {
@@ -142,29 +142,6 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
     }
   }
 
-  // Run checkpoint operations: compact + gc.
-  // Note: auto-summarize is not exposed as a CLI command; it runs internally
-  // in the Go checkpoint hook. compact + gc cover the critical cleanup.
-  const runCheckpoint = async (agent: string, projectDir?: string) => {
-    const prefix = reqID("oc_checkpoint")
-    const scopeArgs = projectDir
-      ? ["--scope", "project", "--scope-id", projectDir]
-      : ["--scope", "global"]
-
-    await runVybe([
-      "memory", "compact",
-      "--agent", agent,
-      "--request-id", `${prefix}_compact`,
-      ...scopeArgs,
-    ]).catch(() => {})
-
-    await runVybe([
-      "memory", "gc",
-      "--agent", agent,
-      "--request-id", `${prefix}_gc`,
-    ]).catch(() => {})
-  }
-
   return {
     event: async ({ event }) => {
       try {
@@ -185,7 +162,7 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
           const projectDir = sessionProjects.get(sessionID)
           const agent = agentForSession(sessionID)
 
-          // Fire-and-forget unified SessionEnd hook (checkpoint + retrospective enqueue).
+          // Fire-and-forget SessionEnd hook (checkpoint gc only; retrospective runs at PreCompact).
           const payload = JSON.stringify({
             session_id: sessionID,
             hook_event_name: "SessionEnd",
@@ -361,7 +338,14 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
         const sessionID: string = input.sessionID
         const agent = agentForSession(sessionID)
         const projectDir = sessionProjects.get(sessionID)
-        await runCheckpoint(agent, projectDir)
+
+        // Checkpoint (gc + retrospective) via unified hook command.
+        const payload = JSON.stringify({
+          session_id: sessionID,
+          hook_event_name: "PreCompact",
+          cwd: projectDir || "",
+        })
+        runVybeBackground(["hook", "checkpoint", "--agent", agent], undefined, payload)
       } catch (err) {
         await log("warn", "vybe bridge compacting checkpoint failed", {
           error: err instanceof Error ? err.message : String(err),

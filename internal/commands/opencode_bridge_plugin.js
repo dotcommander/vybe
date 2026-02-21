@@ -108,27 +108,6 @@ export const VybeBridgePlugin = async ({ client }) => {
     }
   }
 
-  // Run checkpoint operations: compact + gc.
-  // Note: auto-summarize is not exposed as a CLI command; it runs internally
-  // in the Go checkpoint hook. compact + gc cover the critical cleanup.
-  const runCheckpoint = async (agent, projectDir) => {
-    const prefix = reqID("oc_checkpoint")
-    const scopeArgs = projectDir ? ["--scope", "project", "--scope-id", projectDir] : ["--scope", "global"]
-
-    await runVybe([
-      "memory", "compact",
-      "--agent", agent,
-      "--request-id", prefix + "_compact",
-      ...scopeArgs,
-    ]).catch(() => {})
-
-    await runVybe([
-      "memory", "gc",
-      "--agent", agent,
-      "--request-id", prefix + "_gc",
-    ]).catch(() => {})
-  }
-
   return {
     event: async ({ event }) => {
       try {
@@ -149,7 +128,7 @@ export const VybeBridgePlugin = async ({ client }) => {
           const projectDir = sessionProjects.get(delID)
           const agent = agentForSession(delID)
 
-          // Fire-and-forget unified SessionEnd hook (checkpoint + retrospective enqueue).
+          // Fire-and-forget SessionEnd hook (checkpoint gc only; retrospective runs at PreCompact).
           const payload = JSON.stringify({
             session_id: delID,
             hook_event_name: "SessionEnd",
@@ -319,7 +298,14 @@ export const VybeBridgePlugin = async ({ client }) => {
         const sessionID = input.sessionID
         const agent = agentForSession(sessionID)
         const projectDir = sessionProjects.get(sessionID)
-        await runCheckpoint(agent, projectDir)
+
+        // Checkpoint (gc + retrospective) via unified hook command.
+        var payload = JSON.stringify({
+          session_id: sessionID,
+          hook_event_name: "PreCompact",
+          cwd: projectDir || "",
+        })
+        runVybeBackground(["hook", "checkpoint", "--agent", agent], null, payload)
       } catch (err) {
         await log("warn", "vybe bridge compacting checkpoint failed", {
           error: err instanceof Error ? err.message : String(err),
