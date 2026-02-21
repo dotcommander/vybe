@@ -100,7 +100,6 @@ Safety rails:
 	cmd.Flags().BoolVar(&disableHooks, "spawn-disable-hooks", false, "Disable hooks for spawned agents (sets hookless Claude settings and isolation env vars)")
 
 	cmd.AddCommand(newLoopStatsCmd())
-	namespaceIndex(cmd)
 
 	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
