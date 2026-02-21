@@ -6,6 +6,7 @@ type DemoContext struct {
 	AuthTaskID   string
 	TestsTaskID  string
 	DeployTaskID string
+	FocusTaskID  string
 	SessionID    string
 	SessionID2   string
 	TempDir      string
@@ -60,7 +61,7 @@ func BuildActs() []Act {
 				{Name: "resume", Fn: stepResume, Insight: "The agent cursor advances and the brief packet loads: focus task, memory, recent events, artifacts. Everything needed to start working."},
 				{Name: "prompt_logging", Fn: stepPromptLogging, Insight: "Claude Code hook: UserPromptSubmit. Every prompt you type is logged — future sessions see the full conversation trail."},
 				{Name: "claim_focus_task", Fn: stepClaimFocusTask, Insight: "Your agent claims work before starting. No other agent can grab this task now."},
-				{Name: "tool_success_tracking", Fn: stepToolSuccessTracking, Insight: "Claude Code hook: PostToolUse. Every successful tool call is logged — builds a complete execution history."},
+				{Name: "tool_success_tracking", Fn: stepToolSuccessTracking, Insight: "Claude Code hook: PostToolUse. Successful mutating tool calls are logged — builds a complete execution history."},
 				{Name: "tool_failure_tracking", Fn: stepToolFailureTracking, Insight: "Claude Code hook: PostToolUseFailure. When tools fail, the next session sees exactly what broke and where."},
 				{Name: "log_progress_events", Fn: stepLogProgressEvents, Insight: "Your agent narrates its own work. Progress events are the journal that survives crashes."},
 				{Name: "store_task_memory", Fn: stepStoreTaskMemory, Insight: "Task-scoped memory. A new agent picking up this task will know 'JWT' was the chosen auth strategy."},
@@ -77,7 +78,7 @@ func BuildActs() []Act {
 				"State remains durable in SQLite, so crashes do not lose context.",
 			},
 			Steps: []Step{
-				{Name: "memory_checkpoint", Fn: stepMemoryCheckpoint, Insight: "Claude Code hook: PreCompact. Before context compression, vybe prunes stale memory entries."},
+				{Name: "memory_checkpoint", Fn: stepMemoryCheckpoint, Insight: "Claude Code hook: PreCompact. Before compaction, vybe runs checkpoint maintenance: memory GC plus event summarize/prune housekeeping."},
 				{Name: "session_end", Fn: stepSessionEnd, Insight: "Claude Code hook: SessionEnd. Session over — everything is durable in SQLite, ready for the next agent."},
 			},
 		},
@@ -91,22 +92,22 @@ func BuildActs() []Act {
 			Steps: []Step{
 				{Name: "new_session_start", Fn: stepNewSessionStart, Insight: "New session, fresh context window, zero memory of Act II. Watch vybe restore everything."},
 				{Name: "cross_session_continuity", Fn: stepCrossSessionContinuity, Insight: "Artifacts, global memory, project memory — all survived the session boundary. This is why vybe exists."},
-				{Name: "complete_deploy_task", Fn: stepCompleteDeployTask, Insight: "A completely new session picks up 'Deploy', works it, completes it. No handoff notes needed."},
-				{Name: "resume_with_blocked_task", Fn: stepResumeWithBlockedTask, Insight: "Only 'Write tests' remains. The resume algorithm knows it's blocked and handles it."},
+				{Name: "complete_write_tests_task", Fn: stepCompleteWriteTestsTask, Insight: "Completing 'Implement auth' auto-unblocked this dependency task, so the next session can pick it up immediately."},
+				{Name: "resume_with_remaining_task", Fn: stepResumeWithRemainingTask, Insight: "With tests complete, only 'Deploy' remains. Resume deterministically advances to the final pending task."},
 			},
 		},
 		{
 			Number: 5,
 			Name:   "The Queue Moves",
 			Narration: []string{
-				"Unblock dependencies, let resume pick the next work, and finish remaining tasks.",
+				"Claim and finish the final task, then verify the queue is empty.",
 				"The queue drains deterministically to task=null when work is complete.",
 			},
 			Steps: []Step{
-				{Name: "remove_dependency", Fn: stepRemoveDependency, Insight: "Dependency removed, task unblocked. Your agent's queue adapts in real-time."},
-				{Name: "resume_selects_unblocked", Fn: stepResumeSelectsUnblocked, Insight: "Resume picks 'Write tests' — the only remaining unblocked task. Priority order is automatic."},
-				{Name: "complete_final_task", Fn: stepCompleteFinalTask, Insight: "Last task done. Your agent completed all three tasks across two sessions with zero data loss."},
-				{Name: "empty_queue", Fn: stepEmptyQueue, Insight: "Resume returns null — the queue is empty, your agent's work here is genuinely done."},
+				{Name: "claim_final_task", Fn: stepClaimFinalTask, Insight: "Single-writer claim semantics prevent duplicate work when multiple agents race for the same final task."},
+				{Name: "complete_final_task", Fn: stepCompleteFinalTask, Insight: "Final task complete. The project queue is now fully drained across sessions."},
+				{Name: "empty_queue", Fn: stepEmptyQueue, Insight: "Resume returns null — there is no remaining work to claim."},
+				{Name: "empty_queue_peek", Fn: stepEmptyQueuePeek, Insight: "--peek verifies completion without advancing cursor state."},
 			},
 		},
 		{

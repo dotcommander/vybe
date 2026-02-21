@@ -124,7 +124,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="line">$ vybe ... --request-id demo_$RANDOM  # every mutation</div>
 <div class="line">$ vybe resume --peek                  # read-only context</div>
 <div class="line">$ vybe status --check                 # fast health gate</div>
-<div class="note">Pattern: mutate → verify readback. Use a fresh <code>--request-id</code> on every mutating call so retries are safe and duplicate-free. Hook telemetry is best-effort and fire-and-forget; core state writes remain durable in SQLite. Hook commands shown in this demo simulate lifecycle events that are normally auto-fired by integrations.</div>
+<div class="note">Pattern: sync reads, durable writes, async telemetry. Read context synchronously (<code>resume --peek</code>, <code>status</code>, <code>task get/list</code>, <code>events list</code>, <code>artifacts list</code>, <code>memory get/list</code>, <code>schema commands</code>). Use a fresh <code>--request-id</code> on every mutating call (<code>resume</code> non-<code>--peek</code>, <code>task *</code>, <code>push</code>, <code>memory set/delete/gc</code>) so retries are safe and duplicate-free. Hook telemetry is best-effort and fire-and-forget; core state writes remain durable in SQLite. Hook commands shown in this demo simulate lifecycle events that are normally auto-fired by integrations.</div>
 </div></div>
 
 <main>
@@ -195,7 +195,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">tool_success_tracking</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook tool-success</span></div>
 <div class="detail">tool_success event logged</div>
-<div class="insight"><span class="arrow">→</span> <span class="hook hook-tool">PostToolUse</span> hook. Every successful tool call is logged — builds a complete execution history.</div></div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-tool">PostToolUse</span> hook. Successful mutating tool calls are logged — builds a complete execution history.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">tool_failure_tracking</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook tool-failure</span></div>
@@ -237,7 +237,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">memory_checkpoint</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook checkpoint</span></div>
 <div class="detail">Memory checkpoint complete</div>
-<div class="insight"><span class="arrow">→</span> <span class="hook hook-compact">PreCompact</span> hook. Before context compression, vybe prunes stale memory entries.</div></div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-compact">PreCompact</span> hook. Before compaction, vybe runs checkpoint maintenance: memory GC plus event summarize/prune housekeeping.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">session_end</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook session-end</span></div>
@@ -264,44 +264,42 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="detail">Project memory survived: api_framework="chi"</div>
 <div class="insight"><span class="arrow">→</span> Artifacts, global memory, project memory — all survived the session boundary. This is why vybe exists.</div></div>
 
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">complete_deploy_task</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task begin --id &lt;deploy&gt; --request-id demo_$RANDOM</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;deploy&gt; --outcome done --summary "Deployed to production" --request-id demo_$RANDOM</span></div>
-<div class="detail">Deploy task: pending → in_progress → completed</div>
-<div class="insight"><span class="arrow">→</span> A completely new session picks up 'Deploy', works it, completes it. No handoff notes needed.</div></div>
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">complete_write_tests_task</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task begin --id &lt;write_tests&gt; --request-id demo_$RANDOM</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;write_tests&gt; --outcome done --summary "All tests written and passing" --request-id demo_$RANDOM</span></div>
+<div class="detail">Write tests: pending → in_progress → completed</div>
+<div class="insight"><span class="arrow">→</span> Completing 'Implement auth' auto-unblocked this dependency task, so the next session can pick it up immediately.</div></div>
 
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">resume_with_blocked_task</span><span class="step-pass">✓</span></div>
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">resume_with_remaining_task</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume --project-dir &lt;project_dir&gt; --request-id demo_$RANDOM</span></div>
-<div class="detail">Resume focus: Write tests</div>
-<div class="insight"><span class="arrow">→</span> Only 'Write tests' remains. The resume algorithm knows it's blocked and handles it.</div></div>
+<div class="detail">Resume focus: Deploy</div>
+<div class="insight"><span class="arrow">→</span> With tests complete, only 'Deploy' remains. Resume deterministically advances to the final pending task.</div></div>
 </div>
 
 <!-- ACT 5 -->
 <div class="act" id="act-5">
 <div class="act-header"><div class="act-num">Act 5</div><h2>The Queue Moves</h2></div>
-<div class="act-narration">Unblock dependencies, let resume pick the next work, and finish remaining tasks. The queue drains deterministically to task=null when work is complete.</div>
+<div class="act-narration">Claim and finish the final task, then verify the queue is empty. The queue drains deterministically to task=null when work is complete.</div>
 
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">remove_dependency</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task remove-dep --id &lt;write_tests&gt; --depends-on &lt;implement_auth&gt; --request-id demo_$RANDOM</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task set-status --id &lt;write_tests&gt; --status pending --request-id demo_$RANDOM</span></div>
-<div class="detail">Dependency removed, Write tests set to pending</div>
-<div class="insight"><span class="arrow">→</span> Dependency removed, task unblocked. Your agent's queue adapts in real-time.</div></div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">resume_selects_unblocked</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume --project-dir &lt;project_dir&gt; --request-id demo_$RANDOM</span></div>
-<div class="detail">Resume correctly selected Write tests</div>
-<div class="insight"><span class="arrow">→</span> Resume picks 'Write tests' — the only remaining unblocked task. Priority order is automatic.</div></div>
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">claim_final_task</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task begin --id &lt;deploy&gt; --request-id demo_$RANDOM</span></div>
+<div class="detail">Deploy task claimed: pending → in_progress</div>
+<div class="insight"><span class="arrow">→</span> Single-writer claim semantics prevent duplicate work when multiple agents race for the same final task.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">complete_final_task</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task begin --id &lt;write_tests&gt; --request-id demo_$RANDOM</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;write_tests&gt; --outcome done --summary "All tests written and passing" --request-id demo_$RANDOM</span></div>
-<div class="detail">Write tests: in_progress → completed — all 3 tasks done</div>
-<div class="insight"><span class="arrow">→</span> Last task done. Your agent completed all three tasks across two sessions with zero data loss.</div></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;deploy&gt; --outcome done --summary "Deployed to production" --request-id demo_$RANDOM</span></div>
+<div class="detail">Deploy: in_progress → completed — all 3 tasks done</div>
+<div class="insight"><span class="arrow">→</span> Final task complete. The project queue is now fully drained across sessions.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">empty_queue</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume --project-dir &lt;project_dir&gt; --request-id demo_$RANDOM</span></div>
 <div class="detail">Queue empty — task=null</div>
-<div class="insight"><span class="arrow">→</span> Resume returns null — the queue is empty, your agent's work here is genuinely done.</div></div>
+<div class="insight"><span class="arrow">→</span> Resume returns null — there is no remaining work to claim.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">empty_queue_peek</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume --project-dir &lt;project_dir&gt; --peek</span></div>
+<div class="detail">Read-only check confirms queue still empty</div>
+<div class="insight"><span class="arrow">→</span> <code>--peek</code> verifies completion without advancing cursor state.</div></div>
 </div>
 
 <!-- ACT 6 -->

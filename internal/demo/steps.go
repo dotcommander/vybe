@@ -24,10 +24,13 @@ func stepUpgradeDatabase(r *Runner, ctx *DemoContext) error {
 
 func stepCreateProject(r *Runner, ctx *DemoContext) error {
 	// Projects are implicit — no CLI command to create them.
-	// The session-start hook (or task create with --project-id) ensures the project row exists.
-	// We use a fixed project ID so the demo has a consistent scope.
-	ctx.ProjectID = "proj_demo_001"
-	r.printDetail("Project ID: %s (implicit — created by session-start hook)", ctx.ProjectID)
+	// Use a real temp project dir path so --project-dir and --project-id align.
+	projectDir, err := os.MkdirTemp("", "vybe-demo-project-*")
+	if err != nil {
+		return fmt.Errorf("create project dir: %w", err)
+	}
+	ctx.ProjectID = projectDir
+	r.printDetail("Project dir: %s (implicit — scoped by session-start and --project-id)", ctx.ProjectID)
 	return nil
 }
 
@@ -462,9 +465,9 @@ func stepCrossSessionContinuity(r *Runner, ctx *DemoContext) error {
 	return nil
 }
 
-func stepCompleteDeployTask(r *Runner, ctx *DemoContext) error {
+func stepCompleteWriteTestsTask(r *Runner, ctx *DemoContext) error {
 	bm, braw, err := r.vybe("task", "begin",
-		"--id", ctx.DeployTaskID,
+		"--id", ctx.TestsTaskID,
 		"--request-id", rid("p4s21", 1),
 	)
 	if err != nil {
@@ -473,26 +476,13 @@ func stepCompleteDeployTask(r *Runner, ctx *DemoContext) error {
 	if err := r.mustSuccess(bm, braw); err != nil {
 		return err
 	}
-	r.printDetail("Deploy task: pending → in_progress")
-
-	pushJSON := fmt.Sprintf(`{"task_id":%q,"event":{"kind":"progress","message":"Deployment pipeline configured"}}`,
-		ctx.DeployTaskID)
-	em, eraw, err := r.vybe("push",
-		"--json", pushJSON,
-		"--request-id", rid("p4s21", 2),
-	)
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(em, eraw); err != nil {
-		return err
-	}
+	r.printDetail("Write tests: pending → in_progress")
 
 	dm, draw, err := r.vybe("task", "complete",
-		"--id", ctx.DeployTaskID,
+		"--id", ctx.TestsTaskID,
 		"--outcome", "done",
-		"--summary", "Deployed to production",
-		"--request-id", rid("p4s21", 3),
+		"--summary", "All tests written and passing",
+		"--request-id", rid("p4s21", 2),
 	)
 	if err != nil {
 		return err
@@ -504,11 +494,11 @@ func stepCompleteDeployTask(r *Runner, ctx *DemoContext) error {
 	if status != "completed" {
 		return fmt.Errorf("expected completed, got %s", status)
 	}
-	r.printDetail("Deploy task: in_progress → completed")
+	r.printDetail("Write tests: in_progress → completed")
 	return nil
 }
 
-func stepResumeWithBlockedTask(r *Runner, ctx *DemoContext) error {
+func stepResumeWithRemainingTask(r *Runner, ctx *DemoContext) error {
 	m, raw, err := r.vybe("resume", "--request-id", rid("p4s22", 1))
 	if err != nil {
 		return err
@@ -523,22 +513,21 @@ func stepResumeWithBlockedTask(r *Runner, ctx *DemoContext) error {
 	task := brief["task"]
 	if task != nil {
 		taskID := task.(map[string]any)["id"].(string)
-		if taskID != ctx.TestsTaskID {
-			return fmt.Errorf("expected Write tests task %s, got %s", ctx.TestsTaskID, taskID)
+		if taskID != ctx.DeployTaskID {
+			return fmt.Errorf("expected Deploy task %s, got %s", ctx.DeployTaskID, taskID)
 		}
-		r.printDetail("Resume focus: Write tests (%s)", taskID)
+		r.printDetail("Resume focus: Deploy (%s)", taskID)
 	} else {
-		r.printDetail("Resume: no task (all completed or blocked)")
+		return fmt.Errorf("expected Deploy focus task, got nil")
 	}
 	return nil
 }
 
 // Act V: The Queue Moves
 
-func stepRemoveDependency(r *Runner, ctx *DemoContext) error {
-	m, raw, err := r.vybe("task", "remove-dep",
-		"--id", ctx.TestsTaskID,
-		"--depends-on", ctx.AuthTaskID,
+func stepClaimFinalTask(r *Runner, ctx *DemoContext) error {
+	m, raw, err := r.vybe("task", "begin",
+		"--id", ctx.DeployTaskID,
 		"--request-id", rid("p5s23", 1),
 	)
 	if err != nil {
@@ -547,64 +536,20 @@ func stepRemoveDependency(r *Runner, ctx *DemoContext) error {
 	if err := r.mustSuccess(m, raw); err != nil {
 		return err
 	}
-	r.printDetail("Dependency removed: Write tests no longer blocked by Implement auth")
-
-	sm, sraw, err := r.vybe("task", "set-status",
-		"--id", ctx.TestsTaskID,
-		"--status", "pending",
-		"--request-id", rid("p5s23", 2),
-	)
-	if err != nil {
-		return err
+	status := getStr(m, "data", "task", "status")
+	if status != "in_progress" {
+		return fmt.Errorf("expected in_progress, got %s", status)
 	}
-	if err := r.mustSuccess(sm, sraw); err != nil {
-		return err
-	}
-	r.printDetail("Write tests set to pending")
-	return nil
-}
-
-func stepResumeSelectsUnblocked(r *Runner, ctx *DemoContext) error {
-	m, raw, err := r.vybe("resume", "--request-id", rid("p5s24", 1))
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(m, raw); err != nil {
-		return err
-	}
-	brief, ok := m["data"].(map[string]any)["brief"].(map[string]any)
-	if !ok {
-		return fmt.Errorf("brief missing: %s", raw)
-	}
-	task, ok := brief["task"].(map[string]any)
-	if !ok {
-		return fmt.Errorf("expected focus task, got nil: %s", raw)
-	}
-	taskID := task["id"].(string)
-	if taskID != ctx.TestsTaskID {
-		return fmt.Errorf("expected Write tests %s, got %s", ctx.TestsTaskID, taskID)
-	}
-	r.printDetail("Resume correctly selected Write tests (%s)", taskID)
+	r.printDetail("Deploy task claimed: pending → in_progress")
 	return nil
 }
 
 func stepCompleteFinalTask(r *Runner, ctx *DemoContext) error {
-	bm, braw, err := r.vybe("task", "begin",
-		"--id", ctx.TestsTaskID,
-		"--request-id", rid("p5s25", 1),
-	)
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(bm, braw); err != nil {
-		return err
-	}
-
 	dm, draw, err := r.vybe("task", "complete",
-		"--id", ctx.TestsTaskID,
+		"--id", ctx.DeployTaskID,
 		"--outcome", "done",
-		"--summary", "All tests written and passing",
-		"--request-id", rid("p5s25", 2),
+		"--summary", "Deployed to production",
+		"--request-id", rid("p5s24", 1),
 	)
 	if err != nil {
 		return err
@@ -616,12 +561,12 @@ func stepCompleteFinalTask(r *Runner, ctx *DemoContext) error {
 	if status != "completed" {
 		return fmt.Errorf("expected completed, got %s", status)
 	}
-	r.printDetail("Write tests: in_progress → completed — all 3 tasks done")
+	r.printDetail("Deploy: in_progress → completed — all 3 tasks done")
 	return nil
 }
 
 func stepEmptyQueue(r *Runner, ctx *DemoContext) error {
-	m, raw, err := r.vybe("resume", "--request-id", rid("p5s26", 1))
+	m, raw, err := r.vybe("resume", "--request-id", rid("p5s25", 1))
 	if err != nil {
 		return err
 	}
@@ -636,6 +581,25 @@ func stepEmptyQueue(r *Runner, ctx *DemoContext) error {
 		return fmt.Errorf("expected task=null, got: %v", brief["task"])
 	}
 	r.printDetail("Queue empty — task=null")
+	return nil
+}
+
+func stepEmptyQueuePeek(r *Runner, ctx *DemoContext) error {
+	m, raw, err := r.vybe("resume", "--peek")
+	if err != nil {
+		return err
+	}
+	if err := r.mustSuccess(m, raw); err != nil {
+		return err
+	}
+	brief, ok := m["data"].(map[string]any)["brief"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("brief missing: %s", raw)
+	}
+	if brief["task"] != nil {
+		return fmt.Errorf("expected task=null on peek, got: %v", brief["task"])
+	}
+	r.printDetail("Read-only check confirms queue still empty")
 	return nil
 }
 
@@ -1188,6 +1152,7 @@ func stepOverrideFocus(r *Runner, ctx *DemoContext) error {
 		return err
 	}
 	focusTargetID := getStr(cm, "data", "task", "id")
+	ctx.FocusTaskID = focusTargetID
 
 	// Use resume --focus to override the agent's focus task
 	m, raw, err := r.vybe("resume",
@@ -1531,8 +1496,25 @@ func stepHookInstallUninstall(r *Runner, ctx *DemoContext) error {
 }
 
 func stepLoopDryRun(r *Runner, ctx *DemoContext) error {
+	if ctx.FocusTaskID != "" {
+		// Clear the explicit focus task created in Act XIII so this step
+		// deterministically demonstrates discovery of the newly created loop task.
+		pm, praw, err := r.vybe("task", "set-status",
+			"--id", ctx.FocusTaskID,
+			"--status", "completed",
+			"--request-id", rid("p17loop", 0),
+		)
+		if err != nil {
+			return err
+		}
+		if err := r.mustSuccess(pm, praw); err != nil {
+			return err
+		}
+	}
+
 	cm, craw, err := r.vybe("task", "create",
 		"--title", "Loop Demo Task",
+		"--project-id", ctx.ProjectID,
 		"--request-id", rid("p17loop", 1),
 	)
 	if err != nil {
@@ -1547,7 +1529,7 @@ func stepLoopDryRun(r *Runner, ctx *DemoContext) error {
 	}
 	r.printDetail("Created pending task %s for loop to discover", loopTaskID)
 
-	m, raw, err := r.vybe("loop", "--dry-run", "--max-tasks=1", "--cooldown=0s")
+	m, raw, err := r.vybe("loop", "--project-dir", ctx.ProjectID, "--dry-run", "--max-tasks=1", "--cooldown=0s")
 	if err != nil {
 		return err
 	}
@@ -1582,6 +1564,7 @@ func stepLoopDryRun(r *Runner, ctx *DemoContext) error {
 func stepLoopCircuitBreaker(r *Runner, ctx *DemoContext) error {
 	cm, craw, err := r.vybe("task", "create",
 		"--title", "Circuit Breaker Task",
+		"--project-id", ctx.ProjectID,
 		"--request-id", rid("p17cb", 1),
 	)
 	if err != nil {
@@ -1607,7 +1590,7 @@ func stepLoopCircuitBreaker(r *Runner, ctx *DemoContext) error {
 	}
 	r.printDetail("Task %s is now in_progress", cbTaskID)
 
-	m, raw, err := r.vybe("loop", "--command", "true", "--max-tasks=1", "--max-fails=1", "--cooldown=0s", "--task-timeout=5s")
+	m, raw, err := r.vybe("loop", "--project-dir", ctx.ProjectID, "--command", "true", "--max-tasks=1", "--max-fails=1", "--cooldown=0s", "--task-timeout=5s")
 	if err != nil {
 		return err
 	}
