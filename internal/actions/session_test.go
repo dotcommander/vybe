@@ -119,44 +119,6 @@ func TestSessionRetrospective_SkipsWhenFewEvents(t *testing.T) {
 	require.Contains(t, result.SkipReason, "insufficient events")
 }
 
-func TestSessionRetrospectiveRuleOnlyWindow_UsesOnlyWindow(t *testing.T) {
-	db, cleanup := setupTestDBWithCleanup(t)
-	defer cleanup()
-
-	_, err := store.LoadOrCreateAgentState(db, "test-agent")
-	require.NoError(t, err)
-
-	var untilID int64
-	for range 2 {
-		require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
-			id, e := store.InsertEventTx(tx, models.EventKindToolFailure, "test-agent", "", "bash failed", "")
-			if e == nil {
-				untilID = id
-			}
-			return e
-		}))
-	}
-
-	for range 2 {
-		require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
-			_, e := store.InsertEventTx(tx, models.EventKindToolFailure, "test-agent", "", "grep failed", "")
-			return e
-		}))
-	}
-
-	result, err := SessionRetrospectiveRuleOnlyWindow(db, "test-agent", "", 0, untilID, "retro_window_test")
-	require.NoError(t, err)
-	require.False(t, result.Skipped)
-
-	bashMem, err := store.GetMemory(db, "repeated_bash_failure", "global", "")
-	require.NoError(t, err)
-	require.NotNil(t, bashMem)
-
-	grepMem, err := store.GetMemory(db, "repeated_grep_failure", "global", "")
-	require.NoError(t, err)
-	require.Nil(t, grepMem)
-}
-
 func TestAutoSummarizeEventsIdempotent(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()

@@ -472,50 +472,6 @@ func FetchSessionEvents(db *sql.DB, sinceID int64, projectID string, limit int) 
 	return events, nil
 }
 
-// FetchSessionEventsWindow retrieves actionable session events within an explicit
-// (sinceID, untilID] id window, in chronological order.
-func FetchSessionEventsWindow(db *sql.DB, sinceID, untilID int64, projectID string, limit int) ([]*models.Event, error) {
-	if limit <= 0 {
-		limit = 200
-	}
-	if untilID <= sinceID {
-		return []*models.Event{}, nil
-	}
-
-	var events []*models.Event
-
-	err := RetryWithBackoff(func() error {
-		query := `
-			SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
-			FROM events
-			WHERE id > ? AND id <= ? AND archived_at IS NULL
-			  AND kind IN ('user_prompt', 'reasoning', 'tool_failure', 'task_status', 'progress')
-		`
-		args := []any{sinceID, untilID}
-		if projectID != "" {
-			query += " AND " + ProjectScopeClause
-			args = append(args, projectID)
-		}
-		query += " ORDER BY id ASC LIMIT ?"
-		args = append(args, limit)
-
-		rows, err := db.QueryContext(context.Background(), query, args...)
-		if err != nil {
-			return fmt.Errorf("failed to fetch session events window: %w", err)
-		}
-		defer func() { _ = rows.Close() }()
-
-		events, err = scanEventRows(rows)
-		return err
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return events, nil
-}
-
 // GetTaskStatusCounts returns task status aggregation, optionally scoped to a project.
 func GetTaskStatusCounts(db *sql.DB, projectID string) (*TaskStatusCounts, error) {
 	counts := &TaskStatusCounts{}

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 
@@ -67,34 +66,6 @@ func TestFetchEventsSinceRespectLimit(t *testing.T) {
 	if len(events) != 3 {
 		t.Errorf("Expected 3 events (limit), got %d", len(events))
 	}
-}
-
-func TestFetchSessionEventsWindow_BoundsByUntilID(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	var ids []int64
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
-		id1, err := InsertEventTx(tx, models.EventKindUserPrompt, "agent", "", "p1", "")
-		if err != nil {
-			return err
-		}
-		id2, err := InsertEventTx(tx, models.EventKindToolFailure, "agent", "", "bash failed", "")
-		if err != nil {
-			return err
-		}
-		id3, err := InsertEventTx(tx, models.EventKindProgress, "agent", "", "done", "")
-		if err != nil {
-			return err
-		}
-		ids = []int64{id1, id2, id3}
-		return nil
-	}))
-
-	events, err := FetchSessionEventsWindow(db, ids[0], ids[1], "", 200)
-	require.NoError(t, err)
-	require.Len(t, events, 1)
-	require.Equal(t, ids[1], events[0].ID)
 }
 
 func TestDetermineFocusTask_KeepInProgress(t *testing.T) {

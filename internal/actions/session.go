@@ -241,22 +241,6 @@ func SessionRetrospectiveRuleOnly(db *sql.DB, agentName, requestIDPrefix string)
 	return sessionRetrospective(db, agentName, requestIDPrefix, false)
 }
 
-// SessionRetrospectiveRuleOnlyWindow extracts lessons from a fixed enqueue-time
-// event window to avoid drift when jobs are processed asynchronously.
-func SessionRetrospectiveRuleOnlyWindow(db *sql.DB, agentName, projectID string, sinceEventID, untilEventID int64, requestIDPrefix string) (*sessionRetrospectiveResult, error) {
-	if agentName == "" {
-		return nil, errors.New("agent name is required")
-	}
-
-	events, err := store.FetchSessionEventsWindow(db, sinceEventID, untilEventID, projectID, 200)
-	if err != nil {
-		return nil, fmt.Errorf("fetch session window: %w", err)
-	}
-
-	digest := buildSessionDigestResult(agentName, projectID, sinceEventID, events)
-	return sessionRetrospectiveFromDigest(db, requestIDPrefix, digest, false)
-}
-
 //nolint:funlen,nestif // same complexity as SessionRetrospective; split would duplicate flow.
 func sessionRetrospective(db *sql.DB, agentName, requestIDPrefix string, allowLLM bool) (*sessionRetrospectiveResult, error) {
 	if agentName == "" {
