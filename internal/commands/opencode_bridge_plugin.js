@@ -54,6 +54,19 @@ function runVybeBackground(args, env, stdinPayload) {
   }
 }
 
+function runVybePushBackground(agent, requestPrefix, payloadObj) {
+  try {
+    runVybeBackground([
+      "push",
+      "--agent", agent,
+      "--request-id", reqID(requestPrefix),
+      "--json", JSON.stringify(payloadObj),
+    ])
+  } catch (_) {
+    // best-effort — don't block caller
+  }
+}
+
 function extractUserPrompt(parts) {
   if (!Array.isArray(parts)) return ""
   const texts = []
@@ -84,6 +97,10 @@ export const VybeBridgePlugin = async ({ client }) => {
     try {
       await client.app.log({ body: { service: "vybe-bridge", level, message, extra } })
     } catch (_) {}
+  }
+
+  const logBackground = (level, message, extra) => {
+    void log(level, message, extra)
   }
 
   const agentForSession = (sessionID) => {
@@ -119,8 +136,7 @@ export const VybeBridgePlugin = async ({ client }) => {
             sessionProjects.set(info.id, info.directory)
           }
           const agent = stableAgent(info.id, info.directory)
-          await hydrateSessionPrompt(info.id, info.directory)
-          await log("info", "session.created -> vybe resume", { sessionID: info.id, agent })
+          logBackground("info", "session.created tracked", { sessionID: info.id, agent })
         }
 
         if (event.type === "session.deleted") {
@@ -151,12 +167,13 @@ export const VybeBridgePlugin = async ({ client }) => {
           const sessionID = event.properties?.sessionID || event.properties?.info?.id
           if (sessionID) {
             const agent = agentForSession(sessionID)
-            await runVybe([
-              "push",
-              "--agent", agent,
-              "--request-id", reqID("oc_idle"),
-              "--json", JSON.stringify({ event: { kind: "heartbeat", message: "session_idle", metadata: { source: "opencode", session_id: sessionID } } }),
-            ]).catch(() => {})
+            runVybePushBackground(agent, "oc_idle", {
+              event: {
+                kind: "heartbeat",
+                message: "session_idle",
+                metadata: { source: "opencode", session_id: sessionID },
+              },
+            })
           }
         }
 
@@ -173,21 +190,26 @@ export const VybeBridgePlugin = async ({ client }) => {
             if (!latestTodos) return
             try {
               const agent = agentForSession(sessionID)
-              await runVybe([
-                "push",
-                "--agent", agent,
-                "--request-id", reqID("oc_todo_updated"),
-                "--json", JSON.stringify({ event: { kind: "todo_snapshot", message: "todo.updated (" + latestTodos.length + " items)", metadata: { session_id: sessionID, count: latestTodos.length, todos: latestTodos.map((t) => ({ id: t.id, status: t.status, priority: t.priority })) } } }),
-              ])
+              runVybePushBackground(agent, "oc_todo_updated", {
+                event: {
+                  kind: "todo_snapshot",
+                  message: "todo.updated (" + latestTodos.length + " items)",
+                  metadata: {
+                    session_id: sessionID,
+                    count: latestTodos.length,
+                    todos: latestTodos.map((t) => ({ id: t.id, status: t.status, priority: t.priority })),
+                  },
+                },
+              })
             } catch (err) {
-              await log("warn", "vybe bridge todo debounce flush failed", {
+              logBackground("warn", "vybe bridge todo debounce flush failed", {
                 error: err instanceof Error ? err.message : String(err),
               })
             }
           }, TODO_DEBOUNCE_MS))
         }
       } catch (err) {
-        await log("warn", "vybe bridge event hook failed", {
+        logBackground("warn", "vybe bridge event hook failed", {
           error: err instanceof Error ? err.message : String(err),
         })
       }
@@ -214,12 +236,9 @@ export const VybeBridgePlugin = async ({ client }) => {
             error: truncate(String(input.error || ""), 2048),
             metadata_schema_version: "v1",
           })
-          await runVybe([
-            "push",
-            "--agent", agent,
-            "--request-id", reqID("oc_tool_failure"),
-            "--json", JSON.stringify({ event: { kind: "tool_failure", message: msg, metadata: JSON.parse(metadata) } }),
-          ])
+          runVybePushBackground(agent, "oc_tool_failure", {
+            event: { kind: "tool_failure", message: msg, metadata: JSON.parse(metadata) },
+          })
         } else if (MUTATING_TOOLS[tool]) {
           // Only log mutating tool successes
           let msg = tool
@@ -235,15 +254,12 @@ export const VybeBridgePlugin = async ({ client }) => {
             tool_name: tool,
             metadata_schema_version: "v1",
           })
-          await runVybe([
-            "push",
-            "--agent", agent,
-            "--request-id", reqID("oc_tool_success"),
-            "--json", JSON.stringify({ event: { kind: "tool_success", message: msg, metadata: JSON.parse(metadata) } }),
-          ])
+          runVybePushBackground(agent, "oc_tool_success", {
+            event: { kind: "tool_success", message: msg, metadata: JSON.parse(metadata) },
+          })
         }
       } catch (err) {
-        await log("warn", "vybe bridge tool.execute.after failed", {
+        logBackground("warn", "vybe bridge tool.execute.after failed", {
           error: err instanceof Error ? err.message : String(err),
         })
       }
@@ -261,14 +277,15 @@ export const VybeBridgePlugin = async ({ client }) => {
 
         const truncated = prompt.length > 500 ? prompt.slice(0, 500) : prompt
 
-        await runVybe([
-          "push",
-          "--agent", agent,
-          "--request-id", reqID("oc_user_prompt"),
-          "--json", JSON.stringify({ event: { kind: "user_prompt", message: truncated, metadata: { source: "opencode", session_id: sessionID } } }),
-        ])
+        runVybePushBackground(agent, "oc_user_prompt", {
+          event: {
+            kind: "user_prompt",
+            message: truncated,
+            metadata: { source: "opencode", session_id: sessionID },
+          },
+        })
       } catch (err) {
-        await log("warn", "vybe bridge chat.message failed", {
+        logBackground("warn", "vybe bridge chat.message failed", {
           error: err instanceof Error ? err.message : String(err),
         })
       }
@@ -290,7 +307,7 @@ export const VybeBridgePlugin = async ({ client }) => {
         })
         runVybeBackground(["hook", "checkpoint", "--agent", agent], null, payload)
       } catch (err) {
-        await log("warn", "vybe bridge compacting checkpoint failed", {
+        logBackground("warn", "vybe bridge compacting checkpoint failed", {
           error: err instanceof Error ? err.message : String(err),
         })
       }
@@ -299,11 +316,16 @@ export const VybeBridgePlugin = async ({ client }) => {
     "experimental.chat.system.transform": async (input, output) => {
       if (IS_RETRO_CHILD) return
 
-      const existing = sessionPrompts.get(input.sessionID)
-      if (!existing) {
-        await hydrateSessionPrompt(input.sessionID, sessionProjects.get(input.sessionID))
+      let prompt = sessionPrompts.get(input.sessionID)
+      if (!prompt || prompt.trim() === "") {
+        try {
+          await hydrateSessionPrompt(input.sessionID, sessionProjects.get(input.sessionID))
+        } catch (_) {
+          // If immediate hydration fails, skip prompt injection for this turn.
+        }
+        prompt = sessionPrompts.get(input.sessionID)
       }
-      const prompt = sessionPrompts.get(input.sessionID)
+
       if (!prompt || prompt.trim() === "") {
         return
       }
