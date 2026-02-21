@@ -436,12 +436,11 @@ assert_success "task set-status (blocked): success" "$BLOCK"
 assert_jq_eq "task set-status (blocked): status is blocked" "$BLOCK" '.data.task.status' "blocked"
 
 # ---------------------------------------------------------------------------
-section "status (replaces task stats)"
+section "status --check"
 
-STATS=$(vybe status)
-assert_success "status (task counts): success" "$STATS"
-# status returns task counts under data.tasks
-assert_jq "status (task counts): has tasks key" "$STATS" '.data | has("tasks")'
+STATUS_CHECK=$(vybe status --check)
+assert_success "status --check: success" "$STATUS_CHECK"
+assert_jq "status --check: query_ok true" "$STATUS_CHECK" '.data.query_ok == true'
 
 # ---------------------------------------------------------------------------
 section "task list with status filter"
@@ -680,12 +679,6 @@ ADD_DEP=$(vybe task add-dep \
   --depends-on "$DEP_A_ID" \
   --request-id "$(rid dep_add)")
 assert_success "task add-dep: success" "$ADD_DEP"
-
-REMOVE_DEP=$(vybe task remove-dep \
-  --id "$DEP_B_ID" \
-  --depends-on "$DEP_A_ID" \
-  --request-id "$(rid dep_rem)")
-assert_success "task remove-dep: success" "$REMOVE_DEP"
 
 # ===========================================================================
 # TASK SET-PRIORITY TEST

@@ -385,7 +385,7 @@ func TestDemoAgentSession(t *testing.T) {
 		// UserPromptSubmit hook — confirm event logged
 		t.Run("prompt_logging", func(t *testing.T) {
 			t.Log("Firing UserPromptSubmit hook — every user message is logged as a user_prompt event")
-			t.Log("This gives future sessions a full prompt history for continuity and retrospective analysis")
+			t.Log("This gives future sessions a full prompt history for continuity and recovery analysis")
 			stdin := hookStdin("UserPromptSubmit", sessionID, projectID, "", "Implement the auth system", "")
 			h.vybeWithStdin(stdin, "hook", "prompt")
 			// Verify a user_prompt event was recorded
@@ -408,21 +408,6 @@ func TestDemoAgentSession(t *testing.T) {
 			status := getStr(m, "data", "task", "status")
 			require.Equal(t, "in_progress", status, "task should be in_progress after begin")
 			t.Logf("Task status: pending → %s", status)
-		})
-
-		// PostToolUse (Bash) hook — confirm event logged
-		t.Run("tool_success_tracking", func(t *testing.T) {
-			t.Log("Firing PostToolUse hook for a successful Bash call — `go build ./...`")
-			t.Log("Every tool invocation is logged. Failed sessions leave a complete tool call trail for recovery.")
-			stdin := hookStdinWithToolInput("PostToolUse", sessionID, projectID, "Bash",
-				map[string]any{"command": "go build ./..."})
-			h.vybeWithStdin(stdin, "hook", "tool-success")
-			// Verify tool_success event logged
-			eventsOut := h.vybe("events", "list", "--kind", "tool_success", "--limit", "5", "--all")
-			eventsM := requireSuccess(t, eventsOut)
-			events := eventsM["data"].(map[string]any)["events"].([]any)
-			require.NotEmpty(t, events, "tool_success event should be logged")
-			t.Logf("tool_success event logged — %d success event(s) recorded", len(events))
 		})
 
 		// PostToolUseFailure hook — confirm event logged
@@ -544,7 +529,7 @@ func TestDemoAgentSession(t *testing.T) {
 		// SessionEnd hook
 		t.Run("session_end", func(t *testing.T) {
 			t.Log("Firing SessionEnd hook — the session is over (crash, timeout, or clean exit)")
-			t.Log("vybe records the session end and triggers retrospective extraction asynchronously")
+			t.Log("vybe records the session end and runs checkpoint maintenance")
 			stdin := hookStdin("SessionEnd", sessionID, projectID, "", "", "")
 			h.vybeWithStdin(stdin, "hook", "session-end")
 			// No output to verify — best-effort, silent on success
@@ -647,10 +632,10 @@ func TestDemoAgentSession(t *testing.T) {
 			t.Logf("Task %s ('Deploy'): in_progress → %s (summary: 'Deployed to production')", deployTaskID, status)
 		})
 
-		// Run resume directly — "Write tests" should still be the pending/blocked focus
-		t.Run("resume_with_blocked_task", func(t *testing.T) {
-			t.Log("Running resume — only 'Write tests' remains, blocked by 'Implement auth' dependency")
-			t.Log("The resume algorithm selects the oldest eligible pending task — blocked tasks are skipped until cleared")
+		// Run resume directly — "Write tests" should now be focus after dependency auto-unblock
+		t.Run("resume_with_remaining_task", func(t *testing.T) {
+			t.Log("Running resume — only 'Write tests' remains after 'Implement auth' completed")
+			t.Log("Dependency-completion auto-unblocked this task, so resume should select it")
 			resumeOut := h.vybe("resume", "--request-id", rid("p4s22", 1))
 			resumeM := requireSuccess(t, resumeOut)
 			brief := resumeM["data"].(map[string]any)["brief"].(map[string]any)
@@ -659,7 +644,7 @@ func TestDemoAgentSession(t *testing.T) {
 			if task != nil {
 				taskID := task.(map[string]any)["id"].(string)
 				require.Equal(t, testsTaskID, taskID, "resume should focus on 'Write tests'")
-				t.Logf("Resume focus: task %s ('Write tests') — next to complete once unblocked", taskID)
+				t.Logf("Resume focus: task %s ('Write tests') — ready to complete", taskID)
 			}
 		})
 	})
@@ -669,34 +654,9 @@ func TestDemoAgentSession(t *testing.T) {
 	// -------------------------------------------------------------------------
 	t.Run("ActV_TheQueueMoves", func(t *testing.T) {
 		t.Log("=== ACT V: THE QUEUE MOVES ===")
-		t.Log("Dependency-driven task flow. Removing blockers, observing focus auto-advance,")
+		t.Log("Dependency-driven task flow. Observing auto-advance,")
 		t.Log("completing the remaining work, and confirming the queue is empty.")
 		t.Log("This closes the loop: every task created in Act I is now done.")
-
-		// "Implement auth" is done; "Write tests" was added as depends-on auth.
-		// The dependency doesn't auto-set status. Set it to pending explicitly.
-		t.Run("remove_dependency", func(t *testing.T) {
-			t.Logf("Removing dependency: 'Write tests' (%s) no longer blocked by 'Implement auth'", testsTaskID)
-			t.Log("Dependencies are explicit edges. Removing the edge is what unblocks the task.")
-			// "Implement auth" is completed; remove the dependency to unblock "Write tests"
-			out := h.vybe("task", "remove-dep",
-				"--id", testsTaskID,
-				"--depends-on", authTaskID,
-				"--request-id", rid("p5s23", 1),
-			)
-			requireSuccess(t, out)
-			t.Logf("Dependency edge removed: %s → %s", testsTaskID, authTaskID)
-
-			// Ensure "Write tests" is pending (not blocked)
-			t.Logf("Setting 'Write tests' (%s) to pending — ready for focus selection", testsTaskID)
-			statusOut := h.vybe("task", "set-status",
-				"--id", testsTaskID,
-				"--status", "pending",
-				"--request-id", rid("p5s23", 2),
-			)
-			requireSuccess(t, statusOut)
-			t.Log("'Write tests' is now pending and unblocked — resume will select it next")
-		})
 
 		// Resume — confirm "Write tests" becomes focus
 		t.Run("resume_selects_unblocked", func(t *testing.T) {
@@ -772,7 +732,6 @@ func TestDemoAgentSession(t *testing.T) {
 			}
 			// Verify key event kinds are present
 			require.True(t, kinds["user_prompt"] || kinds["progress"], "expected user_prompt or progress events")
-			require.True(t, kinds["tool_success"], "expected tool_success events")
 			require.True(t, kinds["tool_failure"], "expected tool_failure events")
 			t.Logf("Event stream verified: %d total events, kinds present: %v", len(events), func() []string {
 				var ks []string
@@ -1051,7 +1010,7 @@ func TestDemoAgentSession(t *testing.T) {
 	t.Run("ActXI_TaskLifecycle", func(t *testing.T) {
 		t.Log("=== ACT XI: TASK LIFECYCLE ===")
 		t.Log("Agents mutate task state throughout the work lifecycle.")
-		t.Log("Priority boosts urgent work. Delete cleans up obsolete tasks. Status transitions track progress.")
+		t.Log("Priority boosts urgent work. Status transitions track progress.")
 
 		// Task set-priority
 		t.Run("priority_boost", func(t *testing.T) {
@@ -1077,39 +1036,6 @@ func TestDemoAgentSession(t *testing.T) {
 			require.True(t, ok, "priority should be a number")
 			require.Equal(t, float64(10), priority, "priority should be updated to 10")
 			t.Logf("Priority updated: task %s priority=0 → %d — will jump ahead of other pending tasks", priorityTaskID, int(priority))
-		})
-
-		// Task delete
-		t.Run("delete_task", func(t *testing.T) {
-			t.Log("Creating a task and then deleting it — agents prune work that becomes obsolete")
-			// Create a task to delete
-			createOut := h.vybe("task", "create",
-				"--title", "Task To Delete",
-				"--request-id", rid("p11s45", 1),
-			)
-			createM := requireSuccess(t, createOut)
-			deleteTaskID := getStr(createM, "data", "task", "id")
-			require.NotEmpty(t, deleteTaskID)
-			t.Logf("Created 'Task To Delete' (%s)", deleteTaskID)
-
-			// Delete it
-			out := h.vybe("task", "delete",
-				"--id", deleteTaskID,
-				"--request-id", rid("p11s45", 2),
-			)
-			requireSuccess(t, out)
-			t.Logf("Task %s deleted — verifying it no longer appears in get", deleteTaskID)
-
-			// Verify it's gone — get should return success=false or empty task
-			getOut := h.vybe("task", "get", "--id", deleteTaskID)
-			getM := mustJSON(t, getOut)
-			// Either success=false or data.task is nil
-			if getM["success"] == true {
-				task := getM["data"].(map[string]any)["task"]
-				require.Nil(t, task, "deleted task should not be retrievable")
-			}
-			// success=false is also acceptable
-			t.Logf("Task %s is gone — deletion confirmed", deleteTaskID)
 		})
 
 		// Task set-status
@@ -1301,87 +1227,12 @@ func TestDemoAgentSession(t *testing.T) {
 	})
 
 	// -------------------------------------------------------------------------
-	// Act XVI: IDE Integration
+	// Act XVI: The Full Surface
 	// -------------------------------------------------------------------------
-	t.Run("ActXVI_IDEIntegration", func(t *testing.T) {
-		t.Log("=== ACT XVI: IDE INTEGRATION ===")
-		t.Log("Vybe hooks into the Claude Code IDE lifecycle via hidden subcommands.")
-		t.Log("subagent-start/stop: track spawned agents as events.")
-		t.Log("stop: log turn heartbeats so the event stream reflects IDE turn boundaries.")
-		t.Log("These hooks give the system a full picture of multi-agent collaboration.")
-
-		hookSession := "sess_demo_hook_phase"
-
-		// Hook subagent-start — log sub-agent spawn event
-		t.Run("track_subagent_spawn", func(t *testing.T) {
-			t.Log("Firing SubagentStart hook — Claude Code is spawning a quality-agent sub-agent")
-			t.Log("vybe logs an agent_spawned event so parent agents can track their children's lifecycle")
-			payload := map[string]any{
-				"hook_event_name": "SubagentStart",
-				"session_id":      hookSession,
-				"cwd":             projectID,
-				"description":     "quality-agent",
-			}
-			data, _ := json.Marshal(payload)
-			h.vybeWithStdin(string(data), "hook", "subagent-start")
-
-			// Verify an agent_spawned event was recorded
-			eventsOut := h.vybe("events", "list", "--kind", "agent_spawned", "--limit", "5", "--all")
-			eventsM := requireSuccess(t, eventsOut)
-			events := eventsM["data"].(map[string]any)["events"].([]any)
-			require.NotEmpty(t, events, "agent_spawned event should be logged by subagent-start hook")
-			t.Logf("agent_spawned event recorded — %d spawned event(s) in log (quality-agent launched)", len(events))
-		})
-
-		// Hook subagent-stop — log sub-agent completion event
-		t.Run("track_subagent_completion", func(t *testing.T) {
-			t.Log("Firing SubagentStop hook — the quality-agent sub-agent has finished its work")
-			t.Log("vybe logs an agent_completed event — parent agent now knows the sub-task is done")
-			payload := map[string]any{
-				"hook_event_name": "SubagentStop",
-				"session_id":      hookSession,
-				"cwd":             projectID,
-				"description":     "quality-agent",
-			}
-			data, _ := json.Marshal(payload)
-			h.vybeWithStdin(string(data), "hook", "subagent-stop")
-
-			// Verify an agent_completed event was recorded
-			eventsOut := h.vybe("events", "list", "--kind", "agent_completed", "--limit", "5", "--all")
-			eventsM := requireSuccess(t, eventsOut)
-			events := eventsM["data"].(map[string]any)["events"].([]any)
-			require.NotEmpty(t, events, "agent_completed event should be logged by subagent-stop hook")
-			t.Logf("agent_completed event recorded — %d completion event(s) in log (quality-agent done)", len(events))
-		})
-
-		// Hook stop — log turn completion heartbeat event
-		t.Run("turn_boundary_heartbeat", func(t *testing.T) {
-			t.Log("Firing Stop hook — Claude Code signals the end of a turn (agent finished responding)")
-			t.Log("vybe logs a heartbeat event — turn boundaries are visible in the event stream")
-			payload := map[string]any{
-				"hook_event_name": "Stop",
-				"session_id":      hookSession,
-				"cwd":             projectID,
-			}
-			data, _ := json.Marshal(payload)
-			h.vybeWithStdin(string(data), "hook", "stop")
-
-			// Verify a heartbeat event was recorded
-			eventsOut := h.vybe("events", "list", "--kind", "heartbeat", "--limit", "5", "--all")
-			eventsM := requireSuccess(t, eventsOut)
-			events := eventsM["data"].(map[string]any)["events"].([]any)
-			require.NotEmpty(t, events, "heartbeat event should be logged by stop hook")
-			t.Logf("heartbeat event recorded — %d heartbeat event(s) in log (turn boundaries tracked)", len(events))
-		})
-	})
-
-	// -------------------------------------------------------------------------
-	// Act XVII: The Full Surface
-	// -------------------------------------------------------------------------
-	t.Run("ActXVII_TheFullSurface", func(t *testing.T) {
-		t.Log("=== ACT XVII: THE FULL SURFACE ===")
+	t.Run("ActXVI_TheFullSurface", func(t *testing.T) {
+		t.Log("=== ACT XVI: THE FULL SURFACE ===")
 		t.Log("The remaining commands that round out the vybe surface area.")
-		t.Log("Artifact retrieval, retrospective extraction, loop stats,")
+		t.Log("Artifact retrieval,")
 		t.Log("read-only briefs, hook management.")
 
 		// Artifact list and lookup by ID via artifacts list --task-id
@@ -1401,46 +1252,6 @@ func TestDemoAgentSession(t *testing.T) {
 			gotTaskID, _ := firstArt["task_id"].(string)
 			require.Equal(t, authTaskID, gotTaskID, "artifact task_id should match auth task")
 			t.Logf("Artifact verified: id=%s task_id=%s — artifact lookup works", artifactID, gotTaskID)
-		})
-
-		// Hook retrospective — SessionEnd-style stdin, must not error
-		t.Run("retrospective_extraction", func(t *testing.T) {
-			t.Log("Running `hook retrospective` — extracts a structured retrospective from recent session events")
-			t.Log("Retrospectives distill what happened into persistent memory for future sessions")
-			// Add a couple of events so the retrospective has material (needs >= 2)
-			h.vybe("push",
-				"--json", `{"event":{"kind":"progress","message":"retrospective event A"}}`,
-				"--request-id", rid("p17s63", 1),
-			)
-			h.vybe("push",
-				"--json", `{"event":{"kind":"progress","message":"retrospective event B"}}`,
-				"--request-id", rid("p17s63", 2),
-			)
-			t.Log("Added 2 progress events — retrospective needs material to work with")
-
-			payload := map[string]any{
-				"hook_event_name": "SessionEnd",
-				"session_id":      sessionID,
-				"cwd":             projectID,
-			}
-			data, _ := json.Marshal(payload)
-			// hook retrospective is best-effort; it may log to stderr and produce no stdout.
-			// We only require it exits without panic — no stdout assertion.
-			h.vybeWithStdin(string(data), "hook", "retrospective")
-			t.Log("hook retrospective fired — retrospective extraction complete (best-effort, no stdout required)")
-		})
-
-		// Loop stats — confirm returns JSON without error
-		t.Run("loop_iteration_stats", func(t *testing.T) {
-			t.Log("Fetching loop stats — tracks how many autonomous loop iterations have run")
-			t.Log("Agents running in loop mode use this to monitor their own iteration cadence")
-			out := h.vybe("loop", "stats")
-			m := requireSuccess(t, out)
-			data := m["data"].(map[string]any)
-			// Verify expected fields are present (may be zero since no loops have run)
-			_, hasRuns := data["runs"]
-			require.True(t, hasRuns, "loop stats should include a runs field")
-			t.Logf("Loop stats: runs=%v — field present (zero is expected since no loop iterations ran in this test)", data["runs"])
 		})
 
 		// Brief — read-only brief packet without cursor advancement via resume --peek
@@ -1566,27 +1377,11 @@ func TestDemoAgentSession(t *testing.T) {
 			t.Log("This prevents runaway loops from burning resources on stuck work")
 		})
 
-		// Hook retrospective-bg — background retrospective worker
-		t.Run("background_retrospective", func(t *testing.T) {
-			t.Log("Running `hook retrospective-bg` — background worker that processes retrospective payloads")
-			t.Log("SessionEnd fires this asynchronously so the main session doesn't block on LLM retrospective generation")
-			// Write a minimal JSON payload file (retrospective-bg reads and deletes it)
-			payloadFile := filepath.Join(t.TempDir(), "retro_payload.json")
-			require.NoError(t, os.WriteFile(payloadFile, []byte(`{}`), 0600))
-			t.Logf("Written payload file: %s — retrospective-bg will read and delete it", payloadFile)
-
-			// retrospective-bg takes positional args: <agent> <payload-path>
-			// It produces no stdout (logs to stderr only); just verify it exits without panic.
-			h.vybeRaw("hook", "retrospective-bg", h.agent, payloadFile)
-			// The payload file is deleted by the command on success; either outcome is acceptable.
-			// Main assertion: command did not panic (we reached this line).
-			t.Log("hook retrospective-bg completed — background worker ran without panic")
-			t.Log("")
-			t.Log("╔══════════════════════════════════════════════════════════════╗")
-			t.Log("║  DEMO COMPLETE — 17 acts, every vybe command surface.      ║")
-			t.Log("║  Crash-safe continuity, multi-agent coordination, and      ║")
-			t.Log("║  idempotent operations — all proven end-to-end.            ║")
-			t.Log("╚══════════════════════════════════════════════════════════════╝")
-		})
+		t.Log("")
+		t.Log("╔══════════════════════════════════════════════════════════════╗")
+		t.Log("║  DEMO COMPLETE — 16 acts, continuity-critical surface.      ║")
+		t.Log("║  Crash-safe continuity, multi-agent coordination, and      ║")
+		t.Log("║  idempotent operations — all proven end-to-end.            ║")
+		t.Log("╚══════════════════════════════════════════════════════════════╝")
 	})
 }

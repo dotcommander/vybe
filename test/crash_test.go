@@ -224,21 +224,21 @@ func TestCrashRecovery_OOM(t *testing.T) {
 			require.GreaterOrEqual(t, len(events), 3, "expected at least 3 user_prompt events")
 		})
 
-		// Step 11: Fire PostToolUse hooks for 2 tool calls (mutating tools only — Read is skipped by hook)
+		// Step 11: Fire PostToolUseFailure hooks for 2 failed tool calls
 		t.Run("step11_tool_calls", func(t *testing.T) {
-			stdin1 := hookStdinWithToolInput("PostToolUse", sessionID1, projectID, "Bash",
+			stdin1 := hookStdinWithToolInput("PostToolUseFailure", sessionID1, projectID, "Bash",
 				map[string]any{"command": "go build ./..."})
-			h.vybeWithStdin(stdin1, "hook", "tool-success")
+			h.vybeWithStdin(stdin1, "hook", "tool-failure")
 
-			stdin2 := hookStdinWithToolInput("PostToolUse", sessionID1, projectID, "Write",
+			stdin2 := hookStdinWithToolInput("PostToolUseFailure", sessionID1, projectID, "Write",
 				map[string]any{"file_path": "/tmp/crash_file.go", "content": "package crash"})
-			h.vybeWithStdin(stdin2, "hook", "tool-success")
+			h.vybeWithStdin(stdin2, "hook", "tool-failure")
 
-			// Verify tool events logged
-			eventsOut := h.vybe("events", "list", "--kind", "tool_success", "--limit", "10", "--all")
+			// Verify failure events logged
+			eventsOut := h.vybe("events", "list", "--kind", "tool_failure", "--limit", "10", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
-			require.GreaterOrEqual(t, len(events), 2, "expected at least 2 tool_success events")
+			require.GreaterOrEqual(t, len(events), 2, "expected at least 2 tool_failure events")
 		})
 
 		// NOTE: Intentionally NOT firing checkpoint, session-end, or any cleanup hooks.
