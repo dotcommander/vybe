@@ -125,10 +125,10 @@ type testRecoverableErr struct {
 	action string
 }
 
-func (e *testRecoverableErr) Error() string             { return e.msg }
-func (e *testRecoverableErr) ErrorCode() string         { return e.code }
+func (e *testRecoverableErr) Error() string              { return e.msg }
+func (e *testRecoverableErr) ErrorCode() string          { return e.code }
 func (e *testRecoverableErr) Context() map[string]string { return e.ctx }
-func (e *testRecoverableErr) SuggestedAction() string   { return e.action }
+func (e *testRecoverableErr) SuggestedAction() string    { return e.action }
 
 func TestError_EnrichedRecoverableError(t *testing.T) {
 	t.Run("plain error has no enriched fields", func(t *testing.T) {

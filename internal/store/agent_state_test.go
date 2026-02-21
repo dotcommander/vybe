@@ -97,7 +97,6 @@ func TestAdvanceAgentCursorMonotonic(t *testing.T) {
 	}
 }
 
-
 func TestLoadOrCreateAgentState_FocusProjectIDEmpty(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

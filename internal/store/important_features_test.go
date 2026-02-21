@@ -23,7 +23,6 @@ func TestStartTaskAndFocus_AndIdempotent(t *testing.T) {
 	updated, err := GetTask(db, task.ID)
 	require.NoError(t, err)
 	require.Equal(t, models.TaskStatusInProgress, updated.Status)
-	require.Equal(t, "agent-a", updated.ClaimedBy)
 
 	state, err := LoadOrCreateAgentState(db, "agent-a")
 	require.NoError(t, err)
@@ -38,29 +37,6 @@ func TestStartTaskAndFocus_AndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, statusEventID2, statusEventID3)
 	require.Equal(t, focusEventID2, focusEventID3)
-}
-
-func TestClaimAndReleaseTask(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	task, err := CreateTask(db, "claim me", "", "", 0)
-	require.NoError(t, err)
-
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent-a", task.ID, 0) }))
-
-	claimed, err := GetTask(db, task.ID)
-	require.NoError(t, err)
-	require.Equal(t, "agent-a", claimed.ClaimedBy)
-
-	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "agent-b", task.ID, 5) })
-	require.ErrorContains(t, err, "task already claimed by another agent")
-
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ReleaseTaskClaimTx(tx, "agent-a", task.ID) }))
-
-	released, err := GetTask(db, task.ID)
-	require.NoError(t, err)
-	require.Empty(t, released.ClaimedBy)
 }
 
 func TestAgentStateIdempotentAndCursorHelpers(t *testing.T) {

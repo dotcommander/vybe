@@ -7,9 +7,9 @@ import (
 )
 
 func TestSetAgentFocusTaskWithEventIdempotent_Replay(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	var err error
 
 	agent := "agent1"
 	_, err = LoadOrCreateAgentState(db, agent)

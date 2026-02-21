@@ -137,6 +137,7 @@ func AddArtifactTx(tx *sql.Tx, agentName, taskID, filePath, contentType string) 
 
 // AddArtifactIdempotent performs AddArtifact once per (agent_name, request_id).
 // On retries with the same request id, it returns the originally created artifact + event id.
+//
 //nolint:revive // argument-limit: all artifact params are required and distinct; a struct would add boilerplate at every callsite
 func AddArtifactIdempotent(db *sql.DB, agentName, requestID, taskID, filePath, contentType string) (*models.Artifact, int64, error) {
 	type idemResult struct {

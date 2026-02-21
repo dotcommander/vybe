@@ -35,10 +35,8 @@ type EventsDetail struct {
 
 // MemoryDetail breaks down memory entry counts by health/state.
 type MemoryDetail struct {
-	Active     int `json:"active"`
-	Stale      int `json:"stale"`
-	Superseded int `json:"superseded"`
-	Expired    int `json:"expired"`
+	Active  int `json:"active"`
+	Expired int `json:"expired"`
 }
 
 // AgentsDetail provides agent activity counts.
@@ -56,7 +54,7 @@ type TasksDetail struct {
 func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 	counts := &StatusCounts{}
 	var evActive, evArchived int
-	var memActive, memStale, memSuperseded, memExpired int
+	var memActive, memExpired int
 	var agActive7d int
 	var taskTotal, taskUnknown int
 
@@ -73,9 +71,7 @@ func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 				(SELECT COUNT(*) FROM projects),
 				(SELECT COUNT(*) FROM events WHERE archived_at IS NULL),
 				(SELECT COUNT(*) FROM events WHERE archived_at IS NOT NULL),
-				(SELECT COUNT(*) FROM memory WHERE superseded_by IS NULL AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)),
-				(SELECT COUNT(*) FROM memory WHERE superseded_by IS NULL AND confidence < 0.3 AND COALESCE(last_seen_at, created_at) < datetime('now', '-14 days')),
-				(SELECT COUNT(*) FROM memory WHERE superseded_by IS NOT NULL),
+				(SELECT COUNT(*) FROM memory WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP),
 				(SELECT COUNT(*) FROM memory WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP),
 				(SELECT COUNT(*) FROM agent_state WHERE last_active_at >= datetime('now', '-7 days')),
 				(SELECT COUNT(*) FROM tasks),
@@ -92,8 +88,6 @@ func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 			&evActive,
 			&evArchived,
 			&memActive,
-			&memStale,
-			&memSuperseded,
 			&memExpired,
 			&agActive7d,
 			&taskTotal,
@@ -105,7 +99,7 @@ func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 	}
 
 	counts.EventsDetail = &EventsDetail{Active: evActive, Archived: evArchived}
-	counts.MemoryDetail = &MemoryDetail{Active: memActive, Stale: memStale, Superseded: memSuperseded, Expired: memExpired}
+	counts.MemoryDetail = &MemoryDetail{Active: memActive, Expired: memExpired}
 	counts.AgentsDetail = &AgentsDetail{Active7d: agActive7d}
 	counts.TasksDetail = &TasksDetail{Total: taskTotal, Unknown: taskUnknown}
 

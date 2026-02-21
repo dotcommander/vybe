@@ -13,7 +13,11 @@ import (
 
 func setupMemoryTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
-	db, err := InitDBWithPath(":memory:")
+	// Use a temp-file DB per test to avoid shared in-memory DB contamination.
+	// InitDBWithPath(":memory:") maps to file::memory:?cache=shared which is
+	// global across all connections — tests would see each other's data.
+	dir := t.TempDir()
+	db, err := InitDBWithPath(dir + "/test.db")
 	require.NoError(t, err)
 	return db, func() { _ = db.Close() }
 }
@@ -98,10 +102,9 @@ func TestUpsertMemoryWithEventIdempotent_TaskScope(t *testing.T) {
 	defer cleanup()
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	eventID, reinforced, _, _, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_task_scope_upsert", "checkpoint", "step_3", "", "task", "task-1", &expiresAt, nil, nil)
+	eventID, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_task_scope_upsert", "checkpoint", "step_3", "", "task", "task-1", &expiresAt)
 	require.NoError(t, err)
 	require.Greater(t, eventID, int64(0))
-	assert.False(t, reinforced)
 
 	// Memory is present
 	mem, err := GetMemory(db, "checkpoint", "task", "task-1")
@@ -161,7 +164,7 @@ func TestListMemory_GlobalScope(t *testing.T) {
 	require.NoError(t, SetMemory(db, "key2", "value2", "string", "global", "", nil))
 	require.NoError(t, SetMemory(db, "key3", "value3", "string", "global", "", nil))
 
-	memories, err := ListMemoryWithOptions(db, "global", "", MemoryReadOptions{})
+	memories, err := ListMemory(db, "global", "")
 	require.NoError(t, err)
 	assert.Len(t, memories, 3)
 }
@@ -176,16 +179,15 @@ func TestListMemory_ProjectScope_Isolated(t *testing.T) {
 	require.NoError(t, SetMemory(db, "key3", "value3", "string", "project", "proj-b", nil))
 
 	// List for proj-a
-	memories, err := ListMemoryWithOptions(db, "project", "proj-a", MemoryReadOptions{})
+	memories, err := ListMemory(db, "project", "proj-a")
 	require.NoError(t, err)
 	assert.Len(t, memories, 2)
 
 	// List for proj-b
-	memories, err = ListMemoryWithOptions(db, "project", "proj-b", MemoryReadOptions{})
+	memories, err = ListMemory(db, "project", "proj-b")
 	require.NoError(t, err)
 	assert.Len(t, memories, 1)
 }
-
 
 func TestSetMemory_WithExpiration(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
@@ -228,7 +230,7 @@ func TestListMemory_FilterExpired(t *testing.T) {
 	require.NoError(t, SetMemory(db, "key2", "value2", "string", "global", "", &valid))
 	require.NoError(t, SetMemory(db, "key3", "value3", "string", "global", "", nil))
 
-	memories, err := ListMemoryWithOptions(db, "global", "", MemoryReadOptions{})
+	memories, err := ListMemory(db, "global", "")
 	require.NoError(t, err)
 	assert.Len(t, memories, 2) // Only valid and nil expiration
 }
@@ -355,82 +357,11 @@ func TestMemory_UniqueConstraint(t *testing.T) {
 	assert.Equal(t, "value2", mem2.Value)
 }
 
-func TestNormalizeMemoryKey(t *testing.T) {
-	tests := []struct {
-		in   string
-		want string
-	}{
-		{in: " API Key ", want: "api_key"},
-		{in: "User.Name", want: "username"},
-		{in: "with   spaces", want: "with_spaces"},
-		{in: "already-clean", want: "already-clean"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.in, func(t *testing.T) {
-			assert.Equal(t, tt.want, NormalizeMemoryKey(tt.in))
-		})
-	}
-}
-
-func TestUpsertMemoryWithEventIdempotent_CanonicalReinforce(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	eventID1, reinforced1, confidence1, canonical1, err := UpsertMemoryWithEventIdempotent(
-		db,
-		"agent1",
-		"req_upsert_1",
-		" API Key ",
-		"secret",
-		"string",
-		"global",
-		"",
-		nil,
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-	require.Greater(t, eventID1, int64(0))
-	assert.False(t, reinforced1)
-	assert.Equal(t, "api_key", canonical1)
-	assert.Equal(t, 0.5, confidence1)
-
-	eventID2, reinforced2, confidence2, canonical2, err := UpsertMemoryWithEventIdempotent(
-		db,
-		"agent1",
-		"req_upsert_2",
-		"api_key",
-		"secret",
-		"string",
-		"global",
-		"",
-		nil,
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-	require.Greater(t, eventID2, eventID1)
-	assert.True(t, reinforced2)
-	assert.Equal(t, "api_key", canonical2)
-	assert.Greater(t, confidence2, confidence1)
-
-	var count int
-	err = db.QueryRow(`SELECT COUNT(*) FROM memory WHERE scope = 'global' AND scope_id = '' AND canonical_key = ?`, canonical2).Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count)
-
-	var lastKind string
-	err = db.QueryRow(`SELECT kind FROM events WHERE id = ?`, eventID2).Scan(&lastKind)
-	require.NoError(t, err)
-	assert.Equal(t, "memory_reinforced", lastKind)
-}
-
 func TestUpsertMemoryWithEventIdempotent_Replay(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	eventID1, reinforced1, _, _, err := UpsertMemoryWithEventIdempotent(
+	eventID1, err := UpsertMemoryWithEventIdempotent(
 		db,
 		"agent1",
 		"req_upsert_replay",
@@ -439,14 +370,11 @@ func TestUpsertMemoryWithEventIdempotent_Replay(t *testing.T) {
 		"string",
 		"task",
 		"task-1",
-		nil,
-		nil,
 		nil,
 	)
 	require.NoError(t, err)
-	assert.False(t, reinforced1)
 
-	eventID2, reinforced2, _, _, err := UpsertMemoryWithEventIdempotent(
+	eventID2, err := UpsertMemoryWithEventIdempotent(
 		db,
 		"agent1",
 		"req_upsert_replay",
@@ -455,46 +383,15 @@ func TestUpsertMemoryWithEventIdempotent_Replay(t *testing.T) {
 		"string",
 		"task",
 		"task-1",
-		nil,
-		nil,
 		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, eventID1, eventID2)
-	assert.Equal(t, reinforced1, reinforced2)
 
 	var memoryCount int
 	err = db.QueryRow(`SELECT COUNT(*) FROM memory WHERE scope = 'task' AND scope_id = 'task-1' AND key = 'checkpoint'`).Scan(&memoryCount)
 	require.NoError(t, err)
 	assert.Equal(t, 1, memoryCount)
-}
-
-func TestCompactMemoryWithEventIdempotent(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	for i := 0; i < 5; i++ {
-		key := fmt.Sprintf("key_%d", i)
-		err := SetMemory(db, key, fmt.Sprintf("value_%d", i), "string", "project", "proj-a", nil)
-		require.NoError(t, err)
-	}
-
-	eventID, compacted, summaryKey, summaryMemoryID, err := CompactMemoryWithEventIdempotent(db, "agent1", "req_compact_1", "project", "proj-a", 0, 2)
-	require.NoError(t, err)
-	require.Greater(t, eventID, int64(0))
-	assert.Equal(t, memoryCompactionSummaryKey, summaryKey)
-	assert.NotEmpty(t, summaryMemoryID)
-	assert.Equal(t, 3, compacted)
-
-	summary, err := GetMemory(db, memoryCompactionSummaryKey, "project", "proj-a")
-	require.NoError(t, err)
-	require.NotNil(t, summary)
-	assert.Equal(t, "json", summary.ValueType)
-
-	var superseded int
-	err = db.QueryRow(`SELECT COUNT(*) FROM memory WHERE scope = 'project' AND scope_id = 'proj-a' AND superseded_by != ''`).Scan(&superseded)
-	require.NoError(t, err)
-	assert.Equal(t, 3, superseded)
 }
 
 func TestGCMemoryWithEventIdempotent(t *testing.T) {
@@ -504,66 +401,17 @@ func TestGCMemoryWithEventIdempotent(t *testing.T) {
 	expired := time.Now().UTC().Add(-1 * time.Hour)
 	require.NoError(t, SetMemory(db, "expired_1", "v", "string", "global", "", &expired))
 	require.NoError(t, SetMemory(db, "expired_2", "v", "string", "global", "", &expired))
-
-	// Create superseded row
 	require.NoError(t, SetMemory(db, "active", "v", "string", "global", "", nil))
-	_, err := db.Exec(`UPDATE memory SET superseded_by = 'memory_x' WHERE key = 'active' AND scope = 'global' AND scope_id = ''`)
-	require.NoError(t, err)
 
 	eventID, deleted, err := GCMemoryWithEventIdempotent(db, "agent1", "req_gc_1", 10)
 	require.NoError(t, err)
 	require.Greater(t, eventID, int64(0))
-	assert.Equal(t, 3, deleted)
+	assert.Equal(t, 2, deleted)
 
 	var remaining int
-	err = db.QueryRow(`SELECT COUNT(*) FROM memory WHERE (expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP) OR superseded_by IS NOT NULL`).Scan(&remaining)
+	err = db.QueryRow(`SELECT COUNT(*) FROM memory WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP`).Scan(&remaining)
 	require.NoError(t, err)
 	assert.Equal(t, 0, remaining)
-}
-
-func TestGetMemory_FilterSuperseded(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	require.NoError(t, SetMemory(db, "active", "v1", "string", "global", "", nil))
-
-	// Supersede the row
-	_, err := db.Exec(`UPDATE memory SET superseded_by = 'memory_x' WHERE key = 'active' AND scope = 'global' AND scope_id = ''`)
-	require.NoError(t, err)
-
-	// Default get should not find it
-	mem, err := GetMemory(db, "active", "global", "")
-	require.NoError(t, err)
-	assert.Nil(t, mem)
-
-	// With include-superseded, should find it
-	mem, err = GetMemoryWithOptions(db, "active", "global", "", MemoryReadOptions{IncludeSuperseded: true})
-	require.NoError(t, err)
-	require.NotNil(t, mem)
-	assert.Equal(t, "memory_x", mem.SupersededBy)
-}
-
-func TestListMemory_FilterSuperseded(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	require.NoError(t, SetMemory(db, "k1", "v1", "string", "global", "", nil))
-	require.NoError(t, SetMemory(db, "k2", "v2", "string", "global", "", nil))
-	require.NoError(t, SetMemory(db, "k3", "v3", "string", "global", "", nil))
-
-	// Supersede k2
-	_, err := db.Exec(`UPDATE memory SET superseded_by = 'memory_x' WHERE key = 'k2' AND scope = 'global' AND scope_id = ''`)
-	require.NoError(t, err)
-
-	// Default list excludes superseded
-	memories, err := ListMemoryWithOptions(db, "global", "", MemoryReadOptions{})
-	require.NoError(t, err)
-	assert.Len(t, memories, 2)
-
-	// With include-superseded, returns all 3
-	memories, err = ListMemoryWithOptions(db, "global", "", MemoryReadOptions{IncludeSuperseded: true})
-	require.NoError(t, err)
-	assert.Len(t, memories, 3)
 }
 
 func TestValidateValueType(t *testing.T) {
@@ -588,52 +436,9 @@ func TestUpsertMemory_RejectsInvalidValueType(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	_, _, _, _, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_vt_1", "k", "v", "invalid", "global", "", nil, nil, nil)
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_vt_1", "k", "v", "invalid", "global", "", nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid value_type")
-}
-
-func TestTouchMemoryIdempotent(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	require.NoError(t, SetMemory(db, "touchme", "v", "string", "global", "", nil))
-
-	mem, err := GetMemory(db, "touchme", "global", "")
-	require.NoError(t, err)
-	origConfidence := mem.Confidence
-
-	eventID, newConf, err := TouchMemoryIdempotent(db, "agent1", "req_touch_1", "touchme", "global", "", 0.1)
-	require.NoError(t, err)
-	assert.Greater(t, eventID, int64(0))
-	assert.Greater(t, newConf, origConfidence)
-
-	// Verify event was created
-	var kind string
-	err = db.QueryRow(`SELECT kind FROM events WHERE id = ?`, eventID).Scan(&kind)
-	require.NoError(t, err)
-	assert.Equal(t, "memory_touched", kind)
-
-	// Replay returns same result
-	eventID2, _, err := TouchMemoryIdempotent(db, "agent1", "req_touch_1", "touchme", "global", "", 0.1)
-	require.NoError(t, err)
-	assert.Equal(t, eventID, eventID2)
-
-	// Touch nonexistent
-	_, _, err = TouchMemoryIdempotent(db, "agent1", "req_touch_2", "nope", "global", "", 0.1)
-	assert.Error(t, err)
-}
-
-func TestTouchMemoryIdempotent_SkipsSuperseded(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	require.NoError(t, SetMemory(db, "old", "v", "string", "global", "", nil))
-	_, err := db.Exec(`UPDATE memory SET superseded_by = 'memory_x' WHERE key = 'old'`)
-	require.NoError(t, err)
-
-	_, _, err = TouchMemoryIdempotent(db, "agent1", "req_touch_3", "old", "global", "", 0.1)
-	assert.Error(t, err)
 }
 
 func TestQueryMemory(t *testing.T) {
@@ -660,67 +465,6 @@ func TestQueryMemory(t *testing.T) {
 	assert.Len(t, results, 0)
 }
 
-func TestQueryMemory_ExcludesSuperseded(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	require.NoError(t, SetMemory(db, "find_me", "v1", "string", "global", "", nil))
-	require.NoError(t, SetMemory(db, "find_old", "v2", "string", "global", "", nil))
-	_, err := db.Exec(`UPDATE memory SET superseded_by = 'memory_x' WHERE key = 'find_old'`)
-	require.NoError(t, err)
-
-	results, err := QueryMemory(db, "global", "", "find%", 10)
-	require.NoError(t, err)
-	assert.Len(t, results, 1)
-	assert.Equal(t, "find_me", results[0].Key)
-}
-
-func TestCanonicalReconciliation(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	// Insert rows with stale canonical keys (simulating pre-migration data)
-	_, err := db.Exec(`INSERT INTO memory (key, canonical_key, value, value_type, scope, scope_id, confidence, last_seen_at)
-		VALUES ('API.Key', 'api.key', 'secret', 'string', 'global', '', 0.5, CURRENT_TIMESTAMP)`)
-	require.NoError(t, err)
-
-	// Run reconciliation
-	require.NoError(t, reconcileCanonicalKeys(db))
-
-	// Verify canonical was re-normalized (strips dots)
-	var canonical string
-	err = db.QueryRow(`SELECT canonical_key FROM memory WHERE key = 'API.Key'`).Scan(&canonical)
-	require.NoError(t, err)
-	assert.Equal(t, "apikey", canonical)
-}
-
-func TestCanonicalReconciliation_ResolvesCollisions(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	// Insert two rows that will collide after canonical normalization
-	_, err := db.Exec(`INSERT INTO memory (key, canonical_key, value, value_type, scope, scope_id, confidence, last_seen_at)
-		VALUES ('api-key', 'api-key', 'v1', 'string', 'global', '', 0.8, CURRENT_TIMESTAMP)`)
-	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO memory (key, canonical_key, value, value_type, scope, scope_id, confidence, last_seen_at)
-		VALUES ('api_key', 'api_key', 'v2', 'string', 'global', '', 0.3, CURRENT_TIMESTAMP)`)
-	require.NoError(t, err)
-
-	require.NoError(t, reconcileCanonicalKeys(db))
-
-	// Only one should remain active
-	var activeCount int
-	err = db.QueryRow(`SELECT COUNT(*) FROM memory WHERE scope = 'global' AND scope_id = '' AND canonical_key = 'api-key' AND superseded_by IS NULL`).Scan(&activeCount)
-	require.NoError(t, err)
-	assert.Equal(t, 1, activeCount)
-
-	// The winner should be the one with higher confidence
-	var winnerValue string
-	err = db.QueryRow(`SELECT value FROM memory WHERE scope = 'global' AND scope_id = '' AND canonical_key = 'api-key' AND superseded_by IS NULL`).Scan(&winnerValue)
-	require.NoError(t, err)
-	assert.Equal(t, "v1", winnerValue)
-}
-
 func TestMemoryEventMetadata_MarshalProducesValidJSON(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
@@ -733,25 +477,14 @@ func TestMemoryEventMetadata_MarshalProducesValidJSON(t *testing.T) {
 		{
 			name: "UpsertMemory produces valid metadata",
 			op: func() error {
-				_, _, _, _, err := UpsertMemoryWithEventIdempotent(
+				_, err := UpsertMemoryWithEventIdempotent(
 					db, "agent1", "req_meta_1",
 					"test-key", "test-value", "string",
-					"global", "", nil, nil, nil,
+					"global", "", nil,
 				)
 				return err
 			},
 			eventKind: "memory_upserted",
-		},
-		{
-			name: "CompactMemory produces valid metadata",
-			op: func() error {
-				_, _, _, _, err := CompactMemoryWithEventIdempotent(
-					db, "agent1", "req_meta_2",
-					"global", "", 0, 0,
-				)
-				return err
-			},
-			eventKind: "memory_compacted",
 		},
 		{
 			name: "GCMemory produces valid metadata",

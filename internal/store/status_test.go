@@ -72,7 +72,7 @@ func TestGetStatusCounts_SingleAtomicQuery(t *testing.T) {
 	assert.GreaterOrEqual(t, counts.EventsDetail.Active, 1, "active events")
 	assert.Equal(t, 0, counts.EventsDetail.Archived, "archived events")
 	assert.Equal(t, 1, counts.MemoryDetail.Active, "active memory")
-	assert.Equal(t, 0, counts.MemoryDetail.Superseded, "superseded memory")
+	assert.Equal(t, 0, counts.MemoryDetail.Expired, "expired memory")
 	assert.Equal(t, 1, counts.AgentsDetail.Active7d, "agents active 7d")
 	assert.Equal(t, 2, counts.TasksDetail.Total, "total tasks")
 	assert.Equal(t, 0, counts.TasksDetail.Unknown, "unknown status tasks")

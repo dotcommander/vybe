@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/require"
@@ -66,6 +67,34 @@ func TestFetchEventsSinceRespectLimit(t *testing.T) {
 	if len(events) != 3 {
 		t.Errorf("Expected 3 events (limit), got %d", len(events))
 	}
+}
+
+func TestFetchSessionEventsWindow_BoundsByUntilID(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	var ids []int64
+	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
+		id1, err := InsertEventTx(tx, models.EventKindUserPrompt, "agent", "", "p1", "")
+		if err != nil {
+			return err
+		}
+		id2, err := InsertEventTx(tx, models.EventKindToolFailure, "agent", "", "bash failed", "")
+		if err != nil {
+			return err
+		}
+		id3, err := InsertEventTx(tx, models.EventKindProgress, "agent", "", "done", "")
+		if err != nil {
+			return err
+		}
+		ids = []int64{id1, id2, id3}
+		return nil
+	}))
+
+	events, err := FetchSessionEventsWindow(db, ids[0], ids[1], "", 200)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, ids[1], events[0].ID)
 }
 
 func TestDetermineFocusTask_KeepInProgress(t *testing.T) {
@@ -142,27 +171,26 @@ func TestDetermineFocusTask_DependencyBlockedKeeps(t *testing.T) {
 	require.Equal(t, blockedTask.ID, focusID, "Should keep dependency-blocked focus")
 }
 
-func TestDetermineFocusTask_TaskAssigned_SkipsClaimedByOther(t *testing.T) {
+func TestDetermineFocusTask_TaskAssigned_SkipsInProgressByOther(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	// Create a pending task and claim it by another agent
-	task, err := CreateTask(db, "Claimed Task", "Description", "", 0)
+	// Create a pending task and set it in_progress by another agent
+	task, err := CreateTask(db, "InProgress Task", "Description", "", 0)
 	require.NoError(t, err)
-	err = Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "other-agent", task.ID, 60) }) // 60 min TTL
-	require.NoError(t, err)
+	require.NoError(t, UpdateTaskStatus(db, task.ID, "in_progress", 1))
 
 	// Create a fallback pending task
 	fallback, err := CreateTask(db, "Fallback Task", "Description", "", 0)
 	require.NoError(t, err)
 
-	// task_assigned event points to the claimed task
+	// task_assigned event points to the in_progress task
 	deltas := []*models.Event{{Kind: "task_assigned", TaskID: task.ID}}
 
-	// agent1 should skip the claimed task and fall through to Rule 4
+	// agent1 should skip the in_progress task (not pending) and fall through to Rule 4
 	focusID, err := DetermineFocusTask(db, "agent1", "", deltas, "")
 	require.NoError(t, err)
-	require.Equal(t, fallback.ID, focusID, "Should skip task claimed by other agent")
+	require.Equal(t, fallback.ID, focusID, "Should skip non-pending task")
 }
 
 func TestDetermineFocusTask_TaskAssignedEvent(t *testing.T) {
@@ -580,7 +608,7 @@ func TestFetchRelevantMemory_ProjectFiltered(t *testing.T) {
 	}
 }
 
-func TestFetchRelevantMemory_FiltersSupersededAndLowSignal(t *testing.T) {
+func TestFetchRelevantMemory_FiltersExpired(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -589,25 +617,12 @@ func TestFetchRelevantMemory_FiltersSupersededAndLowSignal(t *testing.T) {
 		t.Fatalf("Failed to create task: %v", err)
 	}
 
-	// High signal, should remain.
-	require.NoError(t, SetMemory(db, "high", "value", "string", "task", task.ID, nil))
-	_, err = db.Exec(`UPDATE memory SET confidence = 0.9, last_seen_at = CURRENT_TIMESTAMP WHERE key = 'high' AND scope = 'task' AND scope_id = ?`, task.ID)
-	require.NoError(t, err)
+	// Active memory, should remain.
+	require.NoError(t, SetMemory(db, "active", "value", "string", "task", task.ID, nil))
 
-	// Low confidence and stale, should be filtered out.
-	require.NoError(t, SetMemory(db, "stale_low", "value", "string", "task", task.ID, nil))
-	_, err = db.Exec(`
-		UPDATE memory
-		SET confidence = 0.1,
-		    last_seen_at = datetime('now', '-30 days')
-		WHERE key = 'stale_low' AND scope = 'task' AND scope_id = ?
-	`, task.ID)
-	require.NoError(t, err)
-
-	// Superseded, should be filtered out.
-	require.NoError(t, SetMemory(db, "superseded", "value", "string", "task", task.ID, nil))
-	_, err = db.Exec(`UPDATE memory SET superseded_by = 'memory_summary' WHERE key = 'superseded' AND scope = 'task' AND scope_id = ?`, task.ID)
-	require.NoError(t, err)
+	// Expired memory, should be filtered out.
+	expired := time.Now().UTC().Add(-1 * time.Hour)
+	require.NoError(t, SetMemory(db, "expired", "value", "string", "task", task.ID, &expired))
 
 	memories, err := fetchRelevantMemory(db, task.ID, "")
 	if err != nil {
@@ -619,14 +634,11 @@ func TestFetchRelevantMemory_FiltersSupersededAndLowSignal(t *testing.T) {
 		keys[m.Key] = true
 	}
 
-	if !keys["high"] {
-		t.Fatalf("expected high memory to be present")
+	if !keys["active"] {
+		t.Fatalf("expected active memory to be present")
 	}
-	if keys["stale_low"] {
-		t.Fatalf("did not expect stale low-confidence memory")
-	}
-	if keys["superseded"] {
-		t.Fatalf("did not expect superseded memory")
+	if keys["expired"] {
+		t.Fatalf("did not expect expired memory")
 	}
 }
 
@@ -982,7 +994,7 @@ func TestFetchPipelineTasks_Ordering(t *testing.T) {
 	require.Equal(t, low.ID, tasks[2].ID)
 }
 
-func TestFetchPipelineTasks_ExcludesClaimedAndBlocked(t *testing.T) {
+func TestFetchPipelineTasks_ExcludesInProgressAndBlocked(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -990,10 +1002,10 @@ func TestFetchPipelineTasks_ExcludesClaimedAndBlocked(t *testing.T) {
 	avail, err := CreateTask(db, "Available", "", "", 0)
 	require.NoError(t, err)
 
-	// Claimed by another agent
-	claimed, err := CreateTask(db, "Claimed", "", "", 0)
+	// In_progress task — not in pipeline (not pending)
+	inprog, err := CreateTask(db, "InProgress", "", "", 0)
 	require.NoError(t, err)
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error { return ClaimTaskTx(tx, "other-agent", claimed.ID, 60) }))
+	require.NoError(t, UpdateTaskStatus(db, inprog.ID, "in_progress", 1))
 
 	// Blocked by dependency
 	blocker, err := CreateTask(db, "Blocker", "", "", 0)
@@ -1011,7 +1023,7 @@ func TestFetchPipelineTasks_ExcludesClaimedAndBlocked(t *testing.T) {
 	}
 	require.True(t, ids[avail.ID], "Available task should be in pipeline")
 	require.True(t, ids[blocker.ID], "Blocker task should be in pipeline (it's pending, no deps)")
-	require.False(t, ids[claimed.ID], "Claimed task should be excluded")
+	require.False(t, ids[inprog.ID], "In_progress task should be excluded")
 	require.False(t, ids[blocked.ID], "Blocked task should be excluded")
 }
 

@@ -25,7 +25,7 @@ type Response struct {
 	Data            interface{}       `json:"data,omitempty"`
 	Error           string            `json:"error,omitempty"`
 	ErrorCode       string            `json:"error_code,omitempty"`
-	ErrorContext    map[string]string  `json:"error_context,omitempty"`
+	ErrorContext    map[string]string `json:"error_context,omitempty"`
 	SuggestedAction string            `json:"suggested_action,omitempty"`
 }
 

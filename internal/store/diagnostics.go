@@ -8,7 +8,7 @@ import (
 
 // Diagnostic represents a single consistency check finding.
 type Diagnostic struct {
-	Level           string `json:"level"`                      // "warning" or "error"
+	Level           string `json:"level"` // "warning" or "error"
 	Code            string `json:"code"`
 	Message         string `json:"message"`
 	SuggestedAction string `json:"suggested_action,omitempty"`
@@ -18,58 +18,19 @@ type Diagnostic struct {
 func RunDiagnostics(db *sql.DB) ([]Diagnostic, error) {
 	var diags []Diagnostic
 
-	staleClaims, err := findStaleClaims(db)
-	if err != nil {
-		return nil, fmt.Errorf("stale claims check: %w", err)
-	}
-	diags = append(diags, staleClaims...)
-
 	staleFocus, err := findStaleFocus(db)
 	if err != nil {
 		return nil, fmt.Errorf("stale focus check: %w", err)
 	}
 	diags = append(diags, staleFocus...)
 
-	zombieClaims, err := findZombieClaims(db)
+	staleInProgress, err := findStaleInProgress(db)
 	if err != nil {
-		return nil, fmt.Errorf("zombie claims check: %w", err)
+		return nil, fmt.Errorf("stale in_progress check: %w", err)
 	}
-	diags = append(diags, zombieClaims...)
+	diags = append(diags, staleInProgress...)
 
 	return diags, nil
-}
-
-// findStaleClaims finds tasks that are in_progress with expired claims.
-func findStaleClaims(db *sql.DB) ([]Diagnostic, error) {
-	rows, err := db.QueryContext(context.Background(), `
-		SELECT id, claimed_by
-		FROM tasks
-		WHERE status = 'in_progress'
-		  AND claimed_by IS NOT NULL
-		  AND claim_expires_at IS NOT NULL
-		  AND claim_expires_at < datetime('now')
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	var diags []Diagnostic
-	for rows.Next() {
-		var taskID string
-		var claimedBy sql.NullString
-		if err := rows.Scan(&taskID, &claimedBy); err != nil {
-			return nil, err
-		}
-		agent := claimedBy.String
-		diags = append(diags, Diagnostic{
-			Level:           "warning",
-			Code:            "STALE_CLAIM",
-			Message:         fmt.Sprintf("task %s has expired claim by agent %s", taskID, agent),
-			SuggestedAction: fmt.Sprintf("vybe task begin --id %s --agent %s --request-id <new>", taskID, agent),
-		})
-	}
-	return diags, rows.Err()
 }
 
 // findStaleFocus finds agent_state rows pointing to completed or non-existent tasks.
@@ -103,15 +64,13 @@ func findStaleFocus(db *sql.DB) ([]Diagnostic, error) {
 	return diags, rows.Err()
 }
 
-// findZombieClaims finds tasks with claimed_by set but expired claim_expires_at that are not in_progress.
-func findZombieClaims(db *sql.DB) ([]Diagnostic, error) {
+// findStaleInProgress finds tasks stuck in in_progress for more than 30 minutes.
+func findStaleInProgress(db *sql.DB) ([]Diagnostic, error) {
 	rows, err := db.QueryContext(context.Background(), `
-		SELECT id, claimed_by, status
+		SELECT id, updated_at
 		FROM tasks
-		WHERE claimed_by IS NOT NULL
-		  AND claim_expires_at IS NOT NULL
-		  AND claim_expires_at < datetime('now')
-		  AND status != 'in_progress'
+		WHERE status = 'in_progress'
+		  AND updated_at < datetime('now', '-30 minutes')
 	`)
 	if err != nil {
 		return nil, err
@@ -120,17 +79,15 @@ func findZombieClaims(db *sql.DB) ([]Diagnostic, error) {
 
 	var diags []Diagnostic
 	for rows.Next() {
-		var taskID string
-		var claimedBy sql.NullString
-		var status string
-		if err := rows.Scan(&taskID, &claimedBy, &status); err != nil {
+		var taskID, updatedAt string
+		if err := rows.Scan(&taskID, &updatedAt); err != nil {
 			return nil, err
 		}
 		diags = append(diags, Diagnostic{
 			Level:           "warning",
-			Code:            "ZOMBIE_CLAIM",
-			Message:         fmt.Sprintf("task %s (status: %s) has expired claim by %s", taskID, status, claimedBy.String),
-			SuggestedAction: fmt.Sprintf("vybe task begin --id %s --agent %s --request-id <new>", taskID, claimedBy.String),
+			Code:            "STALE_IN_PROGRESS",
+			Message:         fmt.Sprintf("task %s has been in_progress since %s", taskID, updatedAt),
+			SuggestedAction: fmt.Sprintf("vybe task set-status --id %s --status=pending --request-id <new>", taskID),
 		})
 	}
 	return diags, rows.Err()

@@ -17,7 +17,7 @@ func TestResolveRunner_Claude(t *testing.T) {
 	r, err := resolveRunner("claude")
 	require.NoError(t, err)
 	assert.Equal(t, "claude", r.command)
-	assert.Equal(t, []string{"-p", "hello", "--output-format", "text"}, r.args("hello"))
+	assert.Equal(t, []string{"-p", "hello", "--output-format", "text", "--settings", `{"hooks":{}}`}, r.args("hello"))
 }
 
 func TestResolveRunner_OpenCode(t *testing.T) {
@@ -124,6 +124,10 @@ if [ "$1" != "-p" ]; then
 fi
 if [ "$3" != "--output-format" ] || [ "$4" != "text" ]; then
   echo "expected --output-format text" >&2
+  exit 1
+fi
+if [ "$5" != "--settings" ] || [ "$6" != '{"hooks":{}}' ]; then
+  echo "expected --settings hookless json" >&2
   exit 1
 fi
 echo '[{"type":"pattern","key":"claude_test","value":"extracted via claude","scope":"global"}]'
@@ -270,4 +274,28 @@ func TestExtract_StderrCapped(t *testing.T) {
 	assert.Contains(t, err.Error(), "truncated")
 	// Verify stderr portion of error message is bounded
 	assert.Less(t, len(err.Error()), 5000)
+}
+
+func TestExtract_SetsRetrospectiveChildEnv(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "claude")
+	err := os.WriteFile(script, []byte(`#!/bin/sh
+if [ "$VYBE_RETRO_CHILD" != "1" ]; then
+  echo "missing env" >&2
+  exit 1
+fi
+echo '[]'
+`), 0o755)
+	require.NoError(t, err)
+
+	t.Setenv("PATH", dir)
+
+	runner, err := NewRunner("claude")
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = runner.Extract(ctx, "prompt")
+	require.NoError(t, err)
 }

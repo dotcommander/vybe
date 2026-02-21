@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -61,9 +62,9 @@ func TestAppendEvent(t *testing.T) {
 }
 
 func TestAppendEventIdempotent_Replay(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	defer func() { _ = db.Close() }()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	var err error
 
 	agent := "agent1"
 	req := "req_1"
@@ -271,4 +272,35 @@ func TestFindArchiveWindow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(0), fromID)
 	require.Equal(t, int64(0), toID)
+}
+
+func TestPruneArchivedEventsIdempotent(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	appendEvent(t, db, "note", "agent1", "", "event one")
+	appendEvent(t, db, "note", "agent1", "", "event two")
+	appendEvent(t, db, "note", "agent1", "", "event three")
+
+	_, _, err := ArchiveEventsRangeWithSummaryIdempotent(db, "agent1", "req-prune-archive", "", "", 1, 2, "compressed")
+	require.NoError(t, err)
+
+	old := time.Now().Add(-45 * 24 * time.Hour).UTC().Format("2006-01-02 15:04:05")
+	_, err = db.Exec(`UPDATE events SET archived_at = ? WHERE id IN (1,2)`, old)
+	require.NoError(t, err)
+
+	deleted, err := PruneArchivedEventsIdempotent(db, "agent1", "req-prune-1", "", 30, 10)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), deleted)
+
+	// Idempotent replay with same request ID returns same count.
+	replayedDeleted, err := PruneArchivedEventsIdempotent(db, "agent1", "req-prune-1", "", 30, 10)
+	require.NoError(t, err)
+	require.Equal(t, deleted, replayedDeleted)
+
+	var total int
+	err = db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&total)
+	require.NoError(t, err)
+	// event 3 + summary event remain.
+	require.Equal(t, 2, total)
 }

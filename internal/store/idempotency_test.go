@@ -8,9 +8,9 @@ import (
 )
 
 func TestIdempotency_BeginCompleteReplay(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	var err error
 
 	agent := "agent1"
 	requestID := "req_1"
@@ -35,9 +35,9 @@ func TestIdempotency_BeginCompleteReplay(t *testing.T) {
 }
 
 func TestIdempotency_InProgressIsRetryable(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	var err error
 
 	agent := "agent1"
 	requestID := "req_inflight"
@@ -59,9 +59,9 @@ func TestIdempotency_InProgressIsRetryable(t *testing.T) {
 }
 
 func TestRunIdempotent_ReplaySkipsOperation(t *testing.T) {
-	db, err := InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	var err error
 
 	type result struct {
 		ProjectID string `json:"project_id"`

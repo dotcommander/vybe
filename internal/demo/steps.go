@@ -174,7 +174,6 @@ func stepSessionStartHook(r *Runner, ctx *DemoContext) error {
 	return nil
 }
 
-
 func stepResume(r *Runner, ctx *DemoContext) error {
 	m, raw, err := r.vybe("resume", "--request-id", rid("p2s7", 1))
 	if err != nil {

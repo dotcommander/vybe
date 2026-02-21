@@ -10,9 +10,8 @@ import (
 )
 
 func TestTaskCreateIdempotent_Replay(t *testing.T) {
-	db, err := store.InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
 
 	agent := "agent1"
 	req := "req_task_create"
@@ -35,9 +34,8 @@ func TestTaskCreateIdempotent_Replay(t *testing.T) {
 }
 
 func TestMemorySetIdempotent_Replay(t *testing.T) {
-	db, err := store.InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
 
 	agent := "agent1"
 	req := "req_mem_set"
@@ -53,19 +51,18 @@ func TestMemorySetIdempotent_Replay(t *testing.T) {
 	require.Equal(t, 1, memCount)
 
 	var eventCount int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM events WHERE kind IN ('memory_upserted', 'memory_reinforced')`).Scan(&eventCount))
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM events WHERE kind = 'memory_upserted'`).Scan(&eventCount))
 	require.Equal(t, 1, eventCount)
 }
 
 func TestResumeIdempotent_Replay(t *testing.T) {
-	db, err := store.InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
 
 	agent := "agent1"
 
 	// Seed: agent state + one task + one event so resume has deltas.
-	_, err = store.LoadOrCreateAgentState(db, agent)
+	_, err := store.LoadOrCreateAgentState(db, agent)
 	require.NoError(t, err)
 	task, _, err := TaskCreateIdempotent(db, agent, "req_seed_task", "t1", "d1", "", 0)
 	require.NoError(t, err)
@@ -84,9 +81,8 @@ func TestResumeIdempotent_Replay(t *testing.T) {
 }
 
 func TestTaskStartIdempotent_Replay(t *testing.T) {
-	db, err := store.InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
 
 	agent := "agent1"
 	task, _, err := TaskCreateIdempotent(db, agent, "req_seed_taskstart", "t1", "d1", "", 0)
@@ -109,9 +105,8 @@ func TestTaskStartIdempotent_Replay(t *testing.T) {
 }
 
 func TestTaskSetStatusIdempotent_Replay(t *testing.T) {
-	db, err := store.InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
 
 	agent := "agent1"
 	task, _, err := TaskCreateIdempotent(db, agent, "req_seed_taskstatus", "t1", "d1", "", 0)
@@ -136,41 +131,12 @@ func TestTaskSetStatusIdempotent_Replay(t *testing.T) {
 	require.Equal(t, 1, cnt)
 }
 
-func TestTaskHeartbeatIdempotent_Replay(t *testing.T) {
-	db, err := store.InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	agent := "agent1"
-	task, _, err := TaskCreateIdempotent(db, agent, "req_seed_taskheartbeat", "t1", "d1", "", 0)
-	require.NoError(t, err)
-	_, err = TaskStartIdempotent(db, agent, "req_seed_taskheartbeat_start", task.ID)
-	require.NoError(t, err)
-
-	req := "req_task_heartbeat"
-	r1, err := TaskHeartbeatIdempotent(db, agent, req, task.ID, 5)
-	require.NoError(t, err)
-	r2, err := TaskHeartbeatIdempotent(db, agent, req, task.ID, 5)
-	require.NoError(t, err)
-
-	require.Equal(t, r1.EventID, r2.EventID)
-	require.NotNil(t, r2.Task.LastHeartbeatAt)
-
-	var cnt int
-	require.NoError(t, db.QueryRow(
-		`SELECT COUNT(*) FROM events WHERE kind = 'task_heartbeat' AND task_id = ?`,
-		task.ID,
-	).Scan(&cnt))
-	require.Equal(t, 1, cnt)
-}
-
 func TestMemoryDeleteIdempotent_Replay(t *testing.T) {
-	db, err := store.InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
 
 	agent := "agent1"
-	_, err = MemorySetIdempotent(db, agent, "req_seed_memdel", "k", "v", "", "global", "", nil)
+	_, err := MemorySetIdempotent(db, agent, "req_seed_memdel", "k", "v", "", "global", "", nil)
 	require.NoError(t, err)
 
 	req := "req_mem_delete"
@@ -190,9 +156,8 @@ func TestMemoryDeleteIdempotent_Replay(t *testing.T) {
 }
 
 func TestArtifactAddIdempotent_Replay(t *testing.T) {
-	db, err := store.InitDBWithPath(":memory:")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
 
 	agent := "agent1"
 	task, _, err := TaskCreateIdempotent(db, agent, "req_seed_artifact", "t1", "d1", "", 0)

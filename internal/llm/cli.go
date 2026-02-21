@@ -5,9 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
+
+const retrospectiveChildEnv = "VYBE_RETRO_CHILD"
+
+const disableExternalLLMEnv = "VYBE_DISABLE_EXTERNAL_LLM"
+
+const claudeHooklessSettingsJSON = `{"hooks":{}}`
 
 // validatePrompt checks for unsafe characters in prompts.
 // While Go's exec avoids shell injection (no shell involved),
@@ -36,6 +43,10 @@ type Runner struct {
 // NewRunner returns a Runner for the given agent name.
 // Returns error if agent type is unknown or CLI binary is not found in PATH.
 func NewRunner(agentName string) (*Runner, error) {
+	if strings.TrimSpace(os.Getenv(disableExternalLLMEnv)) != "" {
+		return nil, fmt.Errorf("external LLM CLI execution disabled by %s", disableExternalLLMEnv)
+	}
+
 	r, err := resolveRunner(agentName)
 	if err != nil {
 		return nil, err
@@ -59,7 +70,9 @@ func resolveRunner(agentName string) (*Runner, error) {
 	case strings.HasPrefix(name, "claude"), name == "":
 		return &Runner{
 			command: "claude",
-			args:    func(p string) []string { return []string{"-p", p, "--output-format", "text"} },
+			args: func(p string) []string {
+				return []string{"-p", p, "--output-format", "text", "--settings", claudeHooklessSettingsJSON}
+			},
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type %q (supported: claude, opencode)", agentName)
@@ -96,6 +109,7 @@ func (r *Runner) Extract(ctx context.Context, prompt string) (string, error) {
 	}
 	args := r.args(prompt)
 	cmd := exec.CommandContext(ctx, r.command, args...) //nolint:gosec // G204: command is caller-provided LLM CLI binary, validated at construction
+	cmd.Env = append(os.Environ(), retrospectiveChildEnv+"=1")
 
 	var stdout bytes.Buffer
 	stderrW := &limitedWriter{maxBytes: 4096}

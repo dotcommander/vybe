@@ -22,14 +22,14 @@ func TestMemoryDeleteIdempotent_ReplayWrapper(t *testing.T) {
 	require.Equal(t, first, second)
 }
 
-func TestParseMaxAge_SupportsShorthandAndEmpty(t *testing.T) {
-	d, err := ParseMaxAge("14d")
+func TestParseDurationExtended_SupportsShorthandAndEmpty(t *testing.T) {
+	d, err := parseDurationExtended("14d")
 	require.NoError(t, err)
 	require.Equal(t, 14*24*time.Hour, d)
 
-	d, err = ParseMaxAge("")
+	d, err = parseDurationExtended("2w")
 	require.NoError(t, err)
-	require.Equal(t, time.Duration(0), d)
+	require.Equal(t, 14*24*time.Hour, d)
 }
 
 func TestProjectCreateIdempotent_Replay(t *testing.T) {
