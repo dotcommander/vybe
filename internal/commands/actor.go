@@ -15,11 +15,7 @@ import (
 // Precedence:
 // 1) per-command flag (legacy, e.g. --agent on a subcommand)
 // 2) global flag --agent
-// 3) legacy global flag --actor (DEPRECATED — will be removed in v1.0)
-// 4) env var VYBE_AGENT
-//
-// Deprecation plan: --actor is kept for backward compatibility through v0.x.
-// It will be removed in v1.0. Callers should migrate to --agent or VYBE_AGENT.
+// 3) env var VYBE_AGENT
 func resolveActorName(cmd *cobra.Command, perCmdFlag string) string {
 	raw := ""
 	if perCmdFlag != "" {
@@ -29,11 +25,6 @@ func resolveActorName(cmd *cobra.Command, perCmdFlag string) string {
 	}
 	if raw == "" {
 		if v, err := cmd.Flags().GetString("agent"); err == nil && v != "" {
-			raw = v
-		}
-	}
-	if raw == "" {
-		if v, err := cmd.Flags().GetString("actor"); err == nil && v != "" {
 			raw = v
 		}
 	}

@@ -12,7 +12,6 @@ func newActorTestCmd(t *testing.T) *cobra.Command {
 	t.Helper()
 	cmd := &cobra.Command{Use: "test"}
 	cmd.Flags().String("agent", "", "")
-	cmd.Flags().String("actor", "", "")
 	cmd.Flags().String("worker", "", "")
 	return cmd
 }
@@ -20,7 +19,6 @@ func newActorTestCmd(t *testing.T) *cobra.Command {
 func TestResolveActorName_Precedence(t *testing.T) {
 	cmd := newActorTestCmd(t)
 	t.Setenv("VYBE_AGENT", "env-agent")
-	require.NoError(t, cmd.Flags().Set("actor", "legacy-actor"))
 	require.NoError(t, cmd.Flags().Set("agent", "global-agent"))
 	require.NoError(t, cmd.Flags().Set("worker", "per-cmd-agent"))
 
@@ -49,7 +47,6 @@ func TestRequireActorName_ErrorWhenMissing(t *testing.T) {
 func newTestCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "test"}
 	cmd.Flags().String("agent", "", "")
-	cmd.Flags().String("actor", "", "")
 	return cmd
 }
 
