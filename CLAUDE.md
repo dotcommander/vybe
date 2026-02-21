@@ -202,6 +202,23 @@ When unset, all project-scoped memory is included (legacy behavior).
 
 **SQLite CRITICAL:** Never issue `db.Query*` while a parent `rows` cursor is open on the same `*sql.DB`. SQLite single-connection tests deadlock silently. Always: scan into slice, close rows, THEN do follow-up queries.
 
+### SQLite Concurrency Model
+
+Vybe uses two complementary concurrency mechanisms. They solve different problems:
+
+| Mechanism | What it does | What it prevents |
+|-----------|-------------|-----------------|
+| **Transactions** (`Transact()`) | Pessimistic write serialization (SQLite WAL = one writer at a time) | Partial writes, torn state |
+| **CAS versioning** (`WHERE version = ?`) | Optimistic read-modify-write safety | Silent overwrites when two agents read the same version, compute independently, and both try to write |
+
+Transactions alone don't prevent read-modify-write races because the read and the decision to write can span different transactions (or different CLI invocations). CAS runs *inside* transactions — it's not an alternative to them.
+
+**Implementation surface:**
+- `version` column on `tasks` and `agent_state`
+- `ErrVersionConflict` sentinel error
+- `RetryWithBackoff()` handles both `SQLITE_BUSY` and version conflicts
+- `RunIdempotentWithRetry()` adds configurable retry with conflict predicate
+
 ## Verification Commands
 
 ```bash
