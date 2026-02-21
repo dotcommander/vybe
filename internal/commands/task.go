@@ -7,7 +7,6 @@ import (
 	"github.com/dotcommander/vybe/internal/actions"
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/output"
-	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -29,9 +28,6 @@ func NewTaskCmd() *cobra.Command {
 	cmd.AddCommand(newTaskDeleteCmd())
 	cmd.AddCommand(newTaskCompleteCmd())
 	cmd.AddCommand(newTaskSetPriorityCmd())
-	cmd.AddCommand(newTaskNextCmd())
-	cmd.AddCommand(newTaskUnlocksCmd())
-	cmd.AddCommand(newTaskStatsCmd())
 
 	return cmd
 }
@@ -469,103 +465,3 @@ func newTaskSetPriorityCmd() *cobra.Command {
 	return cmd
 }
 
-func newTaskNextCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "next",
-		Short: "Show next pending tasks in pipeline order",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			agentName, err := requireActorName(cmd, "")
-			if err != nil {
-				return cmdErr(err)
-			}
-			projectFilter, _ := cmd.Flags().GetString("project")
-			limit, _ := cmd.Flags().GetInt("limit")
-
-			var tasks []store.PipelineTask
-			if err := withDB(func(db *DB) error {
-				t, err := actions.TaskNext(db, agentName, projectFilter, limit)
-				if err != nil {
-					return err
-				}
-				tasks = t
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			type resp struct {
-				Count int                  `json:"count"`
-				Tasks []store.PipelineTask `json:"tasks"`
-			}
-			return output.PrintSuccess(resp{Count: len(tasks), Tasks: tasks})
-		},
-	}
-
-	cmd.Flags().String("project", "", "Filter by project ID")
-	cmd.Flags().Int("limit", 10, "Maximum number of tasks to return")
-
-	return cmd
-}
-
-func newTaskUnlocksCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "unlocks",
-		Short: "Show tasks that would be unblocked by completing a task",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			taskID, _ := cmd.Flags().GetString("id")
-			if taskID == "" {
-				return cmdErr(errors.New("--id is required"))
-			}
-
-			var tasks []store.PipelineTask
-			if err := withDB(func(db *DB) error {
-				t, err := actions.TaskUnlocks(db, taskID)
-				if err != nil {
-					return err
-				}
-				tasks = t
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			type resp struct {
-				Count int                  `json:"count"`
-				Tasks []store.PipelineTask `json:"tasks"`
-			}
-			return output.PrintSuccess(resp{Count: len(tasks), Tasks: tasks})
-		},
-	}
-
-	cmd.Flags().String("id", "", "Task ID (required)")
-
-	return cmd
-}
-
-func newTaskStatsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "stats",
-		Short: "Show task status counts",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			projectFilter, _ := cmd.Flags().GetString("project")
-
-			var counts *store.TaskStatusCounts
-			if err := withDB(func(db *DB) error {
-				c, err := actions.TaskStats(db, projectFilter)
-				if err != nil {
-					return err
-				}
-				counts = c
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			return output.PrintSuccess(counts)
-		},
-	}
-
-	cmd.Flags().String("project", "", "Filter by project ID")
-
-	return cmd
-}

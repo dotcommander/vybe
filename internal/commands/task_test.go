@@ -12,7 +12,7 @@ func TestNewTaskCmd_HasExpectedSubcommands(t *testing.T) {
 	require.Equal(t, "task", cmd.Use)
 	require.Equal(t, "Manage tasks", cmd.Short)
 
-	for _, name := range []string{"create", "begin", "set-status", "get", "list", "add-dep", "remove-dep", "delete", "complete", "set-priority", "next", "unlocks", "stats"} {
+	for _, name := range []string{"create", "begin", "set-status", "get", "list", "add-dep", "remove-dep", "delete", "complete", "set-priority"} {
 		sub, _, err := cmd.Find([]string{name})
 		require.NoError(t, err)
 		require.NotNil(t, sub)
@@ -158,42 +158,10 @@ func TestTaskSetPriority_RequiredFlags(t *testing.T) {
 	})
 }
 
-func TestTaskNext_RequiredFlags(t *testing.T) {
-	cmd := newTaskNextCmd()
-	err := cmd.RunE(cmd, nil)
-	require.Error(t, err)
-	require.IsType(t, printedError{}, err)
-}
-
-func TestTaskUnlocks_RequiredFlags(t *testing.T) {
-	cmd := newTaskUnlocksCmd()
-	err := cmd.RunE(cmd, nil)
-	require.Error(t, err)
-	require.IsType(t, printedError{}, err)
-}
-
-func TestTaskStats_NoRequiredFlags(t *testing.T) {
-	cmd := newTaskStatsCmd()
-	// Stats has no required flags — it needs a DB connection to succeed,
-	// so just verify it defines the expected flags and doesn't panic on validation
-	requireFlagExists(t, cmd, "project")
-}
-
 func TestTaskSetPriorityCmd_DefinesFlags(t *testing.T) {
 	cmd := newTaskSetPriorityCmd()
 	requireFlagExists(t, cmd, "id")
 	requireFlagExists(t, cmd, "priority")
-}
-
-func TestTaskNextCmd_DefinesFlags(t *testing.T) {
-	cmd := newTaskNextCmd()
-	requireFlagExists(t, cmd, "project")
-	requireFlagExists(t, cmd, "limit")
-}
-
-func TestTaskUnlocksCmd_DefinesFlags(t *testing.T) {
-	cmd := newTaskUnlocksCmd()
-	requireFlagExists(t, cmd, "id")
 }
 
 func requireFlagExists(t *testing.T, cmd *cobra.Command, name string) {

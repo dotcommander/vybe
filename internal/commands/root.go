@@ -17,7 +17,7 @@ func Execute(version string) error {
 
 	root := &cobra.Command{
 		Use:           "vybe",
-		Short:         "Agent continuity primitives (tasks, events, memory, resume/brief)",
+		Short:         "Agent continuity primitives (resume, push, task, memory, status)",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		CompletionOptions: cobra.CompletionOptions{
@@ -54,23 +54,14 @@ func Execute(version string) error {
 	root.PersistentFlags().String("request-id", "", "Idempotency key for mutating operations (default: $VYBE_REQUEST_ID)")
 	root.Flags().BoolP("version", "v", false, "version for vybe")
 
-	root.AddCommand(NewAgentCmd())
-	root.AddCommand(NewEventsCmd())
-	root.AddCommand(NewArtifactCmd())
 	root.AddCommand(NewTaskCmd())
-	root.AddCommand(NewProjectCmd())
 	root.AddCommand(NewMemoryCmd())
 	root.AddCommand(NewResumeCmd())
-	root.AddCommand(NewBriefCmd())
-	root.AddCommand(NewIngestCmd())
 	root.AddCommand(NewLoopCmd())
 	root.AddCommand(NewHookCmd())
-	root.AddCommand(NewSessionCmd())
-	root.AddCommand(NewStatusCmd())
+	root.AddCommand(NewStatusCmd(root)) // root passed for --schema mode
 	root.AddCommand(NewUpgradeCmd())
-	root.AddCommand(NewSnapshotCmd())
 	root.AddCommand(NewPushCmd())
-	root.AddCommand(newSchemaCmd(root))
 
 	err := root.Execute()
 	if err != nil {

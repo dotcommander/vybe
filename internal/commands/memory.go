@@ -24,7 +24,6 @@ func NewMemoryCmd() *cobra.Command {
 	cmd.AddCommand(newMemoryGetCmd())
 	cmd.AddCommand(newMemoryListCmd())
 	cmd.AddCommand(newMemoryDeleteCmd())
-	cmd.AddCommand(newMemoryQueryCmd())
 
 	return cmd
 }
@@ -248,43 +247,3 @@ func newMemoryDeleteCmd() *cobra.Command {
 	return cmd
 }
 
-func newMemoryQueryCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "query",
-		Short: "Search memory entries by pattern",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			scope, _ := cmd.Flags().GetString("scope")
-			scopeID, _ := cmd.Flags().GetString("scope-id")
-			pattern, _ := cmd.Flags().GetString("pattern")
-			limit, _ := cmd.Flags().GetInt("limit")
-
-			var memories []*models.Memory
-			if err := withDB(func(db *DB) error {
-				m, err := actions.MemoryQuery(db, scope, scopeID, pattern, limit)
-				if err != nil {
-					return err
-				}
-				memories = m
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			type resp struct {
-				Scope    string           `json:"scope"`
-				ScopeID  string           `json:"scope_id,omitempty"`
-				Pattern  string           `json:"pattern"`
-				Count    int              `json:"count"`
-				Memories []*models.Memory `json:"memories"`
-			}
-			return output.PrintSuccess(resp{Scope: scope, ScopeID: scopeID, Pattern: pattern, Count: len(memories), Memories: memories})
-		},
-	}
-
-	cmd.Flags().StringP("scope", "s", "global", "Scope (global, project, task, agent)")
-	cmd.Flags().String("scope-id", "", "Scope ID (required for non-global scopes)")
-	cmd.Flags().StringP("pattern", "p", "%", "Key pattern for LIKE matching (e.g., 'api%', '%config%')")
-	cmd.Flags().IntP("limit", "n", 20, "Maximum results to return")
-
-	return cmd
-}
