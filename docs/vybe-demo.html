@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VYBE — Durable Continuity for AI Agents</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;
+  --text:#c9d1d9;--dim:#7c8896;--dimmer:#484f58;
+  --blue:#58a6ff;--green:#3fb950;--purple:#d2a8ff;--red:#f85149;
+  --orange:#d29922;--pink:#f778ba;
+  --accent1:#1f6feb;--accent2:#8b5cf6;
+  --mono:'SF Mono','Fira Code','JetBrains Mono',Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;font-size:15px}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(13,17,23,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--bg3);padding:8px 0}
+nav .inner{max-width:900px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:12px;overflow-x:auto;scrollbar-width:none}
+nav .inner::-webkit-scrollbar{display:none}
+nav .brand{font-weight:700;font-size:14px;letter-spacing:.08em;color:#fff;flex-shrink:0;margin-right:8px}
+nav a.act-link{font-size:12px;color:var(--dim);padding:4px 8px;border-radius:6px;white-space:nowrap;transition:all .15s}
+nav a.act-link:hover{background:var(--bg3);color:var(--text);text-decoration:none}
+
+/* HERO */
+.hero{text-align:center;padding:120px 24px 60px;background:linear-gradient(180deg,var(--bg) 0%,#0d1520 100%)}
+.hero h1{font-size:clamp(48px,8vw,72px);font-weight:800;letter-spacing:.06em;background:linear-gradient(135deg,#fff 0%,var(--blue) 50%,var(--purple) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero .sub{font-size:18px;color:var(--dim);margin-top:8px}
+.hero .stats{margin-top:24px;display:flex;justify-content:center;gap:32px;flex-wrap:wrap}
+.hero .stat{text-align:center}
+.hero .stat .num{font-size:28px;font-weight:700;color:#fff}
+.hero .stat .label{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+
+/* MAIN */
+main{max-width:800px;margin:0 auto;padding:0 24px 80px}
+
+/* ACT */
+.act{margin-top:56px}
+.act-header{padding:16px 20px;border-radius:10px;background:linear-gradient(135deg,var(--accent1),var(--accent2));margin-bottom:4px}
+.act-header h2{font-size:20px;font-weight:700;color:#fff;margin:0}
+.act-header .act-num{font-size:13px;font-weight:600;opacity:.7;text-transform:uppercase;letter-spacing:.1em}
+.act-narration{padding:12px 20px;color:var(--dim);font-style:italic;font-size:14px;line-height:1.7;border-left:2px solid var(--bg3);margin:12px 0 20px 0}
+
+/* Special acts */
+.act-crash .act-header{background:linear-gradient(135deg,var(--red),#b62324)}
+.act-return .act-header{background:linear-gradient(135deg,var(--green),#1a7f37)}
+
+/* STEP */
+.step{margin-bottom:20px;padding:14px 16px;border-radius:8px;background:var(--bg2);border:1px solid transparent;transition:border-color .15s}
+.step:hover{border-color:var(--bg3)}
+.step-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.step-dot{color:var(--blue);font-size:14px}
+.step-name{font-weight:600;color:var(--blue);font-size:14px;font-family:var(--mono)}
+.step-pass{margin-left:auto;color:var(--green);font-weight:700;font-size:14px}
+
+.cmd{font-family:var(--mono);font-size:12.5px;color:var(--dimmer);padding:4px 0 4px 12px;border-left:2px solid var(--bg3);margin:4px 0;word-break:break-all}
+.cmd .dollar{color:var(--dim);margin-right:4px}
+.cmd .bin{color:var(--dim)}
+.cmd .args{color:var(--dimmer)}
+
+.detail{font-family:var(--mono);font-size:12px;color:var(--dim);padding:2px 0 2px 16px;margin:2px 0}
+
+.insight{font-size:13.5px;color:var(--purple);padding:8px 0 0;line-height:1.5;font-style:italic}
+.insight .arrow{margin-right:4px;font-style:normal}
+
+/* Hook badges */
+.hook{display:inline-block;font-size:11px;font-weight:600;font-style:normal;padding:1px 7px;border-radius:4px;margin:0 2px;font-family:var(--mono);vertical-align:baseline}
+.hook-session{background:#1a3a2a;color:#3fb950}
+.hook-prompt{background:#2a2a1a;color:var(--orange)}
+.hook-tool{background:#2a1a2a;color:var(--pink)}
+.hook-lifecycle{background:#1a2a3a;color:var(--blue)}
+.hook-compact{background:#2a2020;color:#f0883e}
+.hook-agent{background:#201a2a;color:var(--purple)}
+
+/* SUMMARY */
+.summary{margin-top:56px;padding:24px;border-radius:10px;background:linear-gradient(135deg,#1a3a2a,#0d2818);border:1px solid #238636;text-align:center}
+.summary .big{font-size:24px;font-weight:700;color:var(--green)}
+.summary .sub{font-size:14px;color:var(--dim);margin-top:4px}
+
+/* RESPONSIVE */
+@media(max-width:600px){
+  .hero{padding:100px 16px 40px}
+  main{padding:0 16px 60px}
+  .act-header{padding:12px 16px}
+  .step{padding:12px}
+  nav .inner{padding:0 12px}
+}
+</style>
+</head>
+<body>
+
+<nav><div class="inner">
+<span class="brand">VYBE</span>
+<a class="act-link" href="#act-1">1</a><a class="act-link" href="#act-2">2</a><a class="act-link" href="#act-3">3</a><a class="act-link" href="#act-4">4</a><a class="act-link" href="#act-5">5</a><a class="act-link" href="#act-6">6</a><a class="act-link" href="#act-7">7</a><a class="act-link" href="#act-8">8</a><a class="act-link" href="#act-9">9</a><a class="act-link" href="#act-10">10</a><a class="act-link" href="#act-11">11</a><a class="act-link" href="#act-12">12</a><a class="act-link" href="#act-13">13</a><a class="act-link" href="#act-14">14</a><a class="act-link" href="#act-15">15</a><a class="act-link" href="#act-16">16</a><a class="act-link" href="#act-17">17</a>
+</div></nav>
+
+<div class="hero">
+<h1>VYBE</h1>
+<p class="sub">Durable Continuity for AI Agents</p>
+<div class="stats">
+<div class="stat"><div class="num">73</div><div class="label">Steps</div></div>
+<div class="stat"><div class="num">17</div><div class="label">Acts</div></div>
+<div class="stat"><div class="num" style="color:var(--green)">0</div><div class="label">Failures</div></div>
+</div>
+</div>
+
+<main>
+
+<!-- ACT 1 -->
+<div class="act" id="act-1">
+<div class="act-header"><div class="act-num">Act 1</div><h2>Building The World</h2></div>
+<div class="act-narration">Setting up the world an agent operates in. DB init, project creation, task graph with dependencies, memory at multiple scopes. Vybe is the durable backbone — everything an agent knows or intends lives here.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">upgrade_database</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">upgrade</span></div>
+<div class="detail">Database ready — schema migrated</div>
+<div class="insight"><span class="arrow">→</span> Your agent's first command in any environment. Creates all tables — ready to remember everything.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">create_project</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">project create --name demo-project</span></div>
+<div class="detail">Project created</div>
+<div class="insight"><span class="arrow">→</span> Projects scope work. Your agent groups related tasks and memory under one project.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">create_task_graph</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task create --title "Implement auth"</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task create --title "Write tests"</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task create --title "Deploy"</span></div>
+<div class="detail">3 tasks created with project scope</div>
+<div class="insight"><span class="arrow">→</span> Three real tasks, just like your agent would create when breaking down a feature request.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">set_dependencies</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task add-dep --id &lt;write_tests&gt; --depends-on &lt;implement_auth&gt;</span></div>
+<div class="detail">Dependency: Write tests blocked by Implement auth</div>
+<div class="insight"><span class="arrow">→</span> 'Write tests' can't start until 'Implement auth' is done. Your agent's task queue respects this automatically.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">store_global_memory</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory set --key go_version --value 1.26 --scope global</span></div>
+<div class="detail">Global memory: go_version=1.26</div>
+<div class="insight"><span class="arrow">→</span> Global memory is visible to every agent, every session. Environment facts like Go version live here.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">store_project_memory</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory set --key api_framework --value chi --scope project</span></div>
+<div class="detail">Project memory: api_framework=chi</div>
+<div class="insight"><span class="arrow">→</span> Project memory is shared across agents on the same project but invisible to other projects.</div></div>
+</div>
+
+<!-- ACT 2 -->
+<div class="act" id="act-2">
+<div class="act-header"><div class="act-num">Act 2</div><h2>The Agent Works</h2></div>
+<div class="act-narration">Simulating what happens when Claude Code starts a new session. Hooks fire automatically: session-start loads context, tool calls are logged, the agent claims work, logs discoveries, links artifacts, and marks tasks complete.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">session_start_hook</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook session-start</span></div>
+<div class="detail">Session context injected — focus: Implement auth</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-session">SessionStart</span> hook. Fires automatically when a session opens — your agent gets context injected before it even asks.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">resume</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume</span></div>
+<div class="detail">Focus confirmed: Implement auth</div>
+<div class="insight"><span class="arrow">→</span> The agent cursor advances and the brief packet loads: focus task, memory, recent events, artifacts. Everything needed to start working.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">prompt_logging</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook prompt</span></div>
+<div class="detail">user_prompt event recorded</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-prompt">UserPromptSubmit</span> hook. Every prompt you type is logged — future sessions see the full conversation trail.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">claim_focus_task</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task begin --id &lt;implement_auth&gt;</span></div>
+<div class="detail">Task: pending → in_progress</div>
+<div class="insight"><span class="arrow">→</span> Your agent claims work before starting. No other agent can grab this task now.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">tool_success_tracking</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook tool-success</span></div>
+<div class="detail">tool_success event logged</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-tool">PostToolUse</span> hook. Every successful tool call is logged — builds a complete execution history.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">tool_failure_tracking</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook tool-failure</span></div>
+<div class="detail">tool_failure event logged</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-tool">PostToolUseFailure</span> hook. When tools fail, the next session sees exactly what broke and where.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">log_progress_events</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events add --kind progress --msg "Scaffolded JWT middleware"</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events add --kind progress --msg "Integrated with route handlers"</span></div>
+<div class="detail">2 progress events recorded</div>
+<div class="insight"><span class="arrow">→</span> Your agent narrates its own work. Progress events are the journal that survives crashes.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">store_task_memory</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory set --key auth_strategy --value jwt --scope task</span></div>
+<div class="detail">Task memory: auth_strategy=jwt</div>
+<div class="insight"><span class="arrow">→</span> Task-scoped memory. A new agent picking up this task will know 'JWT' was the chosen auth strategy.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">link_artifact</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifact add --task &lt;id&gt; --path auth_impl.go --type text/x-go</span></div>
+<div class="detail">Artifact linked: auth_impl.go → task</div>
+<div class="insight"><span class="arrow">→</span> Output files linked to tasks. New sessions find what was built immediately — no archaeology.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">complete_task</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;implement_auth&gt; --outcome done --summary "Auth implemented with JWT strategy"</span></div>
+<div class="detail">Task: in_progress → completed</div>
+<div class="insight"><span class="arrow">→</span> Task done. Next resume auto-advances to the next task in the queue.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">task_completion_hook</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook task-completed</span></div>
+<div class="detail">TaskCompleted hook fired</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-lifecycle">TaskCompleted</span> hook. The IDE signals vybe so the event stream reflects IDE-level milestones.</div></div>
+</div>
+
+<!-- ACT 3 -->
+<div class="act act-crash" id="act-3">
+<div class="act-header"><div class="act-num">Act 3</div><h2>The Agent Sleeps</h2></div>
+<div class="act-narration">Graceful shutdown. Agents crash; vybe persists. PreCompact compresses the memory space. SessionEnd closes out the session. Everything written in Act II is durable in SQLite — no in-memory state at risk.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">memory_checkpoint</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook checkpoint</span></div>
+<div class="detail">Memory checkpoint complete</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-compact">PreCompact</span> hook. Before context compression, vybe prunes stale memory entries.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">session_end</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook session-end</span></div>
+<div class="detail">Session ended — state durable in SQLite</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-session">SessionEnd</span> hook. Session over — everything is durable in SQLite, ready for the next agent.</div></div>
+</div>
+
+<!-- ACT 4 -->
+<div class="act act-return" id="act-4">
+<div class="act-header"><div class="act-num">Act 4</div><h2>The Agent Returns</h2></div>
+<div class="act-narration">A new session starts. The previous agent crashed (or the session ended). Can the new agent pick up exactly where the old one left off? Memory, artifacts, task state — everything should survive across sessions. THIS is the wow moment. This is why vybe exists.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">new_session_start</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook session-start</span></div>
+<div class="detail">New session context loaded — focus auto-advanced</div>
+<div class="insight"><span class="arrow">→</span> New session, fresh context window, zero memory of Act II. Watch vybe restore everything.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">cross_session_continuity</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifact list --task &lt;implement_auth&gt;</span></div>
+<div class="detail">Artifacts survived: 1 file(s)</div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory get --key go_version --scope global</span></div>
+<div class="detail">Global memory survived: go_version="1.26"</div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory get --key api_framework --scope project</span></div>
+<div class="detail">Project memory survived: api_framework="chi"</div>
+<div class="insight"><span class="arrow">→</span> Artifacts, global memory, project memory — all survived the session boundary. This is why vybe exists.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">complete_deploy_task</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task begin --id &lt;deploy&gt;</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;deploy&gt; --outcome done --summary "Deployed to production"</span></div>
+<div class="detail">Deploy task: pending → in_progress → completed</div>
+<div class="insight"><span class="arrow">→</span> A completely new session picks up 'Deploy', works it, completes it. No handoff notes needed.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">resume_with_blocked_task</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume</span></div>
+<div class="detail">Resume focus: Write tests</div>
+<div class="insight"><span class="arrow">→</span> Only 'Write tests' remains. The resume algorithm knows it's blocked and handles it.</div></div>
+</div>
+
+<!-- ACT 5 -->
+<div class="act" id="act-5">
+<div class="act-header"><div class="act-num">Act 5</div><h2>The Queue Moves</h2></div>
+<div class="act-narration">Dependency-driven task flow. Removing blockers, observing focus auto-advance, completing the remaining work, and confirming the queue is empty. This closes the loop: every task created in Act I is now done.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">remove_dependency</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task remove-dep --id &lt;write_tests&gt; --depends-on &lt;implement_auth&gt;</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task set-status --id &lt;write_tests&gt; --status pending</span></div>
+<div class="detail">Dependency removed, Write tests set to pending</div>
+<div class="insight"><span class="arrow">→</span> Dependency removed, task unblocked. Your agent's queue adapts in real-time.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">resume_selects_unblocked</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume</span></div>
+<div class="detail">Resume correctly selected Write tests</div>
+<div class="insight"><span class="arrow">→</span> Resume picks 'Write tests' — the only remaining unblocked task. Priority order is automatic.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">complete_final_task</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task begin --id &lt;write_tests&gt;</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;write_tests&gt; --outcome done --summary "All tests written and passing"</span></div>
+<div class="detail">Write tests: in_progress → completed — all 3 tasks done</div>
+<div class="insight"><span class="arrow">→</span> Last task done. Your agent completed all three tasks across two sessions with zero data loss.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">empty_queue</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume</span></div>
+<div class="detail">Queue empty — task=null</div>
+<div class="insight"><span class="arrow">→</span> Resume returns null — the queue is empty, your agent's work here is genuinely done.</div></div>
+</div>
+
+<!-- ACT 6 -->
+<div class="act" id="act-6">
+<div class="act-header"><div class="act-num">Act 6</div><h2>Auditing The Record</h2></div>
+<div class="act-narration">Auditing the event stream. Everything vybe recorded is queryable. Events, memories (all scopes), artifacts, snapshots, and system health.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">query_event_stream</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events list --limit 100</span></div>
+<div class="detail">Event stream: 35 total events</div>
+<div class="insight"><span class="arrow">→</span> The complete activity log — every tool call, every progress note, every prompt. Fully queryable by kind.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">query_all_memory_scopes</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory list --scope global</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory list --scope project</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory list --scope task</span></div>
+<div class="detail">Global: 1, Project: 1, Task: 1 entries</div>
+<div class="insight"><span class="arrow">→</span> Three memory scopes: global (environment), project (team knowledge), task (work-specific decisions).</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">query_artifacts</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifact list --task &lt;implement_auth&gt;</span></div>
+<div class="detail">Artifacts: 1 file(s) linked to auth task</div>
+<div class="insight"><span class="arrow">→</span> Files from Act II are still here in Act VI. Artifacts persist across all sessions.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">capture_snapshot</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">snapshot</span></div>
+<div class="detail">Snapshot captured</div>
+<div class="insight"><span class="arrow">→</span> Point-in-time snapshot of the entire system. Useful for diffing state before/after operations.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">health_check</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">status --check</span></div>
+<div class="detail">Health check passed: query_ok=true</div>
+<div class="insight"><span class="arrow">→</span> One command confirms the database is healthy and responsive. Agents call this before critical work.</div></div>
+</div>
+
+<!-- ACT 7 -->
+<div class="act" id="act-7">
+<div class="act-header"><div class="act-num">Act 7</div><h2>Crash-Safe Retries</h2></div>
+<div class="act-narration">Agents crash. Networks fail. Commands get retried. Every mutation accepts a --request-id. Replaying the same request-id returns the original result — no duplicates, no side effects.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">replay_task_create</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task create --title "Idempotent Task" --request-id demo_idem_001</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task create --title "Idempotent Task Changed" --request-id demo_idem_001</span></div>
+<div class="detail">Replay returned same id, original title="Idempotent Task"</div>
+<div class="insight"><span class="arrow">→</span> Same request-id, same result. Your agent can retry any command without creating duplicates.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">replay_memory_set</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory set --key idem_key --value idem_value_1 --request-id demo_idem_mem</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory set --key idem_key --value idem_value_2 --request-id demo_idem_mem</span></div>
+<div class="detail">Memory value after replay: "idem_value_1" — original preserved</div>
+<div class="insight"><span class="arrow">→</span> Original value preserved on replay. Networks fail, agents retry — vybe handles it safely.</div></div>
+</div>
+
+<!-- ACT 8 -->
+<div class="act" id="act-8">
+<div class="act-header"><div class="act-num">Act 8</div><h2>Production Hardening</h2></div>
+<div class="act-narration">Edge cases that matter in real deployments: heartbeats for agent liveness detection, TTL-based memory expiry, structured event metadata.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">heartbeat_liveness</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task create --title "Heartbeat Task"</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task begin --id &lt;id&gt;</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task heartbeat --id &lt;id&gt;</span></div>
+<div class="detail">Heartbeat sent — claim lease renewed</div>
+<div class="insight"><span class="arrow">→</span> Agents send heartbeats to prove they're alive. Stale tasks without heartbeats get reclaimed by GC.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">ttl_expiry_and_gc</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory set --key ttl_key --value expires_in_24h --expires-in 24h</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory set --key short_key --value expires_soon --expires-in 1ms</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory gc</span></div>
+<div class="detail">Memory GC complete — expired entries removed</div>
+<div class="insight"><span class="arrow">→</span> Short-lived memory auto-expires. Your agent stores temporary context that cleans itself up.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">structured_metadata</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events add --kind tool_call --msg "Ran go build" --metadata '{"tool":"Bash","exit_code":0}'</span></div>
+<div class="detail">Event logged: kind=tool_call with JSON metadata</div>
+<div class="insight"><span class="arrow">→</span> JSON metadata on events makes them machine-queryable — filter by exit code, tool name, duration.</div></div>
+</div>
+
+<!-- ACT 9 -->
+<div class="act" id="act-9">
+<div class="act-header"><div class="act-num">Act 9</div><h2>Task Intelligence</h2></div>
+<div class="act-narration">Agents query the task graph to understand what's available, what's blocked, and what's next. get, stats, next, unlocks — four ways to read task state without modifying anything.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">fetch_single_task</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task get --id &lt;implement_auth&gt;</span></div>
+<div class="detail">title="Implement auth" status=completed</div>
+<div class="insight"><span class="arrow">→</span> Fetch any task by ID — status, title, project, dependencies. Full detail in one call.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">aggregate_stats</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task stats</span></div>
+<div class="detail">Task stats: completed=3</div>
+<div class="insight"><span class="arrow">→</span> Task stats at a glance: how many pending, in_progress, completed, blocked. Project health in one number.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">pending_queue</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task next --limit 5</span></div>
+<div class="detail">2 pending task(s) in queue</div>
+<div class="insight"><span class="arrow">→</span> The prioritized work queue — what's next, in what order. Agents check this before claiming.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">dependency_impact</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task unlocks --id &lt;blocker&gt;</span></div>
+<div class="detail">Completing blocker unblocks dependent task</div>
+<div class="insight"><span class="arrow">→</span> 'If I finish this task, what gets unblocked?' Agents use this to prioritize high-impact work.</div></div>
+</div>
+
+<!-- ACT 10 -->
+<div class="act" id="act-10">
+<div class="act-header"><div class="act-num">Act 10</div><h2>Multi-Agent Coordination</h2></div>
+<div class="act-narration">Atomic task claiming prevents two agents from working on the same task simultaneously. <code>task claim</code> is a compare-and-swap operation — only one agent wins the race. <code>task gc</code> releases abandoned claim leases when agents crash.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">atomic_claim</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task claim</span></div>
+<div class="detail">Task claimed: status=in_progress</div>
+<div class="insight"><span class="arrow">→</span> Compare-and-swap claim. Two agents race — only one wins. No double-work, no conflicts.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">claim_lease_renewal</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task heartbeat --id &lt;claimed_task&gt;</span></div>
+<div class="detail">Heartbeat accepted — claim lease renewed</div>
+<div class="insight"><span class="arrow">→</span> Heartbeat renews the claim lease. GC won't reclaim a task while its agent is actively pinging.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">lease_gc</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task gc</span></div>
+<div class="detail">Task GC complete</div>
+<div class="insight"><span class="arrow">→</span> Garbage collection for abandoned tasks. When agents crash, their stuck tasks return to the queue.</div></div>
+</div>
+
+<!-- ACT 11 -->
+<div class="act" id="act-11">
+<div class="act-header"><div class="act-num">Act 11</div><h2>Task Lifecycle</h2></div>
+<div class="act-narration">Agents mutate task state throughout the work lifecycle. Priority boosts urgent work. Delete cleans up obsolete tasks. Status transitions track progress.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">priority_boost</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task set-priority --id &lt;id&gt; --priority 10</span></div>
+<div class="detail">Priority updated: 0 → 10</div>
+<div class="insight"><span class="arrow">→</span> Priority 10 jumps ahead of priority 0. Your agent can escalate urgent work instantly.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">delete_task</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task delete --id &lt;id&gt;</span></div>
+<div class="detail">Task deleted and confirmed gone</div>
+<div class="insight"><span class="arrow">→</span> Obsolete tasks get pruned. Your agent keeps the queue clean as requirements evolve.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">status_transitions</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task set-status --id &lt;id&gt; --status blocked</span></div>
+<div class="detail">Status transition: pending → blocked</div>
+<div class="insight"><span class="arrow">→</span> Any status to any status. Agents define their own workflow — vybe doesn't enforce rigid state machines.</div></div>
+</div>
+
+<!-- ACT 12 -->
+<div class="act" id="act-12">
+<div class="act-header"><div class="act-num">Act 12</div><h2>Knowledge Management</h2></div>
+<div class="act-narration">Memory is a first-class system in vybe. Agents read, write, and manage knowledge across sessions. compact, touch, query, delete — full lifecycle.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">compact_memory</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory compact --scope global</span></div>
+<div class="detail">Memory compact complete</div>
+<div class="insight"><span class="arrow">→</span> Memory compaction reduces footprint by merging low-value entries. Keeps the brief packet lean.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">refresh_access_time</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory touch --key touch_test_key --scope global</span></div>
+<div class="detail">memory touch succeeded</div>
+<div class="insight"><span class="arrow">→</span> Touch refreshes a key's timestamp without changing its value. Keeps important facts alive through GC cycles.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">pattern_search</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory query --pattern "go%" --scope global</span></div>
+<div class="detail">memory query 'go%' returned 2 result(s)</div>
+<div class="insight"><span class="arrow">→</span> Wildcard search across memory keys. Your agent finds related facts without knowing exact names.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">explicit_deletion</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory delete --key delete_me --scope global</span></div>
+<div class="detail">Memory delete confirmed — key gone</div>
+<div class="insight"><span class="arrow">→</span> Explicit delete for facts that are no longer true. Clean knowledge means better agent decisions.</div></div>
+</div>
+
+<!-- ACT 13 -->
+<div class="act" id="act-13">
+<div class="act-header"><div class="act-num">Act 13</div><h2>Agent Identity</h2></div>
+<div class="act-narration">Each agent has its own cursor and state record in vybe. init, status, focus — multiple agents can operate simultaneously, each tracking its own position in the event stream.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">initialize_agent</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">agent init</span></div>
+<div class="detail">Agent state initialized</div>
+<div class="insight"><span class="arrow">→</span> Each agent gets its own cursor in the event stream. Multiple agents track their own position independently.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">read_agent_state</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">agent status</span></div>
+<div class="detail">Agent status: agent_name="demo-agent"</div>
+<div class="insight"><span class="arrow">→</span> Agent status shows cursor position and current focus. Operators can see exactly where each agent is.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">override_focus</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">agent focus --task &lt;focus_target&gt;</span></div>
+<div class="detail">Agent focus updated</div>
+<div class="insight"><span class="arrow">→</span> Manual focus override. Your agent can skip the queue and work on a specific task when needed.</div></div>
+</div>
+
+<!-- ACT 14 -->
+<div class="act" id="act-14">
+<div class="act-header"><div class="act-num">Act 14</div><h2>The Event Stream</h2></div>
+<div class="act-narration">The event log is the source of truth. As it grows, agents need to manage it. summarize: archive a range of events into a single summary event.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">compress_history</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events summarize --from-id 2 --to-id 73 --summary "Auth implementation complete"</span></div>
+<div class="detail">Events 2–73 summarized</div>
+<div class="insight"><span class="arrow">→</span> Event summarization compresses N events into one summary. Manages context window pressure over long sessions.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">recent_activity</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events list --limit 5</span></div>
+<div class="detail">Recent events: 5 returned</div>
+<div class="insight"><span class="arrow">→</span> Quick poll of recent events. Your agent checks what happened since it last looked.</div></div>
+</div>
+
+<!-- ACT 15 -->
+<div class="act" id="act-15">
+<div class="act-header"><div class="act-num">Act 15</div><h2>System Introspection</h2></div>
+<div class="act-narration">Project detail, session digest, and schema introspection. These commands give operators and agents a broader view of the system state.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">fetch_project</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">project get --id &lt;project_id&gt;</span></div>
+<div class="detail">Project: name="demo-project"</div>
+<div class="insight"><span class="arrow">→</span> Full project detail by ID — name, metadata, creation time. Projects are the top-level grouping.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">session_digest</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">session digest</span></div>
+<div class="detail">Session digest generated</div>
+<div class="insight"><span class="arrow">→</span> Session digest: a structured summary of what happened. Agents use this for handoff notes.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">inspect_schema</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">schema</span></div>
+<div class="detail">Schema fetched — full SQLite structure returned</div>
+<div class="insight"><span class="arrow">→</span> Full SQLite schema returned. Agents and operators can inspect the exact database structure.</div></div>
+</div>
+
+<!-- ACT 16 -->
+<div class="act" id="act-16">
+<div class="act-header"><div class="act-num">Act 16</div><h2>IDE Integration</h2></div>
+<div class="act-narration">Vybe hooks into the Claude Code IDE lifecycle via hidden subcommands. subagent-start/stop: track spawned agents. stop: log turn heartbeats.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">track_subagent_spawn</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook subagent-start</span></div>
+<div class="detail">agent_spawned event recorded</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-agent">SubagentStart</span> hook. When your agent spawns a sub-agent, vybe logs it for the parent to track.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">track_subagent_completion</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook subagent-stop</span></div>
+<div class="detail">agent_completed event recorded</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-agent">SubagentStop</span> hook. Sub-agent finished — the parent agent sees the completion in the event stream.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">turn_boundary_heartbeat</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook stop</span></div>
+<div class="detail">heartbeat event recorded</div>
+<div class="insight"><span class="arrow">→</span> <span class="hook hook-lifecycle">Stop</span> hook. Turn boundaries are logged so the event stream reflects IDE conversation flow.</div></div>
+</div>
+
+<!-- ACT 17 -->
+<div class="act" id="act-17">
+<div class="act-header"><div class="act-num">Act 17</div><h2>The Full Surface</h2></div>
+<div class="act-narration">The remaining commands that round out the vybe surface area. Artifact retrieval, retrospective extraction, history import, loop stats, project lifecycle, read-only briefs, JSONL streaming, hook management.</div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">artifact_get_by_id</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifact get --id &lt;artifact_id&gt;</span></div>
+<div class="detail">artifact get: correct id and task_id returned</div>
+<div class="insight"><span class="arrow">→</span> Fetch any artifact by ID — file path, type, linked task. Direct lookup without listing.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">retrospective_extraction</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook retrospective</span></div>
+<div class="detail">hook retrospective fired (best-effort)</div>
+<div class="insight"><span class="arrow">→</span> Retrospectives distill session activity into persistent memory. Your agent learns from its own history.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">history_import</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">ingest history --file history.jsonl</span></div>
+<div class="detail">History ingest complete: 3 event(s) imported</div>
+<div class="insight"><span class="arrow">→</span> Import Claude Code conversation history as vybe events. Backfill context from before vybe was installed.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">loop_iteration_stats</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">loop stats</span></div>
+<div class="detail">Loop stats: runs=0</div>
+<div class="insight"><span class="arrow">→</span> Loop stats track autonomous iteration cadence. Your agent monitors its own loop health.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">project_lifecycle</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">project create --name "Delete Me"</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">project delete --id &lt;id&gt;</span></div>
+<div class="detail">Project deleted and confirmed gone</div>
+<div class="insight"><span class="arrow">→</span> Create and delete projects. Full lifecycle management — no orphaned metadata.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">read_only_brief</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">brief</span></div>
+<div class="detail">brief returned: agent_name="demo-agent"</div>
+<div class="insight"><span class="arrow">→</span> Brief without cursor advancement. Your agent peeks at context without consuming events.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">jsonl_streaming</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events tail --once --jsonl --limit 3 --all</span></div>
+<div class="detail">events tail: id=1 kind=project_created</div>
+<div class="insight"><span class="arrow">→</span> JSONL output for streaming processors. Your agent pipes events directly into analysis pipelines.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">hook_install_uninstall</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook install --claude --project</span></div>
+<div class="detail">Hook install: settings.json written</div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook uninstall --claude --project</span></div>
+<div class="detail">Hook uninstall: all 10 hooks removed</div>
+<div class="insight"><span class="arrow">→</span> One command wires vybe into Claude Code. One command removes it. Clean install, clean uninstall.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">loop_dry_run</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">loop --dry-run --max-tasks=1 --cooldown=0s</span></div>
+<div class="detail">Loop dry-run: found pending task, status=dry_run</div>
+<div class="insight"><span class="arrow">→</span> The autonomous loop finds pending tasks and reports what it would do. Dry-run mode for safe testing.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">loop_circuit_breaker</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">loop --command true --max-tasks=1 --max-fails=1 --cooldown=0s --task-timeout=5s</span></div>
+<div class="detail">Circuit breaker: task marked blocked after command exits without completing</div>
+<div class="insight"><span class="arrow">→</span> When a spawned command exits without completing the task, the loop marks it blocked. Prevents runaway loops.</div></div>
+
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">background_retrospective</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook retrospective-bg demo-agent payload.json</span></div>
+<div class="detail">hook retrospective-bg completed without panic</div>
+<div class="insight"><span class="arrow">→</span> Background retrospective worker processes payloads asynchronously. Sessions don't block on LLM analysis.</div></div>
+</div>
+
+<!-- SUMMARY -->
+<div class="summary">
+<div class="big">73 passed, 0 failed</div>
+<div class="sub">17 acts · 2 sessions · 1 crash · 3 tasks completed · 0 data lost · 0 duplicates created</div>
+</div>
+
+</main>
+</body>
+</html>

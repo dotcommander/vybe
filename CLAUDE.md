@@ -273,7 +273,7 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 3. Log progress events as you work
 4. Set status to completed when done — next resume auto-advances to next task
 
-## Operational Context
+## Contributor Notes
 
 - DB path precedence: `--db-path` > `VYBE_DB_PATH` > `config.yaml: db_path` > `~/.config/vybe/vybe.db`
 - Agent identity: `--agent` flag or `VYBE_AGENT` env (required for most commands)
