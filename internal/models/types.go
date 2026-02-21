@@ -25,18 +25,6 @@ const (
 	TaskStatusBlocked    TaskStatus = "blocked"
 )
 
-// RetrospectiveJobStatus represents queue state for session retrospective processing.
-type RetrospectiveJobStatus string
-
-// Retrospective job status constants.
-const (
-	RetrospectiveJobQueued    RetrospectiveJobStatus = "queued"
-	RetrospectiveJobRunning   RetrospectiveJobStatus = "running"
-	RetrospectiveJobRetry     RetrospectiveJobStatus = "retry"
-	RetrospectiveJobSucceeded RetrospectiveJobStatus = "succeeded"
-	RetrospectiveJobDead      RetrospectiveJobStatus = "dead"
-)
-
 // IsTerminal returns true if the task is in a completed state.
 func (s TaskStatus) IsTerminal() bool {
 	return s == TaskStatusCompleted
@@ -136,26 +124,6 @@ type AgentState struct {
 	FocusProjectID  string    `json:"focus_project_id,omitempty"`
 	Version         int       `json:"version"`
 	LastActiveAt    time.Time `json:"last_active_at"`
-}
-
-// RetrospectiveJob represents a durable session-end retrospective queue job.
-type RetrospectiveJob struct {
-	ID             string                 `json:"id"`
-	AgentName      string                 `json:"agent_name"`
-	ProjectID      string                 `json:"project_id,omitempty"`
-	SessionID      string                 `json:"session_id,omitempty"`
-	SinceEventID   int64                  `json:"since_event_id"`
-	UntilEventID   int64                  `json:"until_event_id"`
-	Status         RetrospectiveJobStatus `json:"status"`
-	Attempt        int                    `json:"attempt"`
-	MaxAttempts    int                    `json:"max_attempts"`
-	NextRunAt      time.Time              `json:"next_run_at"`
-	ClaimedBy      string                 `json:"claimed_by,omitempty"`
-	ClaimExpiresAt *time.Time             `json:"claim_expires_at,omitempty"`
-	LastError      string                 `json:"last_error,omitempty"`
-	CreatedAt      time.Time              `json:"created_at"`
-	UpdatedAt      time.Time              `json:"updated_at"`
-	CompletedAt    *time.Time             `json:"completed_at,omitempty"`
 }
 
 // Memory represents a key-value storage entry with scoping
