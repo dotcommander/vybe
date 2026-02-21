@@ -4,12 +4,14 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
+	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/output"
 	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
@@ -69,6 +71,37 @@ func resolveClaudeSettingsPath(projectScoped bool) string {
 		return projectClaudeSettingsPath()
 	}
 	return claudeSettingsPath()
+}
+
+// ensureHookAgentStateBestEffort initializes agent_state for hook integration.
+// It opportunistically runs migrations so `vybe hook install` works even when
+// the DB schema is behind the current binary.
+func ensureHookAgentStateBestEffort(agentName string) {
+	if strings.TrimSpace(agentName) == "" {
+		return
+	}
+
+	dbPath, err := app.GetDBPath()
+	if err != nil {
+		slog.Default().Warn("hook install: resolve db path failed", "error", err)
+		return
+	}
+
+	db, err := store.OpenDB(dbPath)
+	if err != nil {
+		slog.Default().Warn("hook install: open db failed", "error", err)
+		return
+	}
+	defer func() { _ = store.CloseDB(db) }()
+
+	if err := store.RunMigrations(db); err != nil {
+		slog.Default().Warn("hook install: run migrations failed", "error", err)
+		return
+	}
+
+	if _, err := store.LoadOrCreateAgentState(db, agentName); err != nil {
+		slog.Default().Warn("hook install: initialize agent state failed", "agent", agentName, "error", err)
+	}
 }
 
 func vybeExecutable() string {
@@ -275,6 +308,7 @@ func isVybeHookCommand(command string) bool {
 	sub := parts[2]
 	return sub == "session-start" ||
 		sub == "session-end" ||
+		sub == "retrospective-worker" ||
 		sub == "prompt" ||
 		sub == "tool-failure" ||
 		sub == "tool-success" ||
@@ -453,10 +487,7 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 					return cmdErr(err)
 				}
 
-				_ = withDB(func(db *DB) error {
-					_, err := store.LoadOrCreateAgentState(db, "claude")
-					return err
-				})
+				ensureHookAgentStateBestEffort("claude")
 
 				sort.Strings(installed)
 				sort.Strings(updated)
@@ -486,10 +517,7 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 					}
 				}
 
-				_ = withDB(func(db *DB) error {
-					_, err := store.LoadOrCreateAgentState(db, "opencode-agent")
-					return err
-				})
+				ensureHookAgentStateBestEffort("opencode-agent")
 
 				resp.OpenCode = &opencodeResult{Path: path, Status: status}
 			}

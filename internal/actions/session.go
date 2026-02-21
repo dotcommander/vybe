@@ -58,6 +58,22 @@ func SessionDigest(db *sql.DB, agentName string) (*SessionDigestResult, error) {
 	}, nil
 }
 
+func buildSessionDigestResult(agentName, projectID string, cursorEventID int64, events []*models.Event) *SessionDigestResult {
+	byKind := make(map[string]int)
+	for _, e := range events {
+		byKind[e.Kind]++
+	}
+
+	return &SessionDigestResult{
+		AgentName:     agentName,
+		ProjectID:     projectID,
+		CursorEventID: cursorEventID,
+		EventCount:    len(events),
+		EventsByKind:  byKind,
+		Events:        events,
+	}
+}
+
 // Lesson represents a single extracted insight from session retrospective.
 type Lesson struct {
 	Type  string `json:"type"`
@@ -152,28 +168,17 @@ func sanitizeKey(s string) string {
 // persistLessons stores extracted lessons as memory entries via idempotent batch upsert.
 // All lessons are persisted in a single transaction. Returns (eventIDs, error).
 // On failure, all upserts are rolled back; no partial writes.
-//
-//nolint:gocognit,gocyclo,funlen,nestif,revive // batch upsert with race-condition recovery requires inline goto jump; splitting obscures the insert→retry→update sequence
 func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, lessons []Lesson) ([]int64, error) {
 	if len(lessons) == 0 {
 		return nil, nil
 	}
 
-	// Confidence mapping by lesson type
-	confidenceMap := map[string]float64{
-		"correction": 0.9,
-		"preference": 0.7,
-		"pattern":    0.6,
-		"knowledge":  0.5,
-	}
-
 	// Validate and prepare lessons upfront (fail fast before transaction)
 	type preparedLesson struct {
-		key        string
-		value      string
-		scope      string
-		scopeID    string
-		confidence float64
+		key     string
+		value   string
+		scope   string
+		scopeID string
 	}
 	prepared := make([]preparedLesson, 0, len(lessons))
 
@@ -184,11 +189,6 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 			continue // skip empty keys
 		}
 
-		conf, ok := confidenceMap[lesson.Type]
-		if !ok {
-			conf = 0.5
-		}
-
 		scope := lesson.Scope
 		scopeID := ""
 		if scope == "project" && projectID != "" {
@@ -197,13 +197,7 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 			scope = "global"
 		}
 
-		prepared = append(prepared, preparedLesson{
-			key:        key,
-			value:      value,
-			scope:      scope,
-			scopeID:    scopeID,
-			confidence: conf,
-		})
+		prepared = append(prepared, preparedLesson{key: key, value: value, scope: scope, scopeID: scopeID})
 	}
 
 	if len(prepared) == 0 {
@@ -217,120 +211,13 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 
 	r, err := store.RunIdempotent(db, agentName, requestIDPrefix, "lessons.batch_upsert", func(tx *sql.Tx) (batchResult, error) {
 		eventIDs := make([]int64, 0, len(prepared))
-
 		for _, pl := range prepared {
-			canonicalKey := store.NormalizeMemoryKey(pl.key)
-			if canonicalKey == "" {
-				return batchResult{}, fmt.Errorf("key %q normalizes to empty canonical key", pl.key)
+			eventID, upsertErr := store.UpsertMemoryTx(tx, agentName, pl.key, pl.value, "string", pl.scope, pl.scopeID, nil)
+			if upsertErr != nil {
+				return batchResult{}, fmt.Errorf("failed to upsert lesson %q: %w", pl.key, upsertErr)
 			}
-
-			taskID := ""
-			if pl.scope == "task" {
-				taskID = pl.scopeID
-			}
-
-			// Lookup existing memory
-			var (
-				existingID         int64
-				existingValue      string
-				existingValueType  string
-				existingConfidence float64
-			)
-
-			err := tx.QueryRowContext(context.Background(), `
-				SELECT id, value, value_type, confidence
-				FROM memory
-				WHERE scope = ? AND scope_id = ? AND canonical_key = ?
-				  AND superseded_by IS NULL
-				ORDER BY created_at DESC
-				LIMIT 1
-			`, pl.scope, pl.scopeID, canonicalKey).Scan(&existingID, &existingValue, &existingValueType, &existingConfidence)
-
-			reinforced := false
-			newConfidence := pl.confidence
-
-			switch {
-			case errors.Is(err, sql.ErrNoRows):
-				// Insert new memory
-				_, execErr := tx.ExecContext(context.Background(), `
-					INSERT INTO memory (
-						key, canonical_key, value, value_type, scope, scope_id,
-						expires_at, confidence, last_seen_at, source_event_id
-					)
-					VALUES (?, ?, ?, 'string', ?, ?, NULL, ?, CURRENT_TIMESTAMP, NULL)
-				`, pl.key, canonicalKey, pl.value, pl.scope, pl.scopeID, newConfidence)
-
-				if execErr != nil {
-					// Race condition: retry lookup
-					if store.IsUniqueConstraintErr(execErr) {
-						retryErr := tx.QueryRowContext(context.Background(), `
-							SELECT id, value, value_type, confidence
-							FROM memory
-							WHERE scope = ? AND scope_id = ? AND canonical_key = ?
-							  AND superseded_by IS NULL
-							ORDER BY created_at DESC
-							LIMIT 1
-						`, pl.scope, pl.scopeID, canonicalKey).Scan(&existingID, &existingValue, &existingValueType, &existingConfidence)
-						if retryErr != nil {
-							return batchResult{}, fmt.Errorf("failed to lookup canonical memory after race: %w", retryErr)
-						}
-						// Fall through to update path
-						reinforced = existingValue == pl.value && existingValueType == "string"
-						if reinforced {
-							newConfidence = store.ClampConfidence(existingConfidence + 0.05)
-						} else {
-							newConfidence = existingConfidence
-						}
-					} else {
-						return batchResult{}, fmt.Errorf("failed to insert memory: %w", execErr)
-					}
-				} else {
-					// Insert succeeded, log event
-					goto logEvent
-				}
-			case err != nil:
-				return batchResult{}, fmt.Errorf("failed to lookup canonical memory: %w", err)
-			default:
-				// Update existing memory
-				reinforced = existingValue == pl.value && existingValueType == "string"
-				if reinforced {
-					newConfidence = store.ClampConfidence(existingConfidence + 0.05)
-				} else {
-					newConfidence = existingConfidence
-				}
-			}
-
-			// Update path (shared by race retry and normal existing-key path)
-			_, err = tx.ExecContext(context.Background(), `
-				UPDATE memory
-				SET key = ?,
-				    canonical_key = ?,
-				    value = ?,
-				    value_type = 'string',
-				    expires_at = NULL,
-				    confidence = ?,
-				    last_seen_at = CURRENT_TIMESTAMP
-				WHERE id = ?
-			`, pl.key, canonicalKey, pl.value, newConfidence, existingID)
-			if err != nil {
-				return batchResult{}, fmt.Errorf("failed to update memory: %w", err)
-			}
-
-		logEvent:
-			// Log event
-			eventKind := models.EventKindMemoryUpserted
-			if reinforced {
-				eventKind = models.EventKindMemoryReinforced
-			}
-
-			eventID, err := store.InsertEventTx(tx, eventKind, agentName, taskID, fmt.Sprintf("Memory upserted: %s", pl.key), "")
-			if err != nil {
-				return batchResult{}, fmt.Errorf("failed to append event: %w", err)
-			}
-
 			eventIDs = append(eventIDs, eventID)
 		}
-
 		return batchResult{EventIDs: eventIDs}, nil
 	})
 
@@ -345,6 +232,33 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 //
 //nolint:funlen,nestif // retrospective orchestrates LLM extraction with fallback to rule-based extraction; splitting degrades the fallback flow
 func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*sessionRetrospectiveResult, error) {
+	return sessionRetrospective(db, agentName, requestIDPrefix, true)
+}
+
+// SessionRetrospectiveRuleOnly performs retrospective extraction without invoking
+// external LLM CLIs. This avoids hook recursion in background job workers.
+func SessionRetrospectiveRuleOnly(db *sql.DB, agentName, requestIDPrefix string) (*sessionRetrospectiveResult, error) {
+	return sessionRetrospective(db, agentName, requestIDPrefix, false)
+}
+
+// SessionRetrospectiveRuleOnlyWindow extracts lessons from a fixed enqueue-time
+// event window to avoid drift when jobs are processed asynchronously.
+func SessionRetrospectiveRuleOnlyWindow(db *sql.DB, agentName, projectID string, sinceEventID, untilEventID int64, requestIDPrefix string) (*sessionRetrospectiveResult, error) {
+	if agentName == "" {
+		return nil, errors.New("agent name is required")
+	}
+
+	events, err := store.FetchSessionEventsWindow(db, sinceEventID, untilEventID, projectID, 200)
+	if err != nil {
+		return nil, fmt.Errorf("fetch session window: %w", err)
+	}
+
+	digest := buildSessionDigestResult(agentName, projectID, sinceEventID, events)
+	return sessionRetrospectiveFromDigest(db, requestIDPrefix, digest, false)
+}
+
+//nolint:funlen,nestif // same complexity as SessionRetrospective; split would duplicate flow.
+func sessionRetrospective(db *sql.DB, agentName, requestIDPrefix string, allowLLM bool) (*sessionRetrospectiveResult, error) {
 	if agentName == "" {
 		return nil, errors.New("agent name is required")
 	}
@@ -354,8 +268,17 @@ func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*sessi
 		return nil, fmt.Errorf("session digest: %w", err)
 	}
 
+	return sessionRetrospectiveFromDigest(db, requestIDPrefix, digest, allowLLM)
+}
+
+//nolint:funlen,nestif // same complexity as sessionRetrospective; split would duplicate flow.
+func sessionRetrospectiveFromDigest(db *sql.DB, requestIDPrefix string, digest *SessionDigestResult, allowLLM bool) (*sessionRetrospectiveResult, error) {
+	if digest == nil {
+		return nil, errors.New("session digest is required")
+	}
+
 	result := &sessionRetrospectiveResult{
-		AgentName:  agentName,
+		AgentName:  digest.AgentName,
 		ProjectID:  digest.ProjectID,
 		EventCount: digest.EventCount,
 	}
@@ -368,41 +291,43 @@ func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*sessi
 
 	var lessons []Lesson
 
-	runner, runnerErr := llm.NewRunner(agentName)
-	if runnerErr != nil {
-		slog.Default().Debug("LLM runner not available, falling back to rules", "error", runnerErr)
-	}
-	if runner != nil {
-		// Build extraction prompt from events (cap at ~8000 chars)
-		var b strings.Builder
-		b.WriteString(extractionSystemPrompt)
-		b.WriteString("\n\nSession events:\n")
-		totalChars := 0
-		for i, e := range digest.Events {
-			line := fmt.Sprintf("[%d] [%s] %s\n", i+1, e.Kind, e.Message)
-			if totalChars+len(line) > 8000 {
-				break
-			}
-			b.WriteString(line)
-			totalChars += len(line)
+	if allowLLM {
+		runner, runnerErr := llm.NewRunner(digest.AgentName)
+		if runnerErr != nil {
+			slog.Default().Debug("LLM runner not available, falling back to rules", "error", runnerErr)
 		}
+		if runner != nil {
+			// Build extraction prompt from events (cap at ~8000 chars)
+			var b strings.Builder
+			b.WriteString(extractionSystemPrompt)
+			b.WriteString("\n\nSession events:\n")
+			totalChars := 0
+			for i, e := range digest.Events {
+				line := fmt.Sprintf("[%d] [%s] %s\n", i+1, e.Kind, e.Message)
+				if totalChars+len(line) > 8000 {
+					break
+				}
+				b.WriteString(line)
+				totalChars += len(line)
+			}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer cancel()
+			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
 
-		raw, llmErr := runner.Extract(ctx, b.String())
-		if llmErr != nil {
-			slog.Default().Warn("retrospective LLM extraction failed, falling back to rules", "error", llmErr, "cli", runner.Command())
-		} else {
-			raw = strings.TrimSpace(raw)
-			raw = strings.TrimPrefix(raw, "```json")
-			raw = strings.TrimPrefix(raw, "```")
-			raw = strings.TrimSuffix(raw, "```")
-			raw = strings.TrimSpace(raw)
+			raw, llmErr := runner.Extract(ctx, b.String())
+			if llmErr != nil {
+				slog.Default().Warn("retrospective LLM extraction failed, falling back to rules", "error", llmErr, "cli", runner.Command())
+			} else {
+				raw = strings.TrimSpace(raw)
+				raw = strings.TrimPrefix(raw, "```json")
+				raw = strings.TrimPrefix(raw, "```")
+				raw = strings.TrimSuffix(raw, "```")
+				raw = strings.TrimSpace(raw)
 
-			if parseErr := json.Unmarshal([]byte(raw), &lessons); parseErr != nil {
-				slog.Default().Warn("retrospective parse failed, falling back to rules", "error", parseErr, "raw", raw)
-				lessons = nil
+				if parseErr := json.Unmarshal([]byte(raw), &lessons); parseErr != nil {
+					slog.Default().Warn("retrospective parse failed, falling back to rules", "error", parseErr, "raw", raw)
+					lessons = nil
+				}
 			}
 		}
 	}
@@ -422,7 +347,7 @@ func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*sessi
 		lessons = lessons[:10]
 	}
 
-	eventIDs, persistErr := persistLessons(db, agentName, requestIDPrefix, digest.ProjectID, lessons)
+	eventIDs, persistErr := persistLessons(db, digest.AgentName, requestIDPrefix, digest.ProjectID, lessons)
 	if persistErr != nil {
 		slog.Default().Warn("retrospective persist failed", "error", persistErr, "lessons", len(lessons))
 	}
@@ -480,4 +405,22 @@ func AutoSummarizeEventsIdempotent(db *sql.DB, agentName, requestID, projectID s
 	}
 
 	return summaryEventID, archivedCount, nil
+}
+
+// AutoPruneArchivedEventsIdempotent permanently deletes archived events older
+// than olderThanDays. Deletion is bounded by limit per call.
+func AutoPruneArchivedEventsIdempotent(db *sql.DB, agentName, requestID, projectID string, olderThanDays, limit int) (deletedCount int64, err error) {
+	if agentName == "" {
+		return 0, errors.New("agent name is required")
+	}
+	if requestID == "" {
+		return 0, errors.New("request id is required")
+	}
+
+	deleted, err := store.PruneArchivedEventsIdempotent(db, agentName, requestID, projectID, olderThanDays, limit)
+	if err != nil {
+		return 0, fmt.Errorf("prune archived events: %w", err)
+	}
+
+	return deleted, nil
 }

@@ -25,9 +25,9 @@ func scanNullTime(nt sql.NullTime) *time.Time {
 
 // taskRowScanner encapsulates the common task row scanning logic.
 type taskRowScanner struct {
-	task                                     models.Task
-	projID, blockedReason, claimedBy         sql.NullString
-	claimedAt, claimExpiresAt, lastHeartbeat sql.NullTime
+	task          models.Task
+	projID        sql.NullString
+	blockedReason sql.NullString
 }
 
 func (s *taskRowScanner) scan(row interface {
@@ -41,11 +41,6 @@ func (s *taskRowScanner) scan(row interface {
 		&s.task.Priority,
 		&s.projID,
 		&s.blockedReason,
-		&s.claimedBy,
-		&s.claimedAt,
-		&s.claimExpiresAt,
-		&s.lastHeartbeat,
-		&s.task.Attempt,
 		&s.task.Version,
 		&s.task.CreatedAt,
 		&s.task.UpdatedAt,
@@ -57,10 +52,6 @@ func (s *taskRowScanner) hydrate() {
 	if s.blockedReason.Valid {
 		s.task.BlockedReason = models.BlockedReason(s.blockedReason.String)
 	}
-	s.task.ClaimedBy = scanNullString(s.claimedBy)
-	s.task.ClaimedAt = scanNullTime(s.claimedAt)
-	s.task.ClaimExpiresAt = scanNullTime(s.claimExpiresAt)
-	s.task.LastHeartbeatAt = scanNullTime(s.lastHeartbeat)
 }
 
 func (s *taskRowScanner) getTask() *models.Task {

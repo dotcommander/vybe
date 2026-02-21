@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,14 +25,16 @@ import (
 // NewLoopCmd creates the autonomous driver command.
 func NewLoopCmd() *cobra.Command {
 	var (
-		project     string
-		maxTasks    int
-		maxFails    int
-		taskTimeout string
-		cooldown    string
-		dryRun      bool
-		command     string
-		postHook    string
+		project      string
+		maxTasks     int
+		maxFails     int
+		retroLease   int
+		taskTimeout  string
+		cooldown     string
+		dryRun       bool
+		command      string
+		postHook     string
+		disableHooks bool
 	)
 
 	cmd := &cobra.Command{
@@ -71,15 +74,17 @@ Safety rails:
 			}
 
 			opts := runOptions{
-				agentName:   agentName,
-				project:     project,
-				maxTasks:    maxTasks,
-				maxFails:    maxFails,
-				taskTimeout: timeout,
-				cooldown:    cool,
-				dryRun:      dryRun,
-				command:     command,
-				postHook:    hook,
+				agentName:    agentName,
+				project:      project,
+				maxTasks:     maxTasks,
+				maxFails:     maxFails,
+				retroLease:   retroLease,
+				taskTimeout:  timeout,
+				cooldown:     cool,
+				dryRun:       dryRun,
+				command:      command,
+				postHook:     hook,
+				disableHooks: disableHooks,
 			}
 
 			return runLoop(opts)
@@ -89,11 +94,13 @@ Safety rails:
 	cmd.Flags().StringVar(&project, "project", "", "Project directory to scope tasks and resume")
 	cmd.Flags().IntVar(&maxTasks, "max-tasks", 10, "Stop after N tasks completed")
 	cmd.Flags().IntVar(&maxFails, "max-fails", 3, "Circuit breaker: stop after N consecutive failures")
+	cmd.Flags().IntVar(&retroLease, "retro-lease-sec", 60, "Lease duration in seconds for opportunistic retrospective trigger")
 	cmd.Flags().StringVar(&taskTimeout, "task-timeout", "10m", "Kill spawned command after this duration")
 	cmd.Flags().StringVar(&cooldown, "cooldown", "5s", "Wait between tasks")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would run without spawning")
 	cmd.Flags().StringVar(&command, "command", "claude", "Command to spawn (receives prompt via -p flag)")
 	cmd.Flags().StringVar(&postHook, "post-hook", "", "Command to pipe run results JSON to on completion (fallback: config post_run_hook)")
+	cmd.Flags().BoolVar(&disableHooks, "spawn-disable-hooks", false, "Disable hooks for spawned agents (sets hookless Claude settings and isolation env vars)")
 
 	cmd.AddCommand(newLoopStatsCmd())
 
@@ -101,15 +108,17 @@ Safety rails:
 }
 
 type runOptions struct {
-	agentName   string
-	project     string
-	maxTasks    int
-	maxFails    int
-	taskTimeout time.Duration
-	cooldown    time.Duration
-	dryRun      bool
-	command     string
-	postHook    string
+	agentName    string
+	project      string
+	maxTasks     int
+	maxFails     int
+	retroLease   int
+	taskTimeout  time.Duration
+	cooldown     time.Duration
+	dryRun       bool
+	command      string
+	postHook     string
+	disableHooks bool
 }
 
 type taskResult struct {
@@ -124,14 +133,16 @@ func runLoop(opts runOptions) error {
 	loopStart := time.Now()
 
 	var (
-		completed      int
-		failed         int
-		totalRun       int
+		completed        int
+		failed           int
+		totalRun         int
 		consecutiveFails int
-		results        []taskResult
+		results          []taskResult
 	)
 
 	for completed < opts.maxTasks {
+		triggerRetrospectiveWorker(opts.agentName, opts.retroLease)
+
 		// Resume to get focus task
 		requestID := fmt.Sprintf("run_%d_%d", time.Now().UnixMilli(), totalRun)
 
@@ -183,7 +194,7 @@ func runLoop(opts runOptions) error {
 
 		// Spawn the command
 		start := time.Now()
-		exitCode := spawnAgent(opts.command, prompt, opts.project, opts.taskTimeout)
+		exitCode := spawnAgent(opts.command, prompt, opts.project, opts.taskTimeout, opts.disableHooks)
 		duration := time.Since(start)
 
 		// Check task status after agent finishes
@@ -301,6 +312,24 @@ func runLoop(opts runOptions) error {
 	return output.PrintSuccess(r)
 }
 
+// triggerRetrospectiveWorker opportunistically processes one due retrospective job.
+// Errors are non-fatal to keep the task loop as the primary workflow.
+func triggerRetrospectiveWorker(agentName string, leaseSeconds int) {
+	workerName := agentName + "-loop-retro"
+	if err := withDB(func(db *DB) error {
+		res, runErr := actions.RunOneRetrospectiveJob(db, workerName, leaseSeconds)
+		if runErr != nil {
+			return runErr
+		}
+		if res != nil && res.Processed {
+			slog.Default().Info("opportunistic retrospective processed", "job_id", res.Job.ID, "outcome", res.Outcome)
+		}
+		return nil
+	}); err != nil {
+		slog.Default().Warn("opportunistic retrospective trigger failed", "error", err)
+	}
+}
+
 // execPostRunHook pipes run results JSON to an external command via stdin.
 //
 // Security model: --post-hook is operator-supplied at agent invocation time, not
@@ -380,7 +409,7 @@ func buildAgentPrompt(r *actions.ResumeResponse) string {
 
 // spawnAgent runs the external command with the prompt and returns the exit code.
 // The prompt is passed via a temp file to avoid macOS's 256KB CLI argument size limit.
-func spawnAgent(command, prompt, project string, timeout time.Duration) int {
+func spawnAgent(command, prompt, project string, timeout time.Duration, disableHooks bool) int {
 	tmpFile, err := os.CreateTemp("", "vybe-prompt-*.txt")
 	if err != nil {
 		slog.Default().Error("failed to create temp file for prompt", "error", err)
@@ -402,8 +431,16 @@ func spawnAgent(command, prompt, project string, timeout time.Duration) int {
 	if project != "" {
 		args = append([]string{"--project", project}, args...)
 	}
+	if disableHooks && isClaudeCommand(command) {
+		args = append(args, "--settings", `{"hooks":{}}`)
+	}
 
 	cmd := exec.CommandContext(context.Background(), command, args...) //nolint:gosec // G204: command is user-configured and intentional for autonomous agent spawning
+	if disableHooks {
+		cmd.Env = append(os.Environ(), disableExternalLLMEnv+"=1", retroChildEnv+"=1")
+	} else {
+		cmd.Env = os.Environ()
+	}
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -434,6 +471,11 @@ func spawnAgent(command, prompt, project string, timeout time.Duration) int {
 		slog.Default().Warn("command timed out, killed", "timeout", timeout)
 		return 124 // standard timeout exit code
 	}
+}
+
+func isClaudeCommand(command string) bool {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
+	return base == "claude"
 }
 
 // markTaskBlocked sets a task to blocked status via vybe and records the failure reason.

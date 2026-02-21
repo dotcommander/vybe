@@ -37,4 +37,10 @@ const defaultConfig = `# vybe configuration
 # Optional: override the SQLite database location.
 # Can also be set via VYBE_DB_PATH or --db-path.
 # db_path: ~/.config/vybe/vybe.db
+
+# Optional: internal event maintenance controls (used by hook checkpoint/session-end).
+# events_retention_days: 30
+# events_prune_batch: 500
+# events_summarize_threshold: 200
+# events_summarize_keep_recent: 50
 `

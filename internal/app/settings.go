@@ -12,8 +12,67 @@ import (
 // Settings represents configuration loaded from config.yaml.
 // Field names match snake_case YAML keys.
 type Settings struct {
-	DBPath      string `yaml:"db_path"`
-	PostRunHook string `yaml:"post_run_hook"`
+	DBPath                    string `yaml:"db_path"`
+	PostRunHook               string `yaml:"post_run_hook"`
+	EventsRetentionDays       int    `yaml:"events_retention_days"`
+	EventsPruneBatch          int    `yaml:"events_prune_batch"`
+	EventsSummarizeThreshold  int    `yaml:"events_summarize_threshold"`
+	EventsSummarizeKeepRecent int    `yaml:"events_summarize_keep_recent"`
+}
+
+// EventMaintenanceSettings are effective runtime values used by checkpoint/session-end maintenance.
+type EventMaintenanceSettings struct {
+	RetentionDays       int `json:"retention_days"`
+	PruneBatch          int `json:"prune_batch"`
+	SummarizeThreshold  int `json:"summarize_threshold"`
+	SummarizeKeepRecent int `json:"summarize_keep_recent"`
+}
+
+const (
+	defaultEventsRetentionDays   = 30
+	defaultEventsPruneBatch      = 500
+	defaultEventsSummarizeThresh = 200
+	defaultEventsSummarizeKeep   = 50
+)
+
+// EffectiveEventMaintenanceSettings returns validated maintenance settings with defaults.
+// Invalid or missing config values fall back to safe defaults.
+func EffectiveEventMaintenanceSettings() EventMaintenanceSettings {
+	cfg := EventMaintenanceSettings{
+		RetentionDays:       defaultEventsRetentionDays,
+		PruneBatch:          defaultEventsPruneBatch,
+		SummarizeThreshold:  defaultEventsSummarizeThresh,
+		SummarizeKeepRecent: defaultEventsSummarizeKeep,
+	}
+
+	s, err := LoadSettings()
+	if err != nil {
+		return cfg
+	}
+
+	if s.EventsRetentionDays > 0 {
+		cfg.RetentionDays = s.EventsRetentionDays
+	}
+	if s.EventsPruneBatch > 0 {
+		cfg.PruneBatch = s.EventsPruneBatch
+	}
+	if s.EventsSummarizeThreshold > 0 {
+		cfg.SummarizeThreshold = s.EventsSummarizeThreshold
+	}
+	if s.EventsSummarizeKeepRecent > 0 {
+		cfg.SummarizeKeepRecent = s.EventsSummarizeKeepRecent
+	}
+
+	if cfg.RetentionDays > 3650 {
+		cfg.RetentionDays = 3650
+	}
+	if cfg.PruneBatch > 10000 {
+		cfg.PruneBatch = 10000
+	}
+	if cfg.SummarizeThreshold < 20 {
+		cfg.SummarizeThreshold = 20
+	}
+	return cfg
 }
 
 // settingsOnce, settings, settingsErr implement the sync.Once lazy-load singleton for config.

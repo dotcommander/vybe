@@ -45,13 +45,14 @@ func NewStatusCmd() *cobra.Command {
 			}
 
 			type resp struct {
-				DB          dbInfo              `json:"db"`
-				Hooks       hooksInfo           `json:"hooks"`
-				Counts      *store.StatusCounts  `json:"counts,omitempty"`
-				QueryOK     *bool                `json:"query_ok,omitempty"`
-				QueryError  string               `json:"query_error,omitempty"`
-				Hint        string               `json:"hint,omitempty"`
-				Diagnostics []store.Diagnostic   `json:"diagnostics,omitempty"`
+				DB          dbInfo                       `json:"db"`
+				Hooks       hooksInfo                    `json:"hooks"`
+				Maintenance app.EventMaintenanceSettings `json:"maintenance"`
+				Counts      *store.StatusCounts          `json:"counts,omitempty"`
+				QueryOK     *bool                        `json:"query_ok,omitempty"`
+				QueryError  string                       `json:"query_error,omitempty"`
+				Hint        string                       `json:"hint,omitempty"`
+				Diagnostics []store.Diagnostic           `json:"diagnostics,omitempty"`
 			}
 
 			result := resp{
@@ -59,6 +60,7 @@ func NewStatusCmd() *cobra.Command {
 					Path:   dbPath,
 					Source: dbSource,
 				},
+				Maintenance: app.EffectiveEventMaintenanceSettings(),
 			}
 
 			// 3. Check hooks

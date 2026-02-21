@@ -342,6 +342,24 @@ func CountActiveEvents(db *sql.DB, projectID string) (int64, error) {
 	return count, nil
 }
 
+// GetMaxActiveEventIDTx returns the highest active (non-archived) event id,
+// optionally scoped to a project.
+func GetMaxActiveEventIDTx(tx *sql.Tx, projectID string) (int64, error) {
+	var maxID int64
+	query := `SELECT COALESCE(MAX(id), 0) FROM events WHERE archived_at IS NULL`
+	args := []any{}
+	if projectID != "" {
+		query += ` AND ` + ProjectScopeClause
+		args = append(args, projectID)
+	}
+
+	if err := tx.QueryRowContext(context.Background(), query, args...).Scan(&maxID); err != nil {
+		return 0, fmt.Errorf("get max active event id: %w", err)
+	}
+
+	return maxID, nil
+}
+
 // FindArchiveWindow computes the ID range of active events to archive,
 // keeping the most recent keepRecent events active.
 // Returns (0, 0, nil) when there are not enough events to archive.
@@ -392,4 +410,64 @@ func FindArchiveWindow(db *sql.DB, projectID string, keepRecent int) (fromID, to
 		return 0, 0, fmt.Errorf("find archive window: %w", err)
 	}
 	return fromID, toID, nil
+}
+
+// PruneArchivedEventsIdempotent permanently deletes archived events older than
+// olderThanDays. Deletion is bounded by limit per call.
+// Returns the number of rows deleted in this call.
+func PruneArchivedEventsIdempotent(db *sql.DB, agentName, requestID, projectID string, olderThanDays, limit int) (int64, error) {
+	if agentName == "" {
+		return 0, errors.New("agent name is required")
+	}
+	if requestID == "" {
+		return 0, errors.New("request id is required")
+	}
+	if olderThanDays < 1 {
+		olderThanDays = 30
+	}
+	if limit < 1 {
+		limit = 1000
+	}
+
+	type idemResult struct {
+		Deleted int64 `json:"deleted"`
+	}
+
+	r, err := RunIdempotent(db, agentName, requestID, "events.prune_archived", func(tx *sql.Tx) (idemResult, error) {
+		query := `
+			DELETE FROM events
+			WHERE id IN (
+				SELECT id
+				FROM events
+				WHERE archived_at IS NOT NULL
+				  AND archived_at < datetime(CURRENT_TIMESTAMP, '-' || ? || ' days')
+		`
+		args := []any{olderThanDays}
+		if projectID != "" {
+			query += ` AND ` + ProjectScopeClause
+			args = append(args, projectID)
+		}
+		query += `
+				ORDER BY archived_at ASC, id ASC
+				LIMIT ?
+			)
+		`
+		args = append(args, limit)
+
+		res, execErr := tx.ExecContext(context.Background(), query, args...)
+		if execErr != nil {
+			return idemResult{}, fmt.Errorf("prune archived events: %w", execErr)
+		}
+		deleted, rowsErr := res.RowsAffected()
+		if rowsErr != nil {
+			return idemResult{}, fmt.Errorf("count pruned archived events: %w", rowsErr)
+		}
+
+		return idemResult{Deleted: deleted}, nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return r.Deleted, nil
 }

@@ -2,6 +2,8 @@ function reqID(prefix) {
   return prefix + "_" + Date.now() + "_" + Math.random().toString(16).slice(2, 8)
 }
 
+const IS_RETRO_CHILD = !!(process.env.VYBE_RETRO_CHILD && process.env.VYBE_RETRO_CHILD.trim() !== "")
+
 function projectKey(projectDir) {
   if (!projectDir || projectDir.trim() === "") return ""
   const base = projectDir.split(/[\\/]/).filter(Boolean).pop() || ""
@@ -40,10 +42,12 @@ async function runVybeJSON(args) {
 
 // Fire-and-forget: spawn vybe process without awaiting completion.
 // Optional env object is merged into process.env for the child.
-function runVybeBackground(args, env) {
+// Optional stdinPayload is written to child stdin.
+function runVybeBackground(args, env, stdinPayload) {
   try {
     var opts = { cmd: ["vybe", ...args], stdout: "ignore", stderr: "ignore" }
     if (env) opts.env = Object.assign({}, process.env, env)
+    if (typeof stdinPayload === "string") opts.stdin = new TextEncoder().encode(stdinPayload)
     Bun.spawn(opts)
   } catch (_) {
     // best-effort — don't block caller
@@ -128,6 +132,8 @@ export const VybeBridgePlugin = async ({ client }) => {
   return {
     event: async ({ event }) => {
       try {
+        if (IS_RETRO_CHILD) return
+
         if (event.type === "session.created") {
           const info = event.properties.info
           if (info.directory && info.directory.trim() !== "") {
@@ -143,11 +149,13 @@ export const VybeBridgePlugin = async ({ client }) => {
           const projectDir = sessionProjects.get(delID)
           const agent = agentForSession(delID)
 
-          // Synchronous checkpoint
-          await runCheckpoint(agent, projectDir).catch(() => {})
-
-          // Fire-and-forget retrospective (pass agent via env since retrospective has no --agent flag)
-          runVybeBackground(["hook", "retrospective"], { VYBE_AGENT: agent })
+          // Fire-and-forget unified SessionEnd hook (checkpoint + retrospective enqueue).
+          const payload = JSON.stringify({
+            session_id: delID,
+            hook_event_name: "SessionEnd",
+            cwd: projectDir || "",
+          })
+          runVybeBackground(["hook", "session-end", "--agent", agent], null, payload)
 
           // Clean up maps
           sessionPrompts.delete(delID)
@@ -216,6 +224,8 @@ export const VybeBridgePlugin = async ({ client }) => {
 
     "tool.execute.after": async (input) => {
       try {
+        if (IS_RETRO_CHILD) return
+
         const tool = input.tool
         if (!tool) return
 
@@ -274,6 +284,8 @@ export const VybeBridgePlugin = async ({ client }) => {
 
     "chat.message": async (input, output) => {
       try {
+        if (IS_RETRO_CHILD) return
+
         const sessionID = input.sessionID
         const agent = agentForSession(sessionID)
 
@@ -302,6 +314,8 @@ export const VybeBridgePlugin = async ({ client }) => {
 
     "experimental.session.compacting": async (input, output) => {
       try {
+        if (IS_RETRO_CHILD) return
+
         const sessionID = input.sessionID
         const agent = agentForSession(sessionID)
         const projectDir = sessionProjects.get(sessionID)
@@ -314,6 +328,8 @@ export const VybeBridgePlugin = async ({ client }) => {
     },
 
     "experimental.chat.system.transform": async (input, output) => {
+      if (IS_RETRO_CHILD) return
+
       const existing = sessionPrompts.get(input.sessionID)
       if (!existing) {
         await hydrateSessionPrompt(input.sessionID, sessionProjects.get(input.sessionID))

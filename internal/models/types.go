@@ -25,6 +25,18 @@ const (
 	TaskStatusBlocked    TaskStatus = "blocked"
 )
 
+// RetrospectiveJobStatus represents queue state for session retrospective processing.
+type RetrospectiveJobStatus string
+
+// Retrospective job status constants.
+const (
+	RetrospectiveJobQueued    RetrospectiveJobStatus = "queued"
+	RetrospectiveJobRunning   RetrospectiveJobStatus = "running"
+	RetrospectiveJobRetry     RetrospectiveJobStatus = "retry"
+	RetrospectiveJobSucceeded RetrospectiveJobStatus = "succeeded"
+	RetrospectiveJobDead      RetrospectiveJobStatus = "dead"
+)
+
 // IsTerminal returns true if the task is in a completed state.
 func (s TaskStatus) IsTerminal() bool {
 	return s == TaskStatusCompleted
@@ -86,30 +98,19 @@ func (br BlockedReason) GetFailureReason() string {
 	return strings.TrimPrefix(string(br), BlockedReasonFailurePrefix)
 }
 
-
 // Task represents a task in the system
 type Task struct {
-	ID              string        `json:"id"`
-	Title           string        `json:"title"`
-	Description     string        `json:"description"`
-	Status          TaskStatus    `json:"status"`
-	Priority        int           `json:"priority"`
-	ProjectID       string        `json:"project_id,omitempty"`
-	BlockedReason   BlockedReason `json:"blocked_reason,omitempty"`
-	ClaimedBy       string        `json:"claimed_by,omitempty"`
-	ClaimedAt       *time.Time    `json:"claimed_at,omitempty"`
-	ClaimExpiresAt  *time.Time    `json:"claim_expires_at,omitempty"`
-	LastHeartbeatAt *time.Time    `json:"last_heartbeat_at,omitempty"`
-	Attempt         int           `json:"attempt"`
-	DependsOn       []string      `json:"depends_on,omitempty"`
-	Version         int           `json:"version"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
-}
-
-// IsClaimed returns true if the task has been claimed by an agent.
-func (t *Task) IsClaimed() bool {
-	return t.ClaimedBy != ""
+	ID            string        `json:"id"`
+	Title         string        `json:"title"`
+	Description   string        `json:"description"`
+	Status        TaskStatus    `json:"status"`
+	Priority      int           `json:"priority"`
+	ProjectID     string        `json:"project_id,omitempty"`
+	BlockedReason BlockedReason `json:"blocked_reason,omitempty"`
+	DependsOn     []string      `json:"depends_on,omitempty"`
+	Version       int           `json:"version"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
 // IsBlocked returns true if the task status is blocked.
@@ -127,11 +128,6 @@ func (t *Task) IsBlockedByFailure() bool {
 	return t.BlockedReason.IsFailure()
 }
 
-// HasClaimedAt returns true if the ClaimedAt timestamp is set.
-func (t *Task) HasClaimedAt() bool {
-	return t.ClaimedAt != nil
-}
-
 // AgentState tracks the last known state for an agent
 type AgentState struct {
 	AgentName       string    `json:"agent_name"`
@@ -142,31 +138,42 @@ type AgentState struct {
 	LastActiveAt    time.Time `json:"last_active_at"`
 }
 
+// RetrospectiveJob represents a durable session-end retrospective queue job.
+type RetrospectiveJob struct {
+	ID             string                 `json:"id"`
+	AgentName      string                 `json:"agent_name"`
+	ProjectID      string                 `json:"project_id,omitempty"`
+	SessionID      string                 `json:"session_id,omitempty"`
+	SinceEventID   int64                  `json:"since_event_id"`
+	UntilEventID   int64                  `json:"until_event_id"`
+	Status         RetrospectiveJobStatus `json:"status"`
+	Attempt        int                    `json:"attempt"`
+	MaxAttempts    int                    `json:"max_attempts"`
+	NextRunAt      time.Time              `json:"next_run_at"`
+	ClaimedBy      string                 `json:"claimed_by,omitempty"`
+	ClaimExpiresAt *time.Time             `json:"claim_expires_at,omitempty"`
+	LastError      string                 `json:"last_error,omitempty"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	CompletedAt    *time.Time             `json:"completed_at,omitempty"`
+}
+
 // Memory represents a key-value storage entry with scoping
 type Memory struct {
-	ID            int64       `json:"id"`
-	Key           string      `json:"key"`
-	Canonical     string      `json:"canonical_key,omitempty"`
-	Value         string      `json:"value"`
-	ValueType     string      `json:"value_type"`
-	Scope         MemoryScope `json:"scope"`
-	ScopeID       string      `json:"scope_id"`
-	Confidence    float64     `json:"confidence,omitempty"`
-	LastSeenAt    *time.Time  `json:"last_seen_at,omitempty"`
-	SourceEventID *int64      `json:"source_event_id,omitempty"`
-	SupersededBy  string      `json:"superseded_by,omitempty"`
-	ExpiresAt     *time.Time  `json:"expires_at,omitempty"`
-	CreatedAt     time.Time   `json:"created_at"`
+	ID        int64       `json:"id"`
+	Key       string      `json:"key"`
+	Value     string      `json:"value"`
+	ValueType string      `json:"value_type"`
+	Scope     MemoryScope `json:"scope"`
+	ScopeID   string      `json:"scope_id"`
+	ExpiresAt *time.Time  `json:"expires_at,omitempty"`
+	UpdatedAt time.Time   `json:"updated_at"`
+	CreatedAt time.Time   `json:"created_at"`
 }
 
 // IsExpired returns true if the memory has an expiration time and it has passed.
 func (m *Memory) IsExpired(now time.Time) bool {
 	return m.ExpiresAt != nil && m.ExpiresAt.Before(now)
-}
-
-// IsSuperseded returns true if this memory entry has been superseded by another.
-func (m *Memory) IsSuperseded() bool {
-	return m.SupersededBy != ""
 }
 
 // IsGlobalScope returns true if the memory has global visibility.

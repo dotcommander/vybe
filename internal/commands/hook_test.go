@@ -183,3 +183,28 @@ func TestHookRequestID(t *testing.T) {
 	id2 := hookRequestID("test", "claude")
 	require.NotEqual(t, id, id2)
 }
+
+func TestStableHookRequestID(t *testing.T) {
+	id1 := stableHookRequestID("session_end", "agent-a", "sess_123")
+	id2 := stableHookRequestID("session_end", "agent-a", "sess_123")
+	require.Equal(t, id1, id2)
+	require.Contains(t, id1, "hook_session_end_agent-a_sess_123")
+
+	id3 := stableHookRequestID("session_end", "agent-a", "")
+	id4 := stableHookRequestID("session_end", "agent-a", "")
+	require.NotEqual(t, id3, id4)
+}
+
+func TestSanitizeRequestToken(t *testing.T) {
+	got := sanitizeRequestToken("abc:/def?ghi", 64)
+	require.Equal(t, "abc__def_ghi", got)
+	require.Equal(t, "session", sanitizeRequestToken("", 64))
+}
+
+func TestIsRetrospectiveChildProcess(t *testing.T) {
+	t.Setenv(retroChildEnv, "")
+	require.False(t, isRetrospectiveChildProcess())
+
+	t.Setenv(retroChildEnv, "1")
+	require.True(t, isRetrospectiveChildProcess())
+}
