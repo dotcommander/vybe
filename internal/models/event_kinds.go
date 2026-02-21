@@ -1,8 +1,6 @@
 package models
 
 // System event kinds emitted by vybe's store and action layers.
-// Agents may also emit freeform kinds (e.g., "progress", "reasoning", "note")
-// but these are not defined as constants since they're agent-controlled.
 const (
 	EventKindTaskCreated           = "task_created"
 	EventKindTaskDeleted           = "task_deleted"
@@ -24,14 +22,23 @@ const (
 	EventKindCheckpoint            = "checkpoint"
 )
 
-// Well-known agent event kinds. These are conventions, not enforced.
-// Agents may emit any kind string up to 128 characters.
+// Agent event kinds with system significance.
+// These are emitted by agents but are also filtered or queried by system logic
+// (resume.go FetchSessionEvents, FetchRecentUserPrompts, FetchPriorReasoning;
+// session.go extractRuleBasedLessons).
 const (
-	EventKindUserPrompt     = "user_prompt"
-	EventKindReasoning      = "reasoning"
-	EventKindToolFailure    = "tool_failure"
+	EventKindUserPrompt  = "user_prompt"
+	EventKindReasoning   = "reasoning"
+	EventKindToolFailure = "tool_failure"
+	EventKindProgress    = "progress"
+)
+
+// Agent convention kinds — purely labels used at insertion time (e.g., hook.go).
+// These are never filtered or queried by system logic.
+// Agents may emit any kind string up to 128 characters; these constants exist
+// only to avoid typos at call sites.
+const (
 	EventKindToolSuccess    = "tool_success"
-	EventKindProgress       = "progress"
 	EventKindNote           = "note"
 	EventKindTaskCompleted  = "task_completed"
 	EventKindCommit         = "commit"
