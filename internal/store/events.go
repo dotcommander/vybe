@@ -342,24 +342,6 @@ func CountActiveEvents(db *sql.DB, projectID string) (int64, error) {
 	return count, nil
 }
 
-// GetMaxActiveEventIDTx returns the highest active (non-archived) event id,
-// optionally scoped to a project.
-func GetMaxActiveEventIDTx(tx *sql.Tx, projectID string) (int64, error) {
-	var maxID int64
-	query := `SELECT COALESCE(MAX(id), 0) FROM events WHERE archived_at IS NULL`
-	args := []any{}
-	if projectID != "" {
-		query += ` AND ` + ProjectScopeClause
-		args = append(args, projectID)
-	}
-
-	if err := tx.QueryRowContext(context.Background(), query, args...).Scan(&maxID); err != nil {
-		return 0, fmt.Errorf("get max active event id: %w", err)
-	}
-
-	return maxID, nil
-}
-
 // FindArchiveWindow computes the ID range of active events to archive,
 // keeping the most recent keepRecent events active.
 // Returns (0, 0, nil) when there are not enough events to archive.
