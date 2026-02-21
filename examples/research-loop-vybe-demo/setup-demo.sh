@@ -12,17 +12,18 @@ rm -f "$OUT_DIR"/*.md 2>/dev/null || true
 export VYBE_DB_PATH="$DB_PATH"
 export VYBE_AGENT="genealogy-loop-demo"
 
+# Use the demo DB directory as a stable project ID (resume --project-dir auto-scopes to it).
+PROJECT_ID="$ROOT_DIR/.work/demo"
+
 rid() {
   printf '%s_%s_%s' "$1" "$(date +%s%N)" "$RANDOM"
 }
 
-vybe agent init --agent "$VYBE_AGENT" --request-id "$(rid init)" >/dev/null
-
-PROJECT_ID="$(vybe project create \
+# resume auto-creates agent state on first call; no separate init needed.
+vybe resume \
   --agent "$VYBE_AGENT" \
-  --request-id "$(rid project)" \
-  --name "Genealogy Loop Demo" \
-  --metadata '{"domain":"genealogy","mode":"demo"}' | jq -r '.data.project.id')"
+  --request-id "$(rid init)" \
+  --project-dir "$PROJECT_ID" >/dev/null
 
 create_task() {
   local title="$1"

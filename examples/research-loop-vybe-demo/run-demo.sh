@@ -16,16 +16,12 @@ if [[ -z "${VYBE_AGENT:-}" ]]; then
 fi
 export VYBE_DB_PATH="$DB_PATH"
 
-PROJECT_ID="$(vybe project list | jq -r '.data.projects[0].id // ""')"
-
-if [[ -z "$PROJECT_ID" ]]; then
-  echo "No demo project found. Re-run setup script." >&2
-  exit 1
-fi
+# Project ID matches what setup-demo.sh used: the demo DB directory path.
+PROJECT_ID="$ROOT_DIR/.work/demo"
 
 vybe loop \
   --agent "$VYBE_AGENT" \
-  --project "$PROJECT_ID" \
+  --project-dir "$PROJECT_ID" \
   --max-tasks 10 \
   --max-fails 5 \
   --task-timeout 30s \
