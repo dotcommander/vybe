@@ -252,7 +252,7 @@ func TestDemoAgentSession(t *testing.T) {
 			for i, title := range taskTitles {
 				out := h.vybe("task", "create",
 					"--title", title,
-					"--project", projectID,
+					"--project-id", projectID,
 					"--request-id", rid("p1s3", i),
 				)
 				m := requireSuccess(t, out)
@@ -389,7 +389,7 @@ func TestDemoAgentSession(t *testing.T) {
 			stdin := hookStdin("UserPromptSubmit", sessionID, projectID, "", "Implement the auth system", "")
 			h.vybeWithStdin(stdin, "hook", "prompt")
 			// Verify a user_prompt event was recorded
-			eventsOut := h.vybe("status", "--events", "--kind", "user_prompt", "--limit", "5", "--all")
+			eventsOut := h.vybe("events", "list", "--kind", "user_prompt", "--limit", "5", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.NotEmpty(t, events, "user_prompt event should be logged")
@@ -418,7 +418,7 @@ func TestDemoAgentSession(t *testing.T) {
 				map[string]any{"command": "go build ./..."})
 			h.vybeWithStdin(stdin, "hook", "tool-success")
 			// Verify tool_success event logged
-			eventsOut := h.vybe("status", "--events", "--kind", "tool_success", "--limit", "5", "--all")
+			eventsOut := h.vybe("events", "list", "--kind", "tool_success", "--limit", "5", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.NotEmpty(t, events, "tool_success event should be logged")
@@ -433,7 +433,7 @@ func TestDemoAgentSession(t *testing.T) {
 				map[string]any{"command": "go test ./..."})
 			h.vybeWithStdin(stdin, "hook", "tool-failure")
 			// Verify tool_failure event logged
-			eventsOut := h.vybe("status", "--events", "--kind", "tool_failure", "--limit", "5", "--all")
+			eventsOut := h.vybe("events", "list", "--kind", "tool_failure", "--limit", "5", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.NotEmpty(t, events, "tool_failure event should be logged")
@@ -452,7 +452,7 @@ func TestDemoAgentSession(t *testing.T) {
 				requireSuccess(t, out)
 				t.Logf("  Progress logged: %q", msg)
 			}
-			eventsOut := h.vybe("status", "--events", "--task", authTaskID, "--kind", "progress", "--all")
+			eventsOut := h.vybe("events", "list", "--task-id", authTaskID, "--kind", "progress", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.GreaterOrEqual(t, len(events), 2, "at least 2 progress events expected")
@@ -590,7 +590,7 @@ func TestDemoAgentSession(t *testing.T) {
 
 			// Check artifacts from previous session
 			t.Logf("Checking artifacts for task %s (created in Act II, different session)", authTaskID)
-			artOut := h.vybe("status", "--artifacts", "--task", authTaskID)
+			artOut := h.vybe("artifacts", "list", "--task-id", authTaskID)
 			artM := requireSuccess(t, artOut)
 			artifacts := artM["data"].(map[string]any)["artifacts"].([]any)
 			require.NotEmpty(t, artifacts, "artifacts from previous session should persist")
@@ -758,7 +758,7 @@ func TestDemoAgentSession(t *testing.T) {
 		// Events list — observe all event kinds present
 		t.Run("query_event_stream", func(t *testing.T) {
 			t.Log("Listing all events — the complete log of agent activity across both sessions")
-			eventsOut := h.vybe("status", "--events", "--limit", "100", "--all")
+			eventsOut := h.vybe("events", "list", "--limit", "100", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.NotEmpty(t, events, "events list should not be empty")
@@ -815,7 +815,7 @@ func TestDemoAgentSession(t *testing.T) {
 		// Artifact list — confirm artifacts linked
 		t.Run("query_artifacts", func(t *testing.T) {
 			t.Logf("Listing artifacts for task %s ('Implement auth')", authTaskID)
-			artOut := h.vybe("status", "--artifacts", "--task", authTaskID)
+			artOut := h.vybe("artifacts", "list", "--task-id", authTaskID)
 			artM := requireSuccess(t, artOut)
 			artifacts := artM["data"].(map[string]any)["artifacts"].([]any)
 			require.NotEmpty(t, artifacts, "artifacts should be linked to auth task")
@@ -983,7 +983,7 @@ func TestDemoAgentSession(t *testing.T) {
 			t.Logf("Event logged: id=%v kind=tool_call", eventID)
 
 			// Verify event appears in list and has expected kind
-			eventsOut := h.vybe("status", "--events", "--kind", "tool_call", "--limit", "10", "--all")
+			eventsOut := h.vybe("events", "list", "--kind", "tool_call", "--limit", "10", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.NotEmpty(t, events, "tool_call events should be listed")
@@ -1253,7 +1253,7 @@ func TestDemoAgentSession(t *testing.T) {
 	t.Run("ActXIV_TheEventStream", func(t *testing.T) {
 		t.Log("=== ACT XIV: THE EVENT STREAM ===")
 		t.Log("The event log is the source of truth. As it grows, agents need to manage it.")
-		t.Log("status --events: query events by kind, task, or time range.")
+		t.Log("events list: query events by kind, task, or time range.")
 
 		// Add progress events via push for querying
 		t.Run("add_events_for_query", func(t *testing.T) {
@@ -1270,7 +1270,7 @@ func TestDemoAgentSession(t *testing.T) {
 		// Events tail — single poll, non-blocking
 		t.Run("recent_activity", func(t *testing.T) {
 			t.Log("Querying recent events — the agent's real-time window into what's happening")
-			out := h.vybe("status", "--events", "--limit", "5", "--all")
+			out := h.vybe("events", "list", "--limit", "5", "--all")
 			m := requireSuccess(t, out)
 			events := m["data"].(map[string]any)["events"].([]any)
 			require.NotEmpty(t, events, "events list should return recent events")
@@ -1283,19 +1283,19 @@ func TestDemoAgentSession(t *testing.T) {
 	// -------------------------------------------------------------------------
 	t.Run("ActXV_SystemIntrospection", func(t *testing.T) {
 		t.Log("=== ACT XV: SYSTEM INTROSPECTION ===")
-		t.Log("Schema introspection via `status --schema`.")
+		t.Log("Schema introspection via `schema commands`.")
 		t.Log("These commands give operators and agents a broader view of the system state.")
 
 		// Schema — confirm returns command schemas
 		t.Run("inspect_schema", func(t *testing.T) {
 			t.Log("Fetching the command schema — agents and operators can inspect available commands and their arguments")
 			t.Log("Useful for debugging, tool discovery, and understanding what flags are available")
-			out := h.vybe("status", "--schema")
+			out := h.vybe("schema", "commands")
 			m := requireSuccess(t, out)
 			data := m["data"].(map[string]any)
 			// Schema should have commands list
 			commands, ok := data["commands"].([]any)
-			require.True(t, ok && len(commands) > 0, "status --schema should return a non-empty commands list: %s", out)
+			require.True(t, ok && len(commands) > 0, "schema commands should return a non-empty commands list: %s", out)
 			t.Logf("Schema fetched — %d commands described (flags, types, defaults)", len(commands))
 		})
 	})
@@ -1326,7 +1326,7 @@ func TestDemoAgentSession(t *testing.T) {
 			h.vybeWithStdin(string(data), "hook", "subagent-start")
 
 			// Verify an agent_spawned event was recorded
-			eventsOut := h.vybe("status", "--events", "--kind", "agent_spawned", "--limit", "5", "--all")
+			eventsOut := h.vybe("events", "list", "--kind", "agent_spawned", "--limit", "5", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.NotEmpty(t, events, "agent_spawned event should be logged by subagent-start hook")
@@ -1347,7 +1347,7 @@ func TestDemoAgentSession(t *testing.T) {
 			h.vybeWithStdin(string(data), "hook", "subagent-stop")
 
 			// Verify an agent_completed event was recorded
-			eventsOut := h.vybe("status", "--events", "--kind", "agent_completed", "--limit", "5", "--all")
+			eventsOut := h.vybe("events", "list", "--kind", "agent_completed", "--limit", "5", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.NotEmpty(t, events, "agent_completed event should be logged by subagent-stop hook")
@@ -1367,7 +1367,7 @@ func TestDemoAgentSession(t *testing.T) {
 			h.vybeWithStdin(string(data), "hook", "stop")
 
 			// Verify a heartbeat event was recorded
-			eventsOut := h.vybe("status", "--events", "--kind", "heartbeat", "--limit", "5", "--all")
+			eventsOut := h.vybe("events", "list", "--kind", "heartbeat", "--limit", "5", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.NotEmpty(t, events, "heartbeat event should be logged by stop hook")
@@ -1384,12 +1384,12 @@ func TestDemoAgentSession(t *testing.T) {
 		t.Log("Artifact retrieval, retrospective extraction, loop stats,")
 		t.Log("read-only briefs, hook management.")
 
-		// Artifact list and lookup by ID via status --artifacts
+		// Artifact list and lookup by ID via artifacts list --task-id
 		t.Run("artifact_get_by_id", func(t *testing.T) {
 			t.Logf("Fetching artifacts for task %s ('Implement auth') and verifying by ID", authTaskID)
 			t.Log("Artifacts from Act II are still here — cross-session artifact persistence confirmed again")
 			// List artifacts for the task
-			artListOut := h.vybe("status", "--artifacts", "--task", authTaskID)
+			artListOut := h.vybe("artifacts", "list", "--task-id", authTaskID)
 			artListM := requireSuccess(t, artListOut)
 			artifacts := artListM["data"].(map[string]any)["artifacts"].([]any)
 			require.NotEmpty(t, artifacts, "artifacts should exist for auth task from Act II")
