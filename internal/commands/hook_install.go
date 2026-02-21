@@ -308,7 +308,6 @@ func isVybeHookCommand(command string) bool {
 	sub := parts[2]
 	return sub == "session-start" ||
 		sub == "session-end" ||
-		sub == "retrospective-worker" ||
 		sub == "prompt" ||
 		sub == "tool-failure" ||
 		sub == "tool-success" ||

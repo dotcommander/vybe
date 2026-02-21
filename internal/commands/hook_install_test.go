@@ -77,7 +77,6 @@ func TestIsVybeHookCommand(t *testing.T) {
 	require.False(t, isVybeHookCommand("vybe hook unknown-subcommand"))
 	require.True(t, isVybeHookCommand("vybe hook retrospective"))
 	require.True(t, isVybeHookCommand("vybe hook retrospective-bg"))
-	require.True(t, isVybeHookCommand("vybe hook retrospective-worker"))
 	require.True(t, isVybeHookCommand("vybe hook session-end"))
 	require.True(t, isVybeHookCommand("vybe hook tool-success"))
 	require.True(t, isVybeHookCommand("vybe hook subagent-stop"))

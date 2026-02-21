@@ -28,7 +28,6 @@ func NewLoopCmd() *cobra.Command {
 		project      string
 		maxTasks     int
 		maxFails     int
-		retroLease   int
 		taskTimeout  string
 		cooldown     string
 		dryRun       bool
@@ -78,7 +77,6 @@ Safety rails:
 				project:      project,
 				maxTasks:     maxTasks,
 				maxFails:     maxFails,
-				retroLease:   retroLease,
 				taskTimeout:  timeout,
 				cooldown:     cool,
 				dryRun:       dryRun,
@@ -94,7 +92,6 @@ Safety rails:
 	cmd.Flags().StringVar(&project, "project", "", "Project directory to scope tasks and resume")
 	cmd.Flags().IntVar(&maxTasks, "max-tasks", 10, "Stop after N tasks completed")
 	cmd.Flags().IntVar(&maxFails, "max-fails", 3, "Circuit breaker: stop after N consecutive failures")
-	cmd.Flags().IntVar(&retroLease, "retro-lease-sec", 60, "Lease duration in seconds for opportunistic retrospective trigger")
 	cmd.Flags().StringVar(&taskTimeout, "task-timeout", "10m", "Kill spawned command after this duration")
 	cmd.Flags().StringVar(&cooldown, "cooldown", "5s", "Wait between tasks")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would run without spawning")
@@ -112,7 +109,6 @@ type runOptions struct {
 	project      string
 	maxTasks     int
 	maxFails     int
-	retroLease   int
 	taskTimeout  time.Duration
 	cooldown     time.Duration
 	dryRun       bool
@@ -141,8 +137,6 @@ func runLoop(opts runOptions) error {
 	)
 
 	for completed < opts.maxTasks {
-		triggerRetrospectiveWorker(opts.agentName, opts.retroLease)
-
 		// Resume to get focus task
 		requestID := fmt.Sprintf("run_%d_%d", time.Now().UnixMilli(), totalRun)
 
@@ -310,24 +304,6 @@ func runLoop(opts runOptions) error {
 	}
 
 	return output.PrintSuccess(r)
-}
-
-// triggerRetrospectiveWorker opportunistically processes one due retrospective job.
-// Errors are non-fatal to keep the task loop as the primary workflow.
-func triggerRetrospectiveWorker(agentName string, leaseSeconds int) {
-	workerName := agentName + "-loop-retro"
-	if err := withDB(func(db *DB) error {
-		res, runErr := actions.RunOneRetrospectiveJob(db, workerName, leaseSeconds)
-		if runErr != nil {
-			return runErr
-		}
-		if res != nil && res.Processed {
-			slog.Default().Info("opportunistic retrospective processed", "job_id", res.Job.ID, "outcome", res.Outcome)
-		}
-		return nil
-	}); err != nil {
-		slog.Default().Warn("opportunistic retrospective trigger failed", "error", err)
-	}
 }
 
 // execPostRunHook pipes run results JSON to an external command via stdin.

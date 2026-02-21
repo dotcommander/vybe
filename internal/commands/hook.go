@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,7 +17,6 @@ import (
 	"github.com/dotcommander/vybe/internal/actions"
 	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/models"
-	"github.com/dotcommander/vybe/internal/output"
 	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -62,15 +60,12 @@ func NewHookCmd() *cobra.Command {
 		newHookTaskCompletedCmd(),
 		newHookRetrospectiveCmd(),
 		newHookRetrospectiveBgCmd(),
-		newHookRetrospectiveWorkerCmd(),
 		newHookSessionEndCmd(),
 		newHookSubagentStopCmd(),
 		newHookSubagentStartCmd(),
 		newHookStopCmd(),
 	} {
-		if sub.Name() != "retrospective-worker" {
-			sub.Hidden = true
-		}
+		sub.Hidden = true
 		cmd.AddCommand(sub)
 	}
 
@@ -690,19 +685,42 @@ func newHookToolSuccessCmd() *cobra.Command {
 func newHookCheckpointCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:           "checkpoint",
-		Short:         "SessionEnd/PreCompact hook — best-effort memory checkpoint",
+		Short:         "PreCompact hook — checkpoint + retrospective",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isRetrospectiveChildProcess() {
+				return nil
+			}
+			_ = os.Setenv(disableExternalLLMEnv, "1")
+
 			hctx := resolveHookContext(cmd)
 			requestIDPrefix := hookRequestID("checkpoint", hctx.AgentName)
 
-			// Hooks must never block Claude Code — log diagnostic and exit clean.
+			// --- Phase 1: synchronous checkpoint (fast, ~500ms) ---
 			if err := withDB(func(db *DB) error {
 				runCheckpoint(db, hctx, requestIDPrefix)
 				return nil
 			}); err != nil {
 				slog.Default().Error("checkpoint hook failed", "error", err, "hook_event", hctx.Input.HookEventName)
+			}
+
+			// --- Phase 2: best-effort retrospective (synchronous, rule-based) ---
+			retroReq := hookRequestID("retro", hctx.AgentName)
+			if err := withDB(func(db *DB) error {
+				result, retroErr := actions.SessionRetrospectiveRuleOnly(db, hctx.AgentName, retroReq)
+				if retroErr != nil {
+					slog.Default().Warn("checkpoint retrospective failed", "error", retroErr)
+					return nil
+				}
+				if result.Skipped {
+					slog.Default().Info("checkpoint retrospective skipped", "reason", result.SkipReason)
+				} else {
+					slog.Default().Info("checkpoint retrospective complete", "lessons", result.LessonsCount)
+				}
+				return nil
+			}); err != nil {
+				slog.Default().Error("checkpoint retrospective hook failed", "error", err)
 			}
 
 			return nil
@@ -966,103 +984,12 @@ func newHookRetrospectiveBgCmd() *cobra.Command {
 	}
 }
 
-func newHookRetrospectiveWorkerCmd() *cobra.Command {
-	var (
-		once     bool
-		poll     string
-		leaseSec int
-		maxFails int
-	)
-
-	cmd := &cobra.Command{
-		Use:           "retrospective-worker",
-		Short:         "Process queued retrospective jobs",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			agentName := resolveActorName(cmd, "")
-			if agentName == "" {
-				agentName = defaultAgentName + "-retro-worker"
-			}
-
-			pollInterval, err := time.ParseDuration(poll)
-			if err != nil {
-				return cmdErr(fmt.Errorf("invalid --poll: %w", err))
-			}
-			if pollInterval <= 0 {
-				return cmdErr(errors.New("--poll must be > 0"))
-			}
-			if leaseSec <= 0 {
-				return cmdErr(errors.New("--lease-sec must be > 0"))
-			}
-			if maxFails <= 0 {
-				maxFails = 10
-			}
-
-			type resp struct {
-				Processed int `json:"processed"`
-				Failed    int `json:"failed"`
-			}
-			result := resp{}
-			consecutiveFails := 0
-
-			for {
-				var runResult *actions.RunOneRetrospectiveJobResult
-				err := withDB(func(db *DB) error {
-					r, runErr := actions.RunOneRetrospectiveJob(db, agentName, leaseSec)
-					if runErr != nil {
-						return runErr
-					}
-					runResult = r
-					return nil
-				})
-				if err != nil {
-					consecutiveFails++
-					result.Failed++
-					slog.Default().Warn("retrospective worker iteration failed", "error", err, "consecutive_fails", consecutiveFails)
-					if once {
-						return output.PrintSuccess(result)
-					}
-					if consecutiveFails >= maxFails {
-						return cmdErr(fmt.Errorf("retrospective worker reached max consecutive failures (%d)", maxFails))
-					}
-					time.Sleep(pollInterval)
-					continue
-				}
-
-				consecutiveFails = 0
-				if runResult != nil && runResult.Processed {
-					result.Processed++
-					slog.Default().Info("retrospective worker processed job", "outcome", runResult.Outcome, "job_id", runResult.Job.ID)
-					if once {
-						return output.PrintSuccess(result)
-					}
-					continue
-				}
-
-				if once {
-					return output.PrintSuccess(result)
-				}
-
-				time.Sleep(pollInterval)
-			}
-		},
-	}
-
-	cmd.Flags().BoolVar(&once, "once", false, "Process at most one job and exit")
-	cmd.Flags().StringVar(&poll, "poll", "2s", "Polling interval when no jobs are available")
-	cmd.Flags().IntVar(&leaseSec, "lease-sec", 60, "Lease duration in seconds for claimed jobs")
-	cmd.Flags().IntVar(&maxFails, "max-fails", 10, "Stop after N consecutive worker failures")
-
-	return cmd
-}
-
-// newHookSessionEndCmd creates a combined SessionEnd hook that runs checkpoint
-// synchronously and enqueues retrospective work for asynchronous workers.
+// newHookSessionEndCmd creates a SessionEnd hook that runs checkpoint only.
+// Retrospective enqueue is handled by PreCompact (checkpoint hook) instead.
 func newHookSessionEndCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:           "session-end",
-		Short:         "SessionEnd hook — checkpoint + fire-and-forget retrospective",
+		Short:         "SessionEnd hook — best-effort checkpoint",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1078,23 +1005,11 @@ func newHookSessionEndCmd() *cobra.Command {
 			}
 			requestIDPrefix := stableHookRequestID("session_end", hctx.AgentName, sessionID)
 
-			// --- Phase 1: synchronous checkpoint (fast, ~500ms) ---
 			if err := withDB(func(db *DB) error {
 				runCheckpoint(db, hctx, requestIDPrefix)
 				return nil
 			}); err != nil {
 				slog.Default().Error("session-end checkpoint failed", "error", err)
-			}
-
-			// --- Phase 2: enqueue retrospective job ---
-			enqueueReq := stableHookRequestID("retro_enqueue", hctx.AgentName, sessionID)
-			if err := withDB(func(db *DB) error {
-				_, enqueueErr := actions.EnqueueRetrospectiveJobIdempotent(db, hctx.AgentName, enqueueReq, hctx.CWD, sessionID, 5)
-				return enqueueErr
-			}); err != nil {
-				slog.Default().Error("session-end enqueue retrospective job failed", "error", err)
-			} else {
-				slog.Default().Info("session-end retrospective job enqueued")
 			}
 
 			return nil
