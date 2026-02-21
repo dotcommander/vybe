@@ -2,83 +2,11 @@ package commands
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/dotcommander/vybe/internal/store"
 	"github.com/stretchr/testify/require"
 )
-
-func TestToolInputSummary(t *testing.T) {
-	tests := []struct {
-		name     string
-		toolName string
-		input    string
-		want     string
-	}{
-		{
-			name:     "Write extracts file_path",
-			toolName: "Write",
-			input:    `{"file_path":"/tmp/foo.go","content":"package main"}`,
-			want:     "Write: /tmp/foo.go",
-		},
-		{
-			name:     "Edit extracts file_path",
-			toolName: "Edit",
-			input:    `{"file_path":"/tmp/bar.go","old_string":"a","new_string":"b"}`,
-			want:     "Edit: /tmp/bar.go",
-		},
-		{
-			name:     "Bash extracts command",
-			toolName: "Bash",
-			input:    `{"command":"go build ./..."}`,
-			want:     "Bash: go build ./...",
-		},
-		{
-			name:     "Bash truncates long commands",
-			toolName: "Bash",
-			input:    `{"command":"` + strings.Repeat("x", 200) + `"}`,
-			want:     "Bash: " + strings.Repeat("x", 120),
-		},
-		{
-			name:     "NotebookEdit extracts notebook_path",
-			toolName: "NotebookEdit",
-			input:    `{"notebook_path":"/tmp/nb.ipynb"}`,
-			want:     "NotebookEdit: /tmp/nb.ipynb",
-		},
-		{
-			name:     "Unknown tool returns tool name",
-			toolName: "Read",
-			input:    `{"file_path":"/tmp/foo.go"}`,
-			want:     "Read",
-		},
-		{
-			name:     "Invalid JSON returns tool name",
-			toolName: "Write",
-			input:    `{invalid`,
-			want:     "Write",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := toolInputSummary(tt.toolName, json.RawMessage(tt.input))
-			require.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestMutatingTools(t *testing.T) {
-	// Expected mutating tools
-	for _, tool := range []string{"Write", "Edit", "MultiEdit", "Bash", "NotebookEdit"} {
-		require.True(t, mutatingTools[tool], "%s should be mutating", tool)
-	}
-
-	// Read-only tools should not be in set
-	for _, tool := range []string{"Read", "Glob", "Grep", "LSP", "WebFetch", "WebSearch"} {
-		require.False(t, mutatingTools[tool], "%s should not be mutating", tool)
-	}
-}
 
 func TestTruncateString(t *testing.T) {
 	// Within limit — passthrough
@@ -197,12 +125,4 @@ func TestSanitizeRequestToken(t *testing.T) {
 	got := sanitizeRequestToken("abc:/def?ghi", 64)
 	require.Equal(t, "abc__def_ghi", got)
 	require.Equal(t, "session", sanitizeRequestToken("", 64))
-}
-
-func TestIsRetrospectiveChildProcess(t *testing.T) {
-	t.Setenv(retroChildEnv, "")
-	require.False(t, isRetrospectiveChildProcess())
-
-	t.Setenv(retroChildEnv, "1")
-	require.True(t, isRetrospectiveChildProcess())
 }

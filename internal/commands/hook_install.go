@@ -132,7 +132,7 @@ func vybeHooks() map[string]hookEntry {
 	return vybeHooksCache
 }
 
-//nolint:funlen // hook definitions are data-heavy; all 10 hook event entries must be defined together for maintainability
+//nolint:funlen // hook definitions are data-heavy; core hook event entries are defined together for maintainability
 func buildVybeHooks() map[string]hookEntry {
 	return map[string]hookEntry{
 		"SessionStart": {
@@ -181,38 +181,6 @@ func buildVybeHooks() map[string]hookEntry {
 				Type:    "command",
 				Command: buildVybeHookCommand("task-completed"),
 				Timeout: 2000,
-			}},
-		},
-		"PostToolUse": {
-			Matcher: "Write|Edit|MultiEdit|Bash|NotebookEdit",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("tool-success"),
-				Timeout: 2000,
-			}},
-		},
-		"SubagentStop": {
-			Matcher: "",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("subagent-stop"),
-				Timeout: 2000,
-			}},
-		},
-		"SubagentStart": {
-			Matcher: "",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("subagent-start"),
-				Timeout: 2000,
-			}},
-		},
-		"Stop": {
-			Matcher: "",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("stop"),
-				Timeout: 1000,
 			}},
 		},
 	}
@@ -306,8 +274,8 @@ func isVybeHookCommand(command string) bool {
 
 	sub := parts[2]
 	switch sub {
-	case "session-start", "session-end", "prompt", "tool-failure", "tool-success", "checkpoint",
-		"task-completed", "retrospective", "retrospective-bg", "subagent-stop", "subagent-start", "stop":
+	case "session-start", "session-end", "prompt", "tool-failure", "checkpoint",
+		"task-completed":
 		return true
 	default:
 		return false

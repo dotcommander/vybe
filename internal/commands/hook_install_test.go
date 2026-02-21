@@ -75,13 +75,13 @@ func TestIsVybeHookCommand(t *testing.T) {
 	require.False(t, isVybeHookCommand("vybe status"))
 	require.False(t, isVybeHookCommand(""))
 	require.False(t, isVybeHookCommand("vybe hook unknown-subcommand"))
-	require.True(t, isVybeHookCommand("vybe hook retrospective"))
-	require.True(t, isVybeHookCommand("vybe hook retrospective-bg"))
+	require.False(t, isVybeHookCommand("vybe hook retrospective"))
+	require.False(t, isVybeHookCommand("vybe hook retrospective-bg"))
 	require.True(t, isVybeHookCommand("vybe hook session-end"))
-	require.True(t, isVybeHookCommand("vybe hook tool-success"))
-	require.True(t, isVybeHookCommand("vybe hook subagent-stop"))
-	require.True(t, isVybeHookCommand("vybe hook subagent-start"))
-	require.True(t, isVybeHookCommand("vybe hook stop"))
+	require.False(t, isVybeHookCommand("vybe hook tool-success"))
+	require.False(t, isVybeHookCommand("vybe hook subagent-stop"))
+	require.False(t, isVybeHookCommand("vybe hook subagent-start"))
+	require.False(t, isVybeHookCommand("vybe hook stop"))
 }
 
 func TestVybeHookEventNames_ContainsAllEvents(t *testing.T) {
@@ -90,13 +90,9 @@ func TestVybeHookEventNames_ContainsAllEvents(t *testing.T) {
 		"SessionStart",
 		"UserPromptSubmit",
 		"PostToolUseFailure",
-		"PostToolUse",
 		"PreCompact",
 		"SessionEnd",
 		"TaskCompleted",
-		"SubagentStop",
-		"SubagentStart",
-		"Stop",
 	}
 	for _, e := range expected {
 		require.Contains(t, events, e, "missing hook event: %s", e)
@@ -289,7 +285,6 @@ func TestInstallOpenCode_SkipsIdenticalFile(t *testing.T) {
 func TestOpenCodeBridgePlugin_UsesSessionEndHookFlow(t *testing.T) {
 	require.Contains(t, opencodeBridgePluginSource, "hook\", \"session-end\"")
 	require.NotContains(t, opencodeBridgePluginSource, "hook\", \"retrospective\"")
-	require.Contains(t, opencodeBridgePluginSource, "VYBE_RETRO_CHILD")
 
 	// Ensure direct retrospective invocation is not present as an argv token sequence.
 	require.False(t, strings.Contains(opencodeBridgePluginSource, "runVybeBackground([\"hook\", \"retrospective\""))
