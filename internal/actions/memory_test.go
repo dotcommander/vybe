@@ -104,22 +104,6 @@ func TestMemoryList_Basic(t *testing.T) {
 	require.Len(t, list, 2)
 }
 
-func TestMemoryQuery(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, err := MemorySetIdempotent(db, "agent-a", "req-query-1", "q_alpha", "a", "", "global", "", nil)
-	require.NoError(t, err)
-	_, err = MemorySetIdempotent(db, "agent-a", "req-query-2", "q_beta", "b", "", "global", "", nil)
-	require.NoError(t, err)
-	_, err = MemorySetIdempotent(db, "agent-a", "req-query-3", "other", "c", "", "global", "", nil)
-	require.NoError(t, err)
-
-	results, err := MemoryQuery(db, "global", "", "q_%", 10)
-	require.NoError(t, err)
-	require.Len(t, results, 2)
-}
-
 func TestMemoryGCIdempotent(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

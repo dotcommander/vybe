@@ -68,14 +68,6 @@ func MemoryList(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
 	return store.ListMemory(db, scope, scopeID)
 }
 
-// MemoryQuery searches memory entries by key pattern, ranked by recency.
-func MemoryQuery(db *sql.DB, scope, scopeID, pattern string, limit int) ([]*models.Memory, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	return store.QueryMemory(db, scope, scopeID, pattern, limit)
-}
-
 // MemoryDeleteIdempotent deletes a memory entry idempotently.
 func MemoryDeleteIdempotent(db *sql.DB, agentName, requestID, key, scope, scopeID string) (int64, error) { //nolint:revive // argument-limit: all params are required and distinct
 	if agentName == "" {

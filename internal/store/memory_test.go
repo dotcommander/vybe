@@ -441,30 +441,6 @@ func TestUpsertMemory_RejectsInvalidValueType(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid value_type")
 }
 
-func TestQueryMemory(t *testing.T) {
-	db, cleanup := setupMemoryTestDB(t)
-	defer cleanup()
-
-	require.NoError(t, SetMemory(db, "api_key", "secret", "string", "global", "", nil))
-	require.NoError(t, SetMemory(db, "api_url", "http://x", "string", "global", "", nil))
-	require.NoError(t, SetMemory(db, "db_host", "localhost", "string", "global", "", nil))
-
-	// Pattern match
-	results, err := QueryMemory(db, "global", "", "api%", 10)
-	require.NoError(t, err)
-	assert.Len(t, results, 2)
-
-	// Wildcard
-	results, err = QueryMemory(db, "global", "", "%", 10)
-	require.NoError(t, err)
-	assert.Len(t, results, 3)
-
-	// No match
-	results, err = QueryMemory(db, "global", "", "nope%", 10)
-	require.NoError(t, err)
-	assert.Len(t, results, 0)
-}
-
 func TestMemoryEventMetadata_MarshalProducesValidJSON(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()

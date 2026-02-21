@@ -210,42 +210,6 @@ func ListMemory(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
 	return memories, nil
 }
 
-// QueryMemory searches memory entries by key LIKE pattern, ordered by updated_at DESC.
-func QueryMemory(db *sql.DB, scope, scopeID, pattern string, limit int) ([]*models.Memory, error) {
-	if err := validateScope(scope, scopeID); err != nil {
-		return nil, err
-	}
-	var memories []*models.Memory
-	err := RetryWithBackoff(func() error {
-		rows, err := db.QueryContext(context.Background(), `
-			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at
-			FROM memory
-			WHERE scope = ? AND scope_id = ?
-			AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-			AND key LIKE ?
-			ORDER BY updated_at DESC
-			LIMIT ?
-		`, scope, scopeID, pattern, limit)
-		if err != nil {
-			return fmt.Errorf("failed to query memory: %w", err)
-		}
-		defer func() { _ = rows.Close() }()
-		memories = make([]*models.Memory, 0)
-		for rows.Next() {
-			var mem models.Memory
-			if err := rows.Scan(&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID, &mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt); err != nil {
-				return fmt.Errorf("failed to scan memory: %w", err)
-			}
-			memories = append(memories, &mem)
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		return nil, err
-	}
-	return memories, nil
-}
-
 // DeleteMemoryWithEvent deletes memory and appends an event in the same transaction.
 // Returns the event ID.
 func DeleteMemoryWithEvent(db *sql.DB, agentName, key, scope, scopeID string) (int64, error) {

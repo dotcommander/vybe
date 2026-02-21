@@ -287,52 +287,6 @@ func TaskSetPriorityIdempotent(db *sql.DB, agentName, requestID, taskID string, 
 	return updatedTask, r.EventID, nil
 }
 
-// TaskNext returns the next pending tasks in queue order for the given agent.
-// Read-only, no idempotency needed.
-func TaskNext(db *sql.DB, agentName, projectFilter string, limit int) ([]store.PipelineTask, error) {
-	if agentName == "" {
-		return nil, errors.New("agent name is required")
-	}
-
-	state, err := store.LoadOrCreateAgentState(db, agentName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load agent state: %w", err)
-	}
-
-	tasks, err := store.FetchPipelineTasks(db, state.FocusTaskID, agentName, projectFilter, limit)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch pipeline tasks: %w", err)
-	}
-
-	return tasks, nil
-}
-
-// TaskUnlocks returns tasks that would become unblocked if the given task were completed.
-// Read-only, no idempotency needed.
-func TaskUnlocks(db *sql.DB, taskID string) ([]store.PipelineTask, error) {
-	if taskID == "" {
-		return nil, errors.New("task ID is required")
-	}
-
-	tasks, err := store.FetchUnlockedByCompletion(db, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch unlocked tasks: %w", err)
-	}
-
-	return tasks, nil
-}
-
-// TaskStats returns task status counts, optionally scoped to a project.
-// Read-only, no idempotency needed.
-func TaskStats(db *sql.DB, projectFilter string) (*store.TaskStatusCounts, error) {
-	counts, err := store.GetTaskStatusCounts(db, projectFilter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task stats: %w", err)
-	}
-
-	return counts, nil
-}
-
 func validateDependencyArgs(agentName, taskID, dependsOnTaskID string) error {
 	if agentName == "" {
 		return errors.New("agent name is required")
