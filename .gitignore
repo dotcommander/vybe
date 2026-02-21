@@ -54,7 +54,7 @@ docs/audit-*.md
 
 # Temporary files
 tmp/
-output/
+/output/
 .work/
 repomix-output.md
 

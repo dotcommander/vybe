@@ -2,6 +2,8 @@ module github.com/dotcommander/vybe
 
 go 1.25.5
 
+toolchain go1.26.0
+
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/mattn/go-isatty v0.0.20
