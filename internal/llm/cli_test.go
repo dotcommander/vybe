@@ -276,26 +276,3 @@ func TestExtract_StderrCapped(t *testing.T) {
 	assert.Less(t, len(err.Error()), 5000)
 }
 
-func TestExtract_SetsRetrospectiveChildEnv(t *testing.T) {
-	dir := t.TempDir()
-	script := filepath.Join(dir, "claude")
-	err := os.WriteFile(script, []byte(`#!/bin/sh
-if [ "$VYBE_RETRO_CHILD" != "1" ]; then
-  echo "missing env" >&2
-  exit 1
-fi
-echo '[]'
-`), 0o755)
-	require.NoError(t, err)
-
-	t.Setenv("PATH", dir)
-
-	runner, err := NewRunner("claude")
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err = runner.Extract(ctx, "prompt")
-	require.NoError(t, err)
-}

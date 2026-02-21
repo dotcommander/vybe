@@ -10,8 +10,6 @@ import (
 	"strings"
 )
 
-const retrospectiveChildEnv = "VYBE_RETRO_CHILD"
-
 const disableExternalLLMEnv = "VYBE_DISABLE_EXTERNAL_LLM"
 
 const claudeHooklessSettingsJSON = `{"hooks":{}}`
@@ -109,7 +107,7 @@ func (r *Runner) Extract(ctx context.Context, prompt string) (string, error) {
 	}
 	args := r.args(prompt)
 	cmd := exec.CommandContext(ctx, r.command, args...) //nolint:gosec // G204: command is caller-provided LLM CLI binary, validated at construction
-	cmd.Env = append(os.Environ(), retrospectiveChildEnv+"=1")
+	cmd.Env = os.Environ()
 
 	var stdout bytes.Buffer
 	stderrW := &limitedWriter{maxBytes: 4096}
