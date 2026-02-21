@@ -247,27 +247,6 @@ func AdvanceAgentCursor(db *sql.DB, agentName string, newCursor int64) error {
 	})
 }
 
-// SetAgentFocusTaskWithEvent sets focus and appends an event atomically.
-func SetAgentFocusTaskWithEvent(db *sql.DB, agentName, taskID string) (int64, error) {
-	if agentName == "" {
-		return 0, errors.New("agent name is required")
-	}
-
-	var eventID int64
-	err := Transact(db, func(tx *sql.Tx) error {
-		id, err := setAgentFocusTaskWithEventTx(tx, agentName, taskID)
-		if err != nil {
-			return err
-		}
-		eventID = id
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	return eventID, nil
-}
-
 // SetAgentFocusTaskWithEventIdempotent performs SetAgentFocusTaskWithEvent once per (agent_name, request_id).
 // On retries with the same request id, returns the originally created event id.
 func SetAgentFocusTaskWithEventIdempotent(db *sql.DB, agentName, requestID, taskID string) (int64, error) {
@@ -317,86 +296,6 @@ func setAgentFocusTaskWithEventTx(tx *sql.Tx, agentName, taskID string) (int64, 
 	return eventID, nil
 }
 
-// SetAgentFocusProject sets the focus project for an agent.
-// Empty projectID clears the focus (sets NULL).
-func SetAgentFocusProject(db *sql.DB, agentName, projectID string) error {
-	return Transact(db, func(tx *sql.Tx) error {
-		if err := ensureAgentStateTx(tx, agentName); err != nil {
-			return err
-		}
-		if err := validateProjectExistsTx(tx, projectID); err != nil {
-			return err
-		}
-
-		var currentVersion int
-		err := tx.QueryRowContext(context.Background(), `
-			SELECT version
-			FROM agent_state
-			WHERE agent_name = ?
-		`, agentName).Scan(&currentVersion)
-
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("agent state not found: %s", agentName)
-		}
-		if err != nil {
-			return fmt.Errorf("failed to load agent state: %w", err)
-		}
-
-		var result sql.Result
-		if projectID != "" {
-			result, err = tx.ExecContext(context.Background(), `
-				UPDATE agent_state
-				SET focus_project_id = ?,
-				    last_active_at = ?,
-				    version = version + 1
-				WHERE agent_name = ? AND version = ?
-			`, projectID, time.Now(), agentName, currentVersion)
-		} else {
-			result, err = tx.ExecContext(context.Background(), `
-				UPDATE agent_state
-				SET focus_project_id = NULL,
-				    last_active_at = ?,
-				    version = version + 1
-				WHERE agent_name = ? AND version = ?
-			`, time.Now(), agentName, currentVersion)
-		}
-		if err != nil {
-			return fmt.Errorf("failed to update focus project: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed to check rows affected: %w", err)
-		}
-
-		if rowsAffected == 0 {
-			return ErrVersionConflict
-		}
-
-		return nil
-	})
-}
-
-// SetAgentFocusProjectWithEvent sets project focus and appends an event atomically.
-func SetAgentFocusProjectWithEvent(db *sql.DB, agentName, projectID string) (int64, error) {
-	if agentName == "" {
-		return 0, errors.New("agent name is required")
-	}
-
-	var eventID int64
-	err := Transact(db, func(tx *sql.Tx) error {
-		id, err := setAgentFocusProjectWithEventTx(tx, agentName, projectID)
-		if err != nil {
-			return err
-		}
-		eventID = id
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	return eventID, nil
-}
 
 // SetAgentFocusProjectWithEventIdempotent performs SetAgentFocusProjectWithEvent once per (agent_name, request_id).
 // On retries with the same request id, returns the originally created event id.
