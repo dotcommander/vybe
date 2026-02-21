@@ -11,15 +11,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dotcommander/vybe/internal/actions"
-	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/output"
 	"github.com/dotcommander/vybe/internal/store"
 
 	"github.com/spf13/cobra"
+)
+
+const (
+	postRunHookTimeout  = 30 * time.Second
+	processExitWaitTime = 2 * time.Second
 )
 
 // NewLoopCmd creates the autonomous driver command.
@@ -65,14 +70,6 @@ Safety rails:
 				return cmdErr(fmt.Errorf("invalid --cooldown: %w", err))
 			}
 
-			// Resolve post-hook: CLI flag > config file
-			hook := postHook
-			if hook == "" {
-				if s, err := app.LoadSettings(); err == nil && s.PostRunHook != "" {
-					hook = s.PostRunHook
-				}
-			}
-
 			opts := runOptions{
 				agentName:    agentName,
 				project:      projectDir,
@@ -82,7 +79,7 @@ Safety rails:
 				cooldown:     cool,
 				dryRun:       dryRun,
 				command:      command,
-				postHook:     hook,
+				postHook:     postHook,
 				disableHooks: disableHooks,
 			}
 
@@ -97,7 +94,7 @@ Safety rails:
 	cmd.Flags().StringVar(&cooldown, "cooldown", "5s", "Wait between tasks")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would run without spawning")
 	cmd.Flags().StringVar(&command, "command", "claude", "Command to spawn (receives prompt via -p flag)")
-	cmd.Flags().StringVar(&postHook, "post-hook", "", "Command to pipe run results JSON to on completion (fallback: config post_run_hook)")
+	cmd.Flags().StringVar(&postHook, "post-hook", "", "Command to pipe run results JSON to on completion (must be explicitly set per run)")
 	cmd.Flags().BoolVar(&disableHooks, "spawn-disable-hooks", false, "Disable hooks for spawned agents (sets hookless Claude settings and isolation env vars)")
 
 	cmd.Annotations = map[string]string{"mutates": "true"}
@@ -317,7 +314,7 @@ func execPostRunHook(command string, resultsJSON []byte) error {
 		return fmt.Errorf("post-run hook command must not be empty")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), postRunHookTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", command) //nolint:gosec // G204: operator-supplied hook, not derived from task data
@@ -325,10 +322,63 @@ func execPostRunHook(command string, resultsJSON []byte) error {
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("post-run hook %q: %w", command, err)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("post-run hook %q start: %w", command, err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("post-run hook %q: %w", command, err)
+		}
+		return nil
+	case <-ctx.Done():
+		if killErr := killCommandProcess(cmd); killErr != nil {
+			slog.Default().Warn("failed to kill timed out post-run hook", "error", killErr, "hook", command)
+		}
+		waitForProcessExit(done)
+		return fmt.Errorf("post-run hook %q timed out after %s", command, postRunHookTimeout)
+	}
+}
+
+func killCommandProcess(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	// Send SIGTERM first and give the process a grace period to exit cleanly.
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		// SIGTERM failed for a reason other than the process already being done;
+		// fall through to SIGKILL below.
+		slog.Default().Warn("SIGTERM failed, escalating to SIGKILL", "error", err)
+	}
+	// Wait up to processExitWaitTime for a clean exit.
+	exited := make(chan struct{})
+	go func() {
+		cmd.Wait() //nolint:errcheck // we only care whether the process exited
+		close(exited)
+	}()
+	select {
+	case <-exited:
+		return nil
+	case <-time.After(processExitWaitTime):
+	}
+	// Grace period elapsed — escalate to SIGKILL.
+	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
 	}
 	return nil
+}
+
+func waitForProcessExit(done <-chan error) {
+	select {
+	case <-done:
+	case <-time.After(processExitWaitTime):
+	}
 }
 
 // buildAgentPrompt constructs the prompt sent to the spawned agent.
@@ -414,7 +464,10 @@ func spawnAgent(command, prompt, project string, timeout time.Duration, disableH
 		}
 		return 0
 	case <-time.After(timeout):
-		_ = cmd.Process.Kill()
+		if err := killCommandProcess(cmd); err != nil {
+			slog.Default().Warn("failed to kill timed out command", "command", command, "error", err)
+		}
+		waitForProcessExit(done)
 		slog.Default().Warn("command timed out, killed", "timeout", timeout)
 		return 124 // standard timeout exit code
 	}
