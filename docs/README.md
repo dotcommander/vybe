@@ -18,6 +18,8 @@ Beta policy: no backward-compatibility shims. Keep one canonical command/flag sh
 
 Command-surface guardrails and anti-regression rationale live in `DECISIONS.md`.
 
+Minimal-core boundary and pruning checklist live in `minimal-surface.md`.
+
 Audit and scratch material stay outside tracked docs under `.work/`.
 
 ---

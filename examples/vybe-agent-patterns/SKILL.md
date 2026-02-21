@@ -149,7 +149,7 @@ After `vybe hook install`, Claude Code automatically:
 - **UserPromptSubmit**: Logs prompts for cross-session continuity
 - **PostToolUseFailure**: Records failed tool calls for recovery
 - **TaskCompleted**: Marks tasks complete and logs lifecycle signals
-- **PreCompact**: Runs garbage collection and best-effort retrospective
+- **PreCompact**: Runs garbage collection and event maintenance
 - **SessionEnd**: Runs garbage collection
 
 ### Proactive usage in CLAUDE.md

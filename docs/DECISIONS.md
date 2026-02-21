@@ -2,6 +2,8 @@
 
 Architectural decisions and rationale for vybe's command surface.
 
+For the current keep-vs-optional command matrix and pruning workflow, see `minimal-surface.md`.
+
 ## Guiding Principle
 
 Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists because a human might want it but no agent needs it, it doesn't belong in the CLI.
@@ -47,7 +49,38 @@ Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists
 
 **Removed:** v0.x simplification
 **Reason:** Dashboard counting (N pending, N completed, N blocked). Agents don't query aggregate statistics — they work their assigned task. This is a human progress visualization.
-**Alternative:** `vybe status` (includes task counts) or `vybe task list --status=pending` to check remaining work.
+**Alternative:** `vybe task list --status=pending|in_progress|completed|blocked`.
+
+### `loop stats` (CLI command only)
+
+**Removed:** v0.8.x simplification
+**Reason:** Aggregate loop dashboards are operational convenience, not a continuity primitive. Agents can proceed using `resume`, `task`, and `events` without this read path.
+**Alternative:** `vybe events list --kind run_result --limit N --all` for run history and client-side aggregation.
+
+### `task delete` (CLI command only)
+
+**Removed:** v0.8.x simplification
+**Reason:** Hard deletion is destructive and not required for continuity workflows. Agents should keep immutable history and retire work by lifecycle state (`completed`/`blocked`) instead of removing rows.
+**Alternative:** `vybe task complete --outcome done|blocked --summary "..."` or `vybe task set-status ...`.
+
+### `task remove-dep` (CLI command only)
+
+**Removed:** v0.8.x simplification
+**Reason:** Editing dependency edges post-creation is not required for the primary continuity loop. Typical workflows unblock via dependency completion, not graph surgery.
+**Alternative:** complete the blocker task; if work changes, create a new task with the correct dependency shape.
+
+### `status` full diagnostics payload (CLI output shape)
+
+**Removed:** v0.8.x simplification
+**Reason:** Large installation dashboards (hooks, maintenance policy, aggregate counts, consistency diagnostics) are operator convenience, not continuity primitives.
+**Alternative:** keep `vybe status --check` for health gating and use scoped read commands (`task list`, `events list`, `memory list`, `artifacts list`) for details.
+
+### Telemetry-heavy hook handlers (`hook tool-success`, `hook subagent-start`, `hook subagent-stop`, `hook stop`)
+
+**Removed:** v0.8.x simplification
+**Reason:** These hooks primarily add high-volume observability events (`tool_success`, `agent_spawned`, `agent_completed`, `heartbeat`) and do not affect deterministic resume, task lifecycle, memory, or artifacts.
+**Continuity impact:** None for core continuity semantics; lower event-stream verbosity.
+**Alternative:** keep `hook session-start`, `hook prompt`, `hook tool-failure`, `hook checkpoint`, `hook task-completed`, and `hook session-end` as the minimal integration set.
 
 ### `agent init` / `agent status` / `agent focus` (removed)
 
@@ -79,10 +112,6 @@ Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists
 ### `loop`
 
 **Kept.** The autonomous driver is core product functionality. It spawns external agents, manages the task queue, and handles circuit-breaking. Not experimental.
-
-### `hook retrospective` / `hook retrospective-bg`
-
-**Kept.** Two entry points for session retrospective extraction — synchronous (stdin-based hook handler) and async (positional args for background worker). Both serve different deployment patterns.
 
 ### `task set-priority`
 

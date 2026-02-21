@@ -4,8 +4,6 @@ function reqID(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`
 }
 
-const IS_RETRO_CHILD = !!(process.env.VYBE_RETRO_CHILD && process.env.VYBE_RETRO_CHILD.trim() !== "")
-
 function projectKey(projectDir?: string): string {
   if (!projectDir || projectDir.trim() === "") return ""
   const base = projectDir.split(/[\\/]/).filter(Boolean).pop() ?? ""
@@ -104,7 +102,7 @@ const MUTATING_TOOLS: Record<string, boolean> = {
 // - session.idle: heartbeat event
 // - todo.updated: append a compact snapshot event (debounced 3s)
 // - tool.execute.after: log tool failures + mutating tool successes
-// - experimental.session.compacting: checkpoint (gc + retrospective)
+// - experimental.session.compacting: checkpoint maintenance
 // - chat.message: log user prompts
 // - experimental.chat.system.transform: inject vybe resume context
 export const VybeBridgePlugin: Plugin = async ({ client }) => {
@@ -145,8 +143,6 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
   return {
     event: async ({ event }) => {
       try {
-        if (IS_RETRO_CHILD) return
-
         if (event.type === "session.created") {
           const session = event.properties.info
           if (session.directory && session.directory.trim() !== "") {
@@ -162,7 +158,7 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
           const projectDir = sessionProjects.get(sessionID)
           const agent = agentForSession(sessionID)
 
-          // Fire-and-forget SessionEnd hook (checkpoint gc only; retrospective runs at PreCompact).
+          // Fire-and-forget SessionEnd hook (checkpoint maintenance only).
           const payload = JSON.stringify({
             session_id: sessionID,
             hook_event_name: "SessionEnd",
@@ -236,8 +232,6 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
 
     "tool.execute.after": async (input: any) => {
       try {
-        if (IS_RETRO_CHILD) return
-
         const tool: string = input.tool
         if (!tool) return
 
@@ -292,8 +286,6 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
 
     "chat.message": async (input, output) => {
       try {
-        if (IS_RETRO_CHILD) return
-
         const sessionID = input.sessionID
         const agent = agentForSession(sessionID)
         const prompt = extractUserPrompt(output.parts as any[])
@@ -316,13 +308,11 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
 
     "experimental.session.compacting": async (input: any, output: any) => {
       try {
-        if (IS_RETRO_CHILD) return
-
         const sessionID: string = input.sessionID
         const agent = agentForSession(sessionID)
         const projectDir = sessionProjects.get(sessionID)
 
-        // Checkpoint (gc + retrospective) via unified hook command.
+        // Checkpoint maintenance via unified hook command.
         const payload = JSON.stringify({
           session_id: sessionID,
           hook_event_name: "PreCompact",
@@ -337,8 +327,6 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
     },
 
     "experimental.chat.system.transform": async (input, output) => {
-      if (IS_RETRO_CHILD) return
-
       const existing = sessionPrompts.get(input.sessionID)
       if (!existing) {
         await hydrateSessionPrompt(input.sessionID, sessionProjects.get(input.sessionID))

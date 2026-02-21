@@ -24,7 +24,7 @@ AI coding agents lose context when sessions end. Crashes, context resets, and ha
 **Scoped memory**
 - Key-value store scoped to global / project / task / agent
 - TTL and GC support
-- PreCompact runs best-effort retrospective (synchronous, rule-based)
+- PreCompact runs checkpoint maintenance (event + memory hygiene)
 
 **Deterministic resume**
 - 5-rule focus selection algorithm — no ambiguity on restart
@@ -44,12 +44,12 @@ AI coding agents lose context when sessions end. Crashes, context resets, and ha
 **Hook integration**
 - One-command install for Claude Code and OpenCode
 - Hooks cover: SessionStart, UserPromptSubmit, PostToolUseFailure, TaskCompleted, PreCompact, SessionEnd
-- Bidirectional context injection — resume data flows in, retrospectives extract lessons at compaction
+- Bidirectional context injection — resume data flows into each new session
 
 **Internal maintenance**
 - Checkpoint/session-end run event summarization and archived-event pruning automatically
 - Maintenance policy is configurable in `config.yaml` (`events_retention_days`, `events_prune_batch`, `events_summarize_threshold`, `events_summarize_keep_recent`)
-- `vybe status` reports effective maintenance settings
+- `vybe status --check` verifies DB connectivity
 
 **SQLite-backed**
 - WAL mode, single file, no server required
@@ -75,10 +75,10 @@ vybe hook install --opencode # OpenCode
 export VYBE_AGENT=worker1
 
 # 4) verify
-vybe status
+vybe status --check
 ```
 
-If `vybe status` succeeds, setup is done.
+If `vybe status --check` returns `query_ok=true`, setup is done.
 
 ## First Task
 

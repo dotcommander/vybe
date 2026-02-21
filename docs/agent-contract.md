@@ -58,15 +58,14 @@ Primary subcommands:
 - `artifacts list`
 - `events list`
 - `hook install|uninstall`
-- `loop stats`
 - `memory set|get|list|delete|gc`
 - `schema commands`
-- `task create|begin|get|list|set-status|set-priority|complete|add-dep|remove-dep|delete`
+- `task create|begin|get|list|set-status|set-priority|complete|add-dep`
 
 ## Canonical flag semantics
 
 - `--project-dir`: workspace directory scope (`resume`, `loop`).
-- `--project-id`: task/project entity association/filter (`task create`, `task list`, `loop stats`).
+- `--project-id`: task/project entity association/filter (`task create`, `task list`).
 - `--task-id`: artifacts/events read filters.
 
 ## Required mappings

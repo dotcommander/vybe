@@ -129,12 +129,12 @@ vybe schema commands
 Run after setup or upgrades:
 
 ```bash
-vybe status
+vybe status --check
 vybe resume --agent "$VYBE_AGENT" --request-id "verify_resume_1"
 vybe schema commands
 ```
 
-Pass condition: all commands return success JSON and `resume` returns a packet.
+Pass condition: `status --check` reports `query_ok=true`, and `resume` returns a packet.
 
 ## Related docs
 

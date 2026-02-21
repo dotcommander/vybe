@@ -51,9 +51,9 @@ Humans may read logs for debugging, but the product is not designed around human
 
 ### What Vybe Is
 
-- Agent memory system (memories, compaction, GC, reinforcement, retrospectives)
+- Agent memory system (memories, compaction, GC, reinforcement)
 - Multi-agent coordination (agent state, focus tasks, claims, heartbeats, dependencies)
-- Claude Code hook integration (10 hook events, bidirectional context injection)
+- Claude Code hook integration (6 hook events, bidirectional context injection)
 - Event stream (structured log of agent activity — prompts, tool calls, spawns, completions)
 - Idempotent operations (request ID deduplication across all mutations)
 - Session continuity (resume with context, auto-summarization)
@@ -255,9 +255,8 @@ Claude Code is integrated with vybe via hooks. The system automatically:
 - **UserPromptSubmit**: Logs user prompts for cross-session continuity
 - **PostToolUseFailure**: Logs failed tool calls for recovery context
 - **TaskCompleted**: Logs task completion lifecycle signals
-- **PreCompact**: Performs checkpoint + best-effort retrospective extraction
+- **PreCompact**: Performs checkpoint maintenance
 - **SessionEnd**: Performs best-effort checkpoint maintenance
-- **Agent delegation**: Logs spawned agents as vybe events
 - **Commits**: Logs git commits as vybe events
 
 ### Proactive Usage
@@ -308,6 +307,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`
 - Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
-- Command surface: `artifacts` (list), `events` (list), `hook` (install, uninstall), `loop` (stats), `memory` (set, get, list, delete, gc), `push`, `resume` (--peek, --focus, --project-dir, --limit), `schema` (commands), `status` (--check), `task` (create, begin, complete, get, list, delete, add-dep, remove-dep, set-status, set-priority), `upgrade`
+- Command surface: `artifacts` (list), `events` (list), `hook` (install, uninstall), `loop`, `memory` (set, get, list, delete, gc), `push`, `resume` (--peek, --focus, --project-dir, --limit), `schema` (commands), `status` (--check), `task` (create, begin, complete, get, list, add-dep, set-status, set-priority), `upgrade`
 - Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`
 - **After code changes**: rebuild binary and update symlink: `go build -o vybe ./cmd/vybe && ln -sf "$(pwd)/vybe" ~/go/bin/vybe`

@@ -112,8 +112,8 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <h1>VYBE</h1>
 <p class="sub">Durable Continuity for AI Agents</p>
 <div class="stats">
-<div class="stat"><div class="num">57</div><div class="label">Steps</div></div>
-<div class="stat"><div class="num">17</div><div class="label">Acts</div></div>
+<div class="stat"><div class="num">49</div><div class="label">Steps</div></div>
+<div class="stat"><div class="num">16</div><div class="label">Acts</div></div>
 <div class="stat"><div class="num" style="color:var(--green)">0</div><div class="label">Failures</div></div>
 </div>
 </div>
@@ -192,11 +192,6 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="detail">Task: pending → in_progress</div>
 <div class="insight"><span class="arrow">→</span> Your agent claims work before starting. No other agent can grab this task now.</div></div>
 
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">tool_success_tracking</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook tool-success</span></div>
-<div class="detail">tool_success event logged</div>
-<div class="insight"><span class="arrow">→</span> <span class="hook hook-tool">PostToolUse</span> hook. Successful mutating tool calls are logged — builds a complete execution history.</div></div>
-
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">tool_failure_tracking</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook tool-failure</span></div>
 <div class="detail">tool_failure event logged</div>
@@ -232,7 +227,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <!-- ACT 3 -->
 <div class="act act-crash" id="act-3">
 <div class="act-header"><div class="act-num">Act 3</div><h2>The Agent Sleeps</h2></div>
-<div class="act-narration">Close the session safely with checkpoint and retrospective extraction. State remains durable in SQLite, so crashes do not lose context.</div>
+<div class="act-narration">Close the session safely with checkpoint maintenance. State remains durable in SQLite, so crashes do not lose context.</div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">memory_checkpoint</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook checkpoint</span></div>
@@ -391,17 +386,12 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <!-- ACT 11 -->
 <div class="act" id="act-11">
 <div class="act-header"><div class="act-num">Act 11</div><h2>Task Lifecycle</h2></div>
-<div class="act-narration">Mutate lifecycle state with priority, status updates, and deletion. Agents adapt queue shape quickly as requirements change.</div>
+<div class="act-narration">Mutate lifecycle state with priority and explicit status updates. Agents adapt queue shape quickly as requirements change.</div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">priority_boost</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task set-priority --id &lt;id&gt; --priority 10 --request-id demo_$RANDOM</span></div>
 <div class="detail">Priority updated: 0 → 10</div>
 <div class="insight"><span class="arrow">→</span> Priority 10 jumps ahead of priority 0. Your agent can escalate urgent work instantly.</div></div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">delete_task</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task delete --id &lt;id&gt; --request-id demo_$RANDOM</span></div>
-<div class="detail">Task deleted and confirmed gone</div>
-<div class="insight"><span class="arrow">→</span> Obsolete tasks get pruned. Your agent keeps the queue clean as requirements evolve.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">status_transitions</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task set-status --id &lt;id&gt; --status blocked --request-id demo_$RANDOM</span></div>
@@ -467,46 +457,13 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 
 <!-- ACT 16 -->
 <div class="act" id="act-16">
-<div class="act-header"><div class="act-num">Act 16</div><h2>IDE Integration</h2></div>
-<div class="act-narration">Capture IDE lifecycle signals through hook commands. Spawn and completion events plus heartbeats keep the stream aligned with conversation flow.</div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">track_subagent_spawn</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook subagent-start</span></div>
-<div class="detail">agent_spawned event recorded</div>
-<div class="insight"><span class="arrow">→</span> <span class="hook hook-agent">SubagentStart</span> hook. When your agent spawns a sub-agent, vybe logs it for the parent to track.</div></div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">track_subagent_completion</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook subagent-stop</span></div>
-<div class="detail">agent_completed event recorded</div>
-<div class="insight"><span class="arrow">→</span> <span class="hook hook-agent">SubagentStop</span> hook. Sub-agent finished — the parent agent sees the completion in the event stream.</div></div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">turn_boundary_heartbeat</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook stop</span></div>
-<div class="detail">heartbeat event recorded</div>
-<div class="insight"><span class="arrow">→</span> <span class="hook hook-lifecycle">Stop</span> hook. Turn boundaries are logged so the event stream reflects IDE conversation flow.</div></div>
-</div>
-
-<!-- ACT 17 -->
-<div class="act" id="act-17">
-<div class="act-header"><div class="act-num">Act 17</div><h2>The Full Surface</h2></div>
-<div class="act-narration">Cover the remaining surface: artifacts, retrospectives, loop controls, and hook lifecycle. Background retrospective workers keep heavy extraction asynchronous.</div>
+<div class="act-header"><div class="act-num">Act 16</div><h2>The Full Surface</h2></div>
+<div class="act-narration">Cover the remaining surface: artifacts, loop controls, and hook lifecycle. This keeps the public surface focused on continuity-critical operations.</div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">artifact_get_by_id</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifacts list --task-id &lt;task_id&gt;</span></div>
 <div class="detail">Artifacts listed: id, file path, and task_id returned</div>
 <div class="insight"><span class="arrow">→</span> Query artifacts by task and inspect metadata in one machine-friendly response.</div></div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">retrospective_extraction</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">push --json '{"event":{"kind":"progress","message":"retrospective event A"}}' --request-id demo_$RANDOM</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">push --json '{"event":{"kind":"progress","message":"retrospective event B"}}' --request-id demo_$RANDOM</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook retrospective</span></div>
-<div class="detail">Retrospective hook fired (best-effort)</div>
-<div class="insight"><span class="arrow">→</span> Session retrospectives distill execution history into reusable memory for future runs.</div></div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">loop_iteration_stats</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">loop stats</span></div>
-<div class="detail">Loop stats: runs=0</div>
-<div class="insight"><span class="arrow">→</span> Loop stats track autonomous iteration cadence. Your agent monitors its own loop health.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">read_only_brief</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume --peek</span></div>
@@ -517,7 +474,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook install --claude --project</span></div>
 <div class="detail">Hook install: settings.json written</div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook uninstall --claude --project</span></div>
-<div class="detail">Hook uninstall: all 10 hooks removed</div>
+<div class="detail">Hook uninstall: all 6 hooks removed</div>
 <div class="insight"><span class="arrow">→</span> One command wires vybe into Claude Code. One command removes it. Clean install, clean uninstall.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">loop_dry_run</span><span class="step-pass">✓</span></div>
@@ -530,17 +487,12 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="detail">Circuit breaker: task marked blocked after command exits without completing</div>
 <div class="insight"><span class="arrow">→</span> When a spawned command exits without completing the task, the loop marks it blocked. Prevents runaway loops.</div></div>
 
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">background_retrospective</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook retrospective-bg &lt;agent&gt; &lt;payload_path&gt;</span></div>
-<div class="detail">Background retrospective worker command surfaced (typically spawned by hooks)</div>
-<div class="insight"><span class="arrow">→</span> Heavy retrospective extraction runs asynchronously so agent turns stay responsive.</div></div>
-
 </div>
 
 <!-- SUMMARY -->
 <div class="summary">
-<div class="big">57 passed, 0 failed</div>
-<div class="sub">17 acts · 2 sessions · 1 crash · 3 tasks completed · 0 data lost · 0 duplicates created</div>
+<div class="big">49 passed, 0 failed</div>
+<div class="sub">16 acts · 2 sessions · 1 crash · 3 tasks completed · 0 data lost · 0 duplicates created</div>
 </div>
 
 </main>
