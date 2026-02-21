@@ -1881,7 +1881,7 @@ func stepHistoryImport(r *Runner, ctx *DemoContext) error {
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(histDir)
+	defer func() { _ = os.RemoveAll(histDir) }()
 
 	histFile := filepath.Join(histDir, "history.jsonl")
 	histContent := strings.Join([]string{
@@ -2034,7 +2034,7 @@ func stepHookInstallUninstall(r *Runner, ctx *DemoContext) error {
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(hookTmpDir)
+	defer func() { _ = os.RemoveAll(hookTmpDir) }()
 
 	if err := os.MkdirAll(filepath.Join(hookTmpDir, ".claude"), 0750); err != nil {
 		return fmt.Errorf("create .claude dir: %w", err)
@@ -2195,7 +2195,7 @@ func stepBackgroundRetrospective(r *Runner, ctx *DemoContext) error {
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(payloadDir)
+	defer func() { _ = os.RemoveAll(payloadDir) }()
 
 	payloadFile := filepath.Join(payloadDir, "retro_payload.json")
 	if err := os.WriteFile(payloadFile, []byte(`{}`), 0600); err != nil {

@@ -69,49 +69,49 @@ func (r *Runner) colorize(code, s string) string {
 func (r *Runner) printAct(number int, name string) {
 	header := fmt.Sprintf("  Act %d: %s  ", number, name)
 	if r.color {
-		fmt.Fprintf(r.out, "\n%s%s%s\n", colorBold+colorBgBlue+colorWhite, header, colorReset)
+		_, _ = fmt.Fprintf(r.out, "\n%s%s%s\n", colorBold+colorBgBlue+colorWhite, header, colorReset)
 	} else {
-		fmt.Fprintf(r.out, "\n=== Act %d: %s ===\n", number, name)
+		_, _ = fmt.Fprintf(r.out, "\n=== Act %d: %s ===\n", number, name)
 	}
 }
 
 // printNarration prints narration lines.
 func (r *Runner) printNarration(lines []string) {
 	for _, line := range lines {
-		fmt.Fprintf(r.out, "  %s\n", r.colorize(colorWhite, line))
+		_, _ = fmt.Fprintf(r.out, "  %s\n", r.colorize(colorWhite, line))
 	}
-	fmt.Fprintln(r.out)
+	_, _ = fmt.Fprintln(r.out)
 }
 
 // printStep prints a step name.
 func (r *Runner) printStep(name string) {
-	fmt.Fprintf(r.out, "  %s %s\n", r.colorize(colorBold+colorCyan, "●"), r.colorize(colorBold+colorCyan, name))
+	_, _ = fmt.Fprintf(r.out, "  %s %s\n", r.colorize(colorBold+colorCyan, "●"), r.colorize(colorBold+colorCyan, name))
 }
 
 // printCommand prints the command being run.
 func (r *Runner) printCommand(args []string) {
-	fmt.Fprintf(r.out, "    %s\n", r.colorize(colorDim, "$ vybe "+strings.Join(args, " ")))
+	_, _ = fmt.Fprintf(r.out, "    %s\n", r.colorize(colorDim, "$ vybe "+strings.Join(args, " ")))
 }
 
 // printPass prints a pass indicator.
 func (r *Runner) printPass(detail string) {
 	msg := r.colorize(colorGreen, "✓")
 	if detail != "" {
-		fmt.Fprintf(r.out, "    %s %s\n", msg, r.colorize(colorGreen, detail))
+		_, _ = fmt.Fprintf(r.out, "    %s %s\n", msg, r.colorize(colorGreen, detail))
 	} else {
-		fmt.Fprintf(r.out, "    %s\n", msg)
+		_, _ = fmt.Fprintf(r.out, "    %s\n", msg)
 	}
 }
 
 // printFail prints a failure indicator.
 func (r *Runner) printFail(err error) {
-	fmt.Fprintf(r.out, "    %s %s\n", r.colorize(colorRed, "✗"), r.colorize(colorRed, err.Error()))
+	_, _ = fmt.Fprintf(r.out, "    %s %s\n", r.colorize(colorRed, "✗"), r.colorize(colorRed, err.Error()))
 }
 
 // printDetail prints a detail line.
 func (r *Runner) printDetail(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(r.out, "      %s\n", r.colorize(colorDim, msg))
+	_, _ = fmt.Fprintf(r.out, "      %s\n", r.colorize(colorDim, msg))
 }
 
 // printInsight prints a post-step insight in a distinctive dim style.
@@ -120,9 +120,9 @@ func (r *Runner) printInsight(msg string) {
 		return
 	}
 	if r.color {
-		fmt.Fprintf(r.out, "    %s %s\n", colorDim+colorWhite+"→"+colorReset, colorDim+colorWhite+msg+colorReset)
+		_, _ = fmt.Fprintf(r.out, "    %s %s\n", colorDim+colorWhite+"→"+colorReset, colorDim+colorWhite+msg+colorReset)
 	} else {
-		fmt.Fprintf(r.out, "    → %s\n", msg)
+		_, _ = fmt.Fprintf(r.out, "    → %s\n", msg)
 	}
 }
 
@@ -306,7 +306,7 @@ func (r *Runner) RunAll(continueOnError bool) (passed, failed int) {
 				r.printFail(err)
 				failed++
 				if !continueOnError {
-					fmt.Fprintf(r.out, "\n%s\n", r.colorize(colorRed+colorBold, "Stopped on first failure. Use --continue-on-error to proceed."))
+					_, _ = fmt.Fprintf(r.out, "\n%s\n", r.colorize(colorRed+colorBold, "Stopped on first failure. Use --continue-on-error to proceed."))
 					return passed, failed
 				}
 			} else {

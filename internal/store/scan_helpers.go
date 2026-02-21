@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 )
@@ -13,14 +12,6 @@ func scanNullString(ns sql.NullString) string {
 		return ns.String
 	}
 	return ""
-}
-
-// scanNullTime converts sql.NullTime to *time.Time (nil if NULL)
-func scanNullTime(nt sql.NullTime) *time.Time {
-	if nt.Valid {
-		return &nt.Time
-	}
-	return nil
 }
 
 // taskRowScanner encapsulates the common task row scanning logic.

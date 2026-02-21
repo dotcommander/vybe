@@ -10,18 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 // vybeTestBin is the path to the built vybe binary for integration tests.
-var (
-	vybeTestBin     string
-	vybeTestBinOnce sync.Once
-	vybeTestBinErr  error
-)
+var vybeTestBin string
 
 // TestMain builds the vybe binary once before running all tests in this package.
 func TestMain(m *testing.M) {
@@ -1533,12 +1528,6 @@ func TestDemoAgentSession(t *testing.T) {
 			events := listM["data"].(map[string]any)["events"].([]any)
 			require.GreaterOrEqual(t, len(events), 2, "need at least 2 events to summarize")
 
-			// Use first two events' IDs
-			firstEvent := events[0].(map[string]any)
-			lastEvent := events[len(events)-1].(map[string]any)
-			fromID := int(firstEvent["id"].(float64))
-			toID := int(lastEvent["id"].(float64))
-
 			// Add some progress events scoped to authTaskID to summarize
 			t.Logf("Adding 2 progress events to task %s for summarization", authTaskID)
 			for i := 0; i < 2; i++ {
@@ -1559,8 +1548,8 @@ func TestDemoAgentSession(t *testing.T) {
 			// Use first and last from this task's events
 			taskFirst := rangeEvents[0].(map[string]any)
 			taskLast := rangeEvents[len(rangeEvents)-1].(map[string]any)
-			fromID = int(taskFirst["id"].(float64))
-			toID = int(taskLast["id"].(float64))
+			fromID := int(taskFirst["id"].(float64))
+			toID := int(taskLast["id"].(float64))
 
 			// Only summarize if range is valid (from < to)
 			if fromID >= toID {

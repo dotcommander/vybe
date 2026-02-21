@@ -27,7 +27,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Failed to create temp dir: %v\n", err)
 			os.Exit(1)
 		}
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }()
 
 		binPath = filepath.Join(tmpDir, "vybe")
 		fmt.Fprintln(os.Stderr, "Building vybe binary...")
@@ -45,13 +45,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to create DB dir: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(dbDir)
+	defer func() { _ = os.RemoveAll(dbDir) }()
 	dbPath := filepath.Join(dbDir, "vybe-demo.db")
 
 	r := demo.NewRunner(binPath, dbPath, "demo-agent", os.Stdout, fast)
 	passed, failed := r.RunAll(continueOnError)
 
-	fmt.Fprintf(os.Stdout, "\n%d passed, %d failed, %d total\n", passed, failed, passed+failed)
+	_, _ = fmt.Fprintf(os.Stdout, "\n%d passed, %d failed, %d total\n", passed, failed, passed+failed)
 	if failed > 0 {
 		os.Exit(1)
 	}

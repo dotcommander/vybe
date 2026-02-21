@@ -58,22 +58,6 @@ func SessionDigest(db *sql.DB, agentName string) (*SessionDigestResult, error) {
 	}, nil
 }
 
-func buildSessionDigestResult(agentName, projectID string, cursorEventID int64, events []*models.Event) *SessionDigestResult {
-	byKind := make(map[string]int)
-	for _, e := range events {
-		byKind[e.Kind]++
-	}
-
-	return &SessionDigestResult{
-		AgentName:     agentName,
-		ProjectID:     projectID,
-		CursorEventID: cursorEventID,
-		EventCount:    len(events),
-		EventsByKind:  byKind,
-		Events:        events,
-	}
-}
-
 // Lesson represents a single extracted insight from session retrospective.
 type Lesson struct {
 	Type  string `json:"type"`
