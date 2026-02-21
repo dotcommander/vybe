@@ -2,10 +2,7 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -28,7 +25,7 @@ func NewStatusCmd(root *cobra.Command) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show vybe installation status and system overview",
+		Short: "Show minimal status and optional health check",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDefaultStatus(cmd, check)
 		},
@@ -125,53 +122,30 @@ func runArtifactsMode(taskID string, limit int) error {
 }
 
 func runDefaultStatus(cmd *cobra.Command, check bool) error {
-	// 1. Resolve DB path
-	dbPath, dbSource, err := app.ResolveDBPathDetailed()
+	dbPath, _, err := app.ResolveDBPathDetailed()
 	if err != nil {
 		return cmdErr(err)
 	}
 
-	// 2. Build response structure
 	type dbInfo struct {
-		Path      string `json:"path"`
-		Source    string `json:"source"`
-		OK        bool   `json:"ok"`
-		SizeBytes *int64 `json:"size_bytes,omitempty"`
-		Error     string `json:"error,omitempty"`
-	}
-
-	type hooksInfo struct {
-		Claude         bool            `json:"claude"`
-		ClaudeEvents   map[string]bool `json:"claude_events,omitempty"`
-		ClaudeSettings []string        `json:"claude_settings_paths,omitempty"`
-		OpenCode       opencodeDetail  `json:"opencode"`
+		Path  string `json:"path"`
+		OK    bool   `json:"ok"`
+		Error string `json:"error,omitempty"`
 	}
 
 	type resp struct {
-		DB          dbInfo                       `json:"db"`
-		Hooks       hooksInfo                    `json:"hooks"`
-		Maintenance app.EventMaintenanceSettings `json:"maintenance"`
-		Counts      *store.StatusCounts          `json:"counts,omitempty"`
-		AgentState  *models.AgentState           `json:"agent_state,omitempty"`
-		QueryOK     *bool                        `json:"query_ok,omitempty"`
-		QueryError  string                       `json:"query_error,omitempty"`
-		Hint        string                       `json:"hint,omitempty"`
-		Diagnostics []store.Diagnostic           `json:"diagnostics,omitempty"`
+		DB         dbInfo             `json:"db"`
+		AgentState *models.AgentState `json:"agent_state,omitempty"`
+		QueryOK    *bool              `json:"query_ok,omitempty"`
+		QueryError string             `json:"query_error,omitempty"`
 	}
 
 	result := resp{
 		DB: dbInfo{
-			Path:   dbPath,
-			Source: dbSource,
+			Path: dbPath,
 		},
-		Maintenance: app.EffectiveEventMaintenanceSettings(),
 	}
 
-	// 3. Check hooks
-	result.Hooks.Claude, result.Hooks.ClaudeEvents, result.Hooks.ClaudeSettings = checkClaudeHook()
-	result.Hooks.OpenCode = checkOpenCodeHookDetail()
-
-	// 4. Try to open DB
 	db, err := store.OpenDB(dbPath)
 	if err != nil {
 		result.DB.OK = false
@@ -180,7 +154,6 @@ func runDefaultStatus(cmd *cobra.Command, check bool) error {
 			qOK := false
 			result.QueryOK = &qOK
 			result.QueryError = "db not available"
-			result.Hint = "If this is running in a sandboxed environment, set db_path to a writable location or use --db-path."
 		}
 		return output.PrintSuccess(result)
 	}
@@ -188,18 +161,6 @@ func runDefaultStatus(cmd *cobra.Command, check bool) error {
 	result.DB.OK = true
 	defer func() { _ = db.Close() }()
 
-	// 5. Get DB file size
-	if stat, err := os.Stat(dbPath); err == nil {
-		size := stat.Size()
-		result.DB.SizeBytes = &size
-	}
-
-	// 6. Get counts
-	if counts, err := store.GetStatusCounts(db); err == nil {
-		result.Counts = counts
-	}
-
-	// 7. Load agent state if --agent is provided
 	agentName := resolveActorName(cmd, "")
 	if agentName != "" {
 		if state, err := store.LoadOrCreateAgentState(db, agentName); err == nil {
@@ -207,7 +168,6 @@ func runDefaultStatus(cmd *cobra.Command, check bool) error {
 		}
 	}
 
-	// 8. Health check (--check): run SELECT 1 to verify connectivity
 	if check {
 		var one int
 		qErr := db.QueryRowContext(context.Background(), "SELECT 1").Scan(&one)
@@ -216,72 +176,9 @@ func runDefaultStatus(cmd *cobra.Command, check bool) error {
 		if !qOK {
 			result.QueryError = qErr.Error()
 		}
-
-		// Run consistency diagnostics
-		if diagnostics, diagErr := store.RunDiagnostics(db); diagErr == nil {
-			result.Diagnostics = diagnostics
-		}
 	}
 
 	return output.PrintSuccess(result)
-}
-
-// checkClaudeHook checks if vybe hooks are installed in Claude settings.
-func checkClaudeHook() (bool, map[string]bool, []string) {
-	paths := []string{claudeSettingsPath(), projectClaudeSettingsPath()}
-	events := make(map[string]bool)
-	for _, name := range vybeHookEventNames() {
-		events[name] = false
-	}
-
-	foundPaths := make([]string, 0, len(paths))
-	installedAny := false
-
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		foundPaths = append(foundPaths, path)
-
-		var settings struct {
-			Hooks map[string][]any `json:"hooks"`
-		}
-		if err := json.Unmarshal(data, &settings); err != nil {
-			continue
-		}
-
-		for eventName, entries := range settings.Hooks {
-			if !hasVybeHook(entries) {
-				continue
-			}
-			installedAny = true
-			events[eventName] = true
-		}
-	}
-
-	sort.Strings(foundPaths)
-	return installedAny, events, foundPaths
-}
-
-type opencodeDetail struct {
-	Installed bool   `json:"installed"`
-	Path      string `json:"path"`
-	Status    string `json:"status"` // "current", "modified", "missing"
-}
-
-// checkOpenCodeHookDetail checks vybe bridge plugin status in OpenCode.
-func checkOpenCodeHookDetail() opencodeDetail {
-	path := opencodePluginPath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return opencodeDetail{Path: path, Status: "missing"}
-	}
-	status := "modified"
-	if string(data) == opencodeBridgePluginSource {
-		status = "current"
-	}
-	return opencodeDetail{Installed: true, Path: path, Status: status}
 }
 
 // Schema helper functions (moved from schema.go which is deleted).

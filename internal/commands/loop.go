@@ -39,6 +39,7 @@ func NewLoopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "loop",
 		Short: "Autonomous task driver — loops resume → spawn → complete",
+		Args:  cobra.NoArgs,
 		Long: `Loop is the autonomous driver loop. It repeatedly calls resume to get the next
 focus task, spawns an external command (default: claude -p) with the task prompt,
 waits for completion, and moves to the next task.
@@ -98,8 +99,6 @@ Safety rails:
 	cmd.Flags().StringVar(&command, "command", "claude", "Command to spawn (receives prompt via -p flag)")
 	cmd.Flags().StringVar(&postHook, "post-hook", "", "Command to pipe run results JSON to on completion (fallback: config post_run_hook)")
 	cmd.Flags().BoolVar(&disableHooks, "spawn-disable-hooks", false, "Disable hooks for spawned agents (sets hookless Claude settings and isolation env vars)")
-
-	cmd.AddCommand(newLoopStatsCmd())
 
 	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
@@ -332,35 +331,6 @@ func execPostRunHook(command string, resultsJSON []byte) error {
 	return nil
 }
 
-// newLoopStatsCmd creates the "loop stats" subcommand.
-func newLoopStatsCmd() *cobra.Command {
-	var (
-		lastN     int
-		projectID string
-	)
-
-	cmd := &cobra.Command{
-		Use:   "stats",
-		Short: "Show run dashboard with aggregate statistics",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			agentName := resolveActorName(cmd, "")
-
-			return withDB(func(db *DB) error {
-				dash, err := actions.RunStats(db, agentName, projectID, lastN)
-				if err != nil {
-					return err
-				}
-				return output.PrintSuccess(dash)
-			})
-		},
-	}
-
-	cmd.Flags().IntVar(&lastN, "last", 7, "Number of recent runs to aggregate")
-	cmd.Flags().StringVar(&projectID, "project-id", "", "Project ID to filter runs")
-
-	return cmd
-}
-
 // buildAgentPrompt constructs the prompt sent to the spawned agent.
 // It wraps vybe's resume prompt with autonomous-mode rules.
 // The resume prompt already contains VYBE CONTEXT and VYBE COMMANDS sections,
@@ -414,7 +384,7 @@ func spawnAgent(command, prompt, project string, timeout time.Duration, disableH
 
 	cmd := exec.CommandContext(context.Background(), command, args...) //nolint:gosec // G204: command is user-configured and intentional for autonomous agent spawning
 	if disableHooks {
-		cmd.Env = append(os.Environ(), disableExternalLLMEnv+"=1", retroChildEnv+"=1")
+		cmd.Env = append(os.Environ(), disableExternalLLMEnv+"=1")
 	} else {
 		cmd.Env = os.Environ()
 	}

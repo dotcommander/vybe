@@ -25,8 +25,6 @@ func NewTaskCmd() *cobra.Command {
 	cmd.AddCommand(newTaskGetCmd())
 	cmd.AddCommand(newTaskListCmd())
 	cmd.AddCommand(newTaskAddDepCmd())
-	cmd.AddCommand(newTaskRemoveDepCmd())
-	cmd.AddCommand(newTaskDeleteCmd())
 	cmd.AddCommand(newTaskCompleteCmd())
 	cmd.AddCommand(newTaskSetPriorityCmd())
 
@@ -303,60 +301,6 @@ func newTaskAddDepCmd() *cobra.Command {
 		"Dependency added: %s depends on %s",
 		actions.TaskAddDependencyIdempotent,
 	)
-}
-
-func newTaskRemoveDepCmd() *cobra.Command {
-	return newTaskDepCmd(
-		"remove-dep",
-		"Remove a task dependency",
-		"Dependency removed: %s no longer depends on %s",
-		actions.TaskRemoveDependencyIdempotent,
-	)
-}
-
-func newTaskDeleteCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "delete",
-		Short: "Delete a task",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			taskID, _ := cmd.Flags().GetString("id")
-			agentName, err := requireActorName(cmd, "")
-			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
-			}
-
-			if taskID == "" {
-				return cmdErr(errors.New("--id is required"))
-			}
-
-			var eventID int64
-			if err := withDB(func(db *DB) error {
-				eid, deleteErr := actions.TaskDeleteIdempotent(db, agentName, requestID, taskID)
-				if deleteErr != nil {
-					return deleteErr
-				}
-				eventID = eid
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			type resp struct {
-				TaskID  string `json:"task_id"`
-				EventID int64  `json:"event_id"`
-			}
-			return output.PrintSuccess(resp{TaskID: taskID, EventID: eventID})
-		},
-	}
-
-	cmd.Flags().String("id", "", "Task ID to delete (required)")
-
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
-	return cmd
 }
 
 func newTaskCompleteCmd() *cobra.Command {
