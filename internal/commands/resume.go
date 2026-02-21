@@ -10,10 +10,10 @@ import (
 // NewResumeCmd creates the resume command
 func NewResumeCmd() *cobra.Command {
 	var (
-		limit   int
-		project string
-		peek    bool
-		focus   string
+		limit      int
+		projectDir string
+		peek       bool
+		focus      string
 	)
 
 	cmd := &cobra.Command{
@@ -23,7 +23,7 @@ func NewResumeCmd() *cobra.Command {
 and builds a brief packet with all context needed to resume work.
 
 The cursor is advanced monotonically and the focus task is updated atomically.
-Use --project to scope resume to a specific project directory.
+Use --project-dir to scope resume to a specific project directory.
 Use --peek to read the current brief without advancing the cursor (no request-id required).
 Use --focus <task-id> to set the agent's focus task before resuming (request-id required).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -69,7 +69,7 @@ Use --focus <task-id> to set the agent's focus task before resuming (request-id 
 
 				r, err := actions.ResumeWithOptionsIdempotent(db, agentName, requestID, actions.ResumeOptions{
 					EventLimit: limit,
-					ProjectDir: project,
+					ProjectDir: projectDir,
 				})
 				if err != nil {
 					return err
@@ -85,7 +85,7 @@ Use --focus <task-id> to set the agent's focus task before resuming (request-id 
 	}
 
 	cmd.Flags().IntVar(&limit, "limit", 1000, "Max delta events to return (<= 1000)")
-	cmd.Flags().StringVar(&project, "project", "", "Scope resume to a project directory path")
+	cmd.Flags().StringVar(&projectDir, "project-dir", "", "Scope resume to a project directory path")
 	cmd.Flags().BoolVar(&peek, "peek", false, "Read current brief without advancing cursor (no request-id required)")
 	cmd.Flags().StringVar(&focus, "focus", "", "Set agent focus task before resuming (request-id required)")
 

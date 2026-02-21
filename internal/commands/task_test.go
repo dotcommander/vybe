@@ -121,7 +121,7 @@ func TestTaskCreateCmd_DefinesFlags(t *testing.T) {
 	cmd := newTaskCreateCmd()
 	requireFlagExists(t, cmd, "title")
 	requireFlagExists(t, cmd, "desc")
-	requireFlagExists(t, cmd, "project")
+	requireFlagExists(t, cmd, "project-id")
 	requireFlagExists(t, cmd, "priority")
 }
 

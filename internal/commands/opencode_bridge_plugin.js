@@ -152,12 +152,10 @@ export const VybeBridgePlugin = async ({ client }) => {
           if (sessionID) {
             const agent = agentForSession(sessionID)
             await runVybe([
-              "events", "add",
+              "push",
               "--agent", agent,
               "--request-id", reqID("oc_idle"),
-              "--kind", "heartbeat",
-              "--msg", "session_idle",
-              "--metadata", JSON.stringify({ source: "opencode", session_id: sessionID }),
+              "--json", JSON.stringify({ event: { kind: "heartbeat", message: "session_idle", metadata: { source: "opencode", session_id: sessionID } } }),
             ]).catch(() => {})
           }
         }
@@ -176,16 +174,10 @@ export const VybeBridgePlugin = async ({ client }) => {
             try {
               const agent = agentForSession(sessionID)
               await runVybe([
-                "events", "add",
+                "push",
                 "--agent", agent,
                 "--request-id", reqID("oc_todo_updated"),
-                "--kind", "todo_snapshot",
-                "--msg", "todo.updated (" + latestTodos.length + " items)",
-                "--metadata", JSON.stringify({
-                  session_id: sessionID,
-                  count: latestTodos.length,
-                  todos: latestTodos.map((t) => ({ id: t.id, status: t.status, priority: t.priority })),
-                }),
+                "--json", JSON.stringify({ event: { kind: "todo_snapshot", message: "todo.updated (" + latestTodos.length + " items)", metadata: { session_id: sessionID, count: latestTodos.length, todos: latestTodos.map((t) => ({ id: t.id, status: t.status, priority: t.priority })) } } }),
               ])
             } catch (err) {
               await log("warn", "vybe bridge todo debounce flush failed", {
@@ -223,12 +215,10 @@ export const VybeBridgePlugin = async ({ client }) => {
             metadata_schema_version: "v1",
           })
           await runVybe([
-            "events", "add",
+            "push",
             "--agent", agent,
             "--request-id", reqID("oc_tool_failure"),
-            "--kind", "tool_failure",
-            "--msg", msg,
-            "--metadata", metadata,
+            "--json", JSON.stringify({ event: { kind: "tool_failure", message: msg, metadata: JSON.parse(metadata) } }),
           ])
         } else if (MUTATING_TOOLS[tool]) {
           // Only log mutating tool successes
@@ -246,12 +236,10 @@ export const VybeBridgePlugin = async ({ client }) => {
             metadata_schema_version: "v1",
           })
           await runVybe([
-            "events", "add",
+            "push",
             "--agent", agent,
             "--request-id", reqID("oc_tool_success"),
-            "--kind", "tool_success",
-            "--msg", msg,
-            "--metadata", metadata,
+            "--json", JSON.stringify({ event: { kind: "tool_success", message: msg, metadata: JSON.parse(metadata) } }),
           ])
         }
       } catch (err) {
@@ -274,15 +262,10 @@ export const VybeBridgePlugin = async ({ client }) => {
         const truncated = prompt.length > 500 ? prompt.slice(0, 500) : prompt
 
         await runVybe([
-          "events", "add",
+          "push",
           "--agent", agent,
           "--request-id", reqID("oc_user_prompt"),
-          "--kind", "user_prompt",
-          "--msg", truncated,
-          "--metadata", JSON.stringify({
-            source: "opencode",
-            session_id: sessionID,
-          }),
+          "--json", JSON.stringify({ event: { kind: "user_prompt", message: truncated, metadata: { source: "opencode", session_id: sessionID } } }),
         ])
       } catch (err) {
         await log("warn", "vybe bridge chat.message failed", {

@@ -44,6 +44,7 @@ func NewHookCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hook",
 		Short: "Hook handlers and installers for Claude/OpenCode",
+		Args:  cobra.NoArgs,
 	}
 
 	cmd.AddCommand(newHookInstallCmd())

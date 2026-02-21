@@ -24,60 +24,22 @@ import (
 //
 //nolint:revive,funlen // status display requires many conditional checks for completeness; splitting degrades the linear status-collection flow
 func NewStatusCmd(root *cobra.Command) *cobra.Command {
-	var (
-		check           bool
-		eventsMode      bool
-		schemaMode      bool
-		artifactsMode   bool
-		all             bool
-		task            string
-		kind            string
-		limit           int
-		since           int64
-		asc             bool
-		includeArchived bool
-	)
+	var check bool
 
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show vybe installation status and system overview",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			switch {
-			case eventsMode:
-				return runEventsMode(cmd, all, task, kind, since, limit, asc, includeArchived)
-			case schemaMode:
-				return runSchemaMode(root)
-			case artifactsMode:
-				return runArtifactsMode(task, limit)
-			default:
-				return runDefaultStatus(cmd, check)
-			}
+			return runDefaultStatus(cmd, check)
 		},
 	}
 
-	// Core flags
 	cmd.Flags().BoolVar(&check, "check", false, "Run database connectivity check (SELECT 1)")
-
-	// --events mode flags
-	cmd.Flags().BoolVar(&eventsMode, "events", false, "List events (replaces 'events list')")
-	cmd.Flags().BoolVar(&all, "all", false, "List events across all agents (ignores --agent)")
-	cmd.Flags().StringVar(&task, "task", "", "Filter events by task ID, or task ID for --artifacts")
-	cmd.Flags().StringVar(&kind, "kind", "", "Filter events by kind")
-	cmd.Flags().IntVar(&limit, "limit", 50, "Max events or artifacts to return")
-	cmd.Flags().Int64Var(&since, "since-id", 0, "Only events with id > since-id")
-	cmd.Flags().BoolVar(&asc, "asc", false, "Sort oldest first (default newest first)")
-	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived events")
-
-	// --schema mode flag
-	cmd.Flags().BoolVar(&schemaMode, "schema", false, "Show command argument schemas (replaces 'schema')")
-
-	// --artifacts mode flag
-	cmd.Flags().BoolVar(&artifactsMode, "artifacts", false, "List artifacts for a task (requires --task)")
 
 	return cmd
 }
 
-func runEventsMode(cmd *cobra.Command, all bool, task, kind string, since int64, limit int, asc, includeArchived bool) error {
+func runEventsMode(cmd *cobra.Command, all bool, taskID, kind string, since int64, limit int, asc, includeArchived bool) error {
 	agentName := resolveActorName(cmd, "")
 	if all {
 		agentName = ""
@@ -90,7 +52,7 @@ func runEventsMode(cmd *cobra.Command, all bool, task, kind string, since int64,
 	if err := withDB(func(db *DB) error {
 		ev, err := store.ListEvents(db, store.ListEventsParams{
 			AgentName:       agentName,
-			TaskID:          task,
+			TaskID:          taskID,
 			Kind:            kind,
 			SinceID:         since,
 			Limit:           limit,
@@ -108,7 +70,7 @@ func runEventsMode(cmd *cobra.Command, all bool, task, kind string, since int64,
 
 	type resp struct {
 		Agent  string          `json:"agent,omitempty"`
-		Task   string          `json:"task,omitempty"`
+		TaskID string          `json:"task_id,omitempty"`
 		Kind   string          `json:"kind,omitempty"`
 		Since  int64           `json:"since_id,omitempty"`
 		Count  int             `json:"count"`
@@ -116,7 +78,7 @@ func runEventsMode(cmd *cobra.Command, all bool, task, kind string, since int64,
 	}
 	return output.PrintSuccess(resp{
 		Agent:  agentName,
-		Task:   task,
+		TaskID: taskID,
 		Kind:   kind,
 		Since:  since,
 		Count:  len(events),
@@ -135,7 +97,7 @@ func runSchemaMode(root *cobra.Command) error {
 
 func runArtifactsMode(taskID string, limit int) error {
 	if taskID == "" {
-		return cmdErr(errors.New("--task is required for --artifacts mode"))
+		return cmdErr(errors.New("--task-id is required"))
 	}
 
 	var artifacts []*models.Artifact
@@ -325,9 +287,11 @@ func checkOpenCodeHookDetail() opencodeDetail {
 // Schema helper functions (moved from schema.go which is deleted).
 
 type commandArgSchema struct {
-	Command     string                 `json:"command"`
-	Description string                 `json:"description,omitempty"`
-	ArgsSchema  map[string]interface{} `json:"args_schema"`
+	Command           string                 `json:"command"`
+	Description       string                 `json:"description,omitempty"`
+	ArgsSchema        map[string]interface{} `json:"args_schema"`
+	Mutates           bool                   `json:"mutates"`
+	RequiresRequestID bool                   `json:"requires_request_id"`
 }
 
 func collectCommandSchemas(cmd *cobra.Command, out *[]commandArgSchema) {
@@ -385,11 +349,31 @@ func buildCommandSchema(cmd *cobra.Command) commandArgSchema {
 		argsSchema["required"] = required
 	}
 
+	mutates := isMutatingCommand(cmd)
 	return commandArgSchema{
-		Command:     cmd.CommandPath(),
-		Description: cmd.Short,
-		ArgsSchema:  argsSchema,
+		Command:           cmd.CommandPath(),
+		Description:       cmd.Short,
+		ArgsSchema:        argsSchema,
+		Mutates:           mutates,
+		RequiresRequestID: mutates,
 	}
+}
+
+// isMutatingCommand returns true if the command modifies state and requires a request ID.
+// Read-only commands are explicitly listed; everything else is considered mutating.
+func isMutatingCommand(cmd *cobra.Command) bool {
+	readOnly := map[string]bool{
+		"vybe status":          true,
+		"vybe task get":        true,
+		"vybe task list":       true,
+		"vybe loop stats":      true,
+		"vybe events list":     true,
+		"vybe artifacts list":  true,
+		"vybe schema commands": true,
+		"vybe memory get":      true,
+		"vybe memory list":     true,
+	}
+	return !readOnly[cmd.CommandPath()]
 }
 
 func normalizeFlagType(flagType string) string {

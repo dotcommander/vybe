@@ -31,7 +31,23 @@ func Execute(version string) error {
 				}
 				return output.PrintSuccess(resp{Version: version})
 			}
-			return cmd.Help()
+			// JSON command index for agents
+			commandNames := make([]string, 0, len(cmd.Commands()))
+			for _, c := range cmd.Commands() {
+				if !c.Hidden {
+					commandNames = append(commandNames, c.Name())
+				}
+			}
+			type indexResp struct {
+				Version    string   `json:"version"`
+				Commands   []string `json:"commands"`
+				SchemaHint string   `json:"schema_hint"`
+			}
+			return output.PrintSuccess(indexResp{
+				Version:    version,
+				Commands:   commandNames,
+				SchemaHint: "vybe schema commands",
+			})
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if err := app.EnsureConfigDir(); err != nil {
@@ -62,11 +78,17 @@ func Execute(version string) error {
 	root.AddCommand(NewStatusCmd(root)) // root passed for --schema mode
 	root.AddCommand(NewUpgradeCmd())
 	root.AddCommand(NewPushCmd())
+	root.AddCommand(NewEventsCmd())
+	root.AddCommand(NewArtifactsCmd())
+	root.AddCommand(NewSchemaCmd(root))
 
 	err := root.Execute()
 	if err != nil {
 		var pe printedError
 		if !errors.As(err, &pe) {
+			// Cobra-level errors (unknown flag/subcommand, parse failures) bypass cmdErr.
+			// Emit JSON error envelope to stdout so agents always get structured output.
+			_ = output.PrintError(err)
 			slog.Default().Error("command failed", "error", err.Error())
 		}
 	}

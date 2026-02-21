@@ -16,6 +16,7 @@ func NewTaskCmd() *cobra.Command {
 		Use:   "task",
 		Short: "Manage tasks",
 		Long:  "Create, update, and query tasks. Valid statuses: pending, in_progress, completed, blocked",
+		Args:  cobra.NoArgs,
 	}
 
 	cmd.AddCommand(newTaskCreateCmd())
@@ -39,7 +40,7 @@ func newTaskCreateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			title, _ := cmd.Flags().GetString("title")
 			desc, _ := cmd.Flags().GetString("desc")
-			projectID, _ := cmd.Flags().GetString("project")
+			projectID, _ := cmd.Flags().GetString("project-id")
 			priority, _ := cmd.Flags().GetInt("priority")
 			agentName, err := requireActorName(cmd, "")
 			if err != nil {
@@ -78,7 +79,7 @@ func newTaskCreateCmd() *cobra.Command {
 
 	cmd.Flags().String("title", "", "Task title (required)")
 	cmd.Flags().String("desc", "", "Task description")
-	cmd.Flags().String("project", "", "Project ID to associate task with")
+	cmd.Flags().String("project-id", "", "Project ID to associate task with")
 	cmd.Flags().Int("priority", 0, "Task priority (higher = more urgent, default 0)")
 
 	return cmd
@@ -186,7 +187,7 @@ func newTaskListCmd() *cobra.Command {
 		Short: "List all tasks (status filter supports pending|in_progress|completed|blocked)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			statusFilter, _ := cmd.Flags().GetString("status")
-			projectFilter, _ := cmd.Flags().GetString("project")
+			projectFilter, _ := cmd.Flags().GetString("project-id")
 			priorityFilter, _ := cmd.Flags().GetInt("priority")
 
 			var tasks []*models.Task
@@ -210,7 +211,7 @@ func newTaskListCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("status", "", "Filter by status: pending|in_progress|completed|blocked")
-	cmd.Flags().String("project", "", "Filter by project ID")
+	cmd.Flags().String("project-id", "", "Filter by project ID")
 	cmd.Flags().Int("priority", -1, "Filter by exact priority (default -1 = no filter)")
 
 	return cmd
@@ -220,15 +221,9 @@ func newTaskGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Get task details",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
-			if taskID != "" && len(args) == 1 {
-				return cmdErr(errors.New("provide either --id or a positional task id, not both"))
-			}
-			if taskID == "" && len(args) == 1 {
-				taskID = args[0]
-			}
 			if taskID == "" {
 				return cmdErr(errors.New("--id is required"))
 			}
@@ -421,6 +416,9 @@ func newTaskSetPriorityCmd() *cobra.Command {
 		Short: "Update task priority",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
+			if !cmd.Flags().Changed("priority") {
+				return cmdErr(errors.New("--priority is required"))
+			}
 			priority, _ := cmd.Flags().GetInt("priority")
 			agentName, err := requireActorName(cmd, "")
 			if err != nil {
@@ -464,4 +462,3 @@ func newTaskSetPriorityCmd() *cobra.Command {
 
 	return cmd
 }
-

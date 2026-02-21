@@ -17,6 +17,7 @@ func NewMemoryCmd() *cobra.Command {
 		Use:   "memory",
 		Short: "Manage memory key-value storage with scoping",
 		Long:  "Store and retrieve key-value pairs with scope isolation (global, project, task, agent)",
+		Args:  cobra.NoArgs,
 	}
 
 	cmd.AddCommand(newMemorySetCmd())

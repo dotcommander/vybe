@@ -25,7 +25,7 @@ import (
 // NewLoopCmd creates the autonomous driver command.
 func NewLoopCmd() *cobra.Command {
 	var (
-		project      string
+		projectDir   string
 		maxTasks     int
 		maxFails     int
 		taskTimeout  string
@@ -74,7 +74,7 @@ Safety rails:
 
 			opts := runOptions{
 				agentName:    agentName,
-				project:      project,
+				project:      projectDir,
 				maxTasks:     maxTasks,
 				maxFails:     maxFails,
 				taskTimeout:  timeout,
@@ -89,7 +89,7 @@ Safety rails:
 		},
 	}
 
-	cmd.Flags().StringVar(&project, "project", "", "Project directory to scope tasks and resume")
+	cmd.Flags().StringVar(&projectDir, "project-dir", "", "Project directory to scope tasks and resume")
 	cmd.Flags().IntVar(&maxTasks, "max-tasks", 10, "Stop after N tasks completed")
 	cmd.Flags().IntVar(&maxFails, "max-fails", 3, "Circuit breaker: stop after N consecutive failures")
 	cmd.Flags().StringVar(&taskTimeout, "task-timeout", "10m", "Kill spawned command after this duration")
@@ -334,8 +334,8 @@ func execPostRunHook(command string, resultsJSON []byte) error {
 // newLoopStatsCmd creates the "loop stats" subcommand.
 func newLoopStatsCmd() *cobra.Command {
 	var (
-		lastN   int
-		project string
+		lastN     int
+		projectID string
 	)
 
 	cmd := &cobra.Command{
@@ -345,7 +345,7 @@ func newLoopStatsCmd() *cobra.Command {
 			agentName := resolveActorName(cmd, "")
 
 			return withDB(func(db *DB) error {
-				dash, err := actions.RunStats(db, agentName, project, lastN)
+				dash, err := actions.RunStats(db, agentName, projectID, lastN)
 				if err != nil {
 					return err
 				}
@@ -355,7 +355,7 @@ func newLoopStatsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().IntVar(&lastN, "last", 7, "Number of recent runs to aggregate")
-	cmd.Flags().StringVar(&project, "project", "", "Project ID to filter runs")
+	cmd.Flags().StringVar(&projectID, "project-id", "", "Project ID to filter runs")
 
 	return cmd
 }

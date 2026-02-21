@@ -2,6 +2,7 @@ package actions
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -13,7 +14,7 @@ import (
 type PushEventInput struct {
 	Kind     string `json:"kind"`
 	Message  string `json:"message"`
-	Metadata string `json:"metadata,omitempty"`
+	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 
 // PushMemoryInput describes one memory upsert.
@@ -119,7 +120,7 @@ func PushIdempotent(db *sql.DB, agentName, requestID string, input PushInput) (*
 
 			// 1. Insert event (if provided)
 			if input.Event != nil {
-				eventID, err := store.InsertEventTx(tx, input.Event.Kind, agentName, input.TaskID, input.Event.Message, input.Event.Metadata)
+				eventID, err := store.InsertEventTx(tx, input.Event.Kind, agentName, input.TaskID, input.Event.Message, string(input.Event.Metadata))
 				if err != nil {
 					return PushResult{}, fmt.Errorf("failed to insert event: %w", err)
 				}
