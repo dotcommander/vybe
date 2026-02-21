@@ -1055,7 +1055,7 @@ func TestDemoAgentSession(t *testing.T) {
 
 		// Task set-priority
 		t.Run("priority_boost", func(t *testing.T) {
-			t.Log("Creating a task and elevating its priority — higher priority tasks are selected first by `task next` and `task claim`")
+			t.Log("Creating a task and elevating its priority — higher priority tasks are selected first by resume focus selection")
 			// Create a fresh task to mutate
 			createOut := h.vybe("task", "create",
 				"--title", "Priority Task",
