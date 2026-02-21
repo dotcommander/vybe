@@ -33,7 +33,7 @@ func openDB() (*DB, func(), error) {
 		return nil, nil, err
 	}
 
-	if err := store.CheckSchemaVersion(db); err != nil {
+	if err := store.MigrateDB(db, dbPath); err != nil {
 		_ = store.CloseDB(db)
 		return nil, nil, err
 	}

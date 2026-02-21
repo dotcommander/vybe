@@ -58,8 +58,8 @@ func InitDB() (*sql.DB, error) {
 }
 
 // OpenDB opens a database connection and configures SQLite pragmas, but does
-// NOT run migrations. Use InitDBWithPath for test/upgrade scenarios that need
-// automatic migration, or pair with CheckSchemaVersion for production commands.
+// NOT run migrations. Use InitDBWithPath for test/upgrade scenarios, or pair
+// with MigrateDB for production commands (auto-migration on every open).
 func OpenDB(dbPath string) (*sql.DB, error) {
 	absPath, err := app.EnsureDBDir(dbPath)
 	if err != nil {
@@ -139,8 +139,8 @@ func CheckSchemaVersion(db *sql.DB) error {
 	return nil
 }
 
-// InitDBWithPath opens a database and runs migrations. Used by tests and the
-// upgrade command. Production commands should use OpenDB + CheckSchemaVersion.
+// InitDBWithPath opens a database and runs migrations. Used by tests and
+// scenarios that need a single open+migrate call.
 func InitDBWithPath(dbPath string) (*sql.DB, error) {
 	db, err := OpenDB(dbPath)
 	if err != nil {
