@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/dotcommander/vybe/internal/models"
 )
@@ -771,16 +772,11 @@ func fetchArtifacts(db *sql.DB, taskID string) ([]*models.Artifact, error) {
 	return artifacts, nil
 }
 
-//nolint:funlen // agent_state update requires four UPDATE variants (task+project, task-only, project-only, cursor-only) to avoid nulling existing focus fields
 func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focusTaskID string, focusProjectID *string) error {
-	// Load current state for version check
 	var currentVersion int
 	err := tx.QueryRowContext(context.Background(), `
-		SELECT version
-		FROM agent_state
-		WHERE agent_name = ?
+		SELECT version FROM agent_state WHERE agent_name = ?
 	`, agentName).Scan(&currentVersion)
-
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("agent state not found: %s", agentName)
 	}
@@ -788,71 +784,35 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 		return fmt.Errorf("failed to load agent state: %w", err)
 	}
 
-	// Update with monotonic cursor advance.
-	// IMPORTANT: focusTaskID == "" means clear focus (set NULL) so state matches the resume response.
-	// If focusProjectID is nil, preserve existing project focus.
-	var result sql.Result
-	switch {
-	case focusTaskID != "" && focusProjectID != nil && *focusProjectID != "":
-		result, err = tx.ExecContext(context.Background(), `
-				UPDATE agent_state
-				SET last_seen_event_id = MAX(last_seen_event_id, ?),
-				    focus_task_id = ?,
-				    focus_project_id = ?,
-				    last_active_at = CURRENT_TIMESTAMP,
-				    version = version + 1
-				WHERE agent_name = ? AND version = ?
-			`, newCursor, focusTaskID, *focusProjectID, agentName, currentVersion)
-	case focusTaskID != "" && focusProjectID != nil:
-		result, err = tx.ExecContext(context.Background(), `
-				UPDATE agent_state
-				SET last_seen_event_id = MAX(last_seen_event_id, ?),
-				    focus_task_id = ?,
-				    focus_project_id = NULL,
-				    last_active_at = CURRENT_TIMESTAMP,
-				    version = version + 1
-				WHERE agent_name = ? AND version = ?
-			`, newCursor, focusTaskID, agentName, currentVersion)
-	case focusTaskID != "":
-		result, err = tx.ExecContext(context.Background(), `
-			UPDATE agent_state
-			SET last_seen_event_id = MAX(last_seen_event_id, ?),
-			    focus_task_id = ?,
-			    last_active_at = CURRENT_TIMESTAMP,
-			    version = version + 1
-			WHERE agent_name = ? AND version = ?
-		`, newCursor, focusTaskID, agentName, currentVersion)
-	case focusProjectID != nil && *focusProjectID != "":
-		result, err = tx.ExecContext(context.Background(), `
-				UPDATE agent_state
-				SET last_seen_event_id = MAX(last_seen_event_id, ?),
-				    focus_task_id = NULL,
-				    focus_project_id = ?,
-				    last_active_at = CURRENT_TIMESTAMP,
-				    version = version + 1
-				WHERE agent_name = ? AND version = ?
-			`, newCursor, *focusProjectID, agentName, currentVersion)
-	case focusProjectID != nil:
-		result, err = tx.ExecContext(context.Background(), `
-				UPDATE agent_state
-				SET last_seen_event_id = MAX(last_seen_event_id, ?),
-				    focus_task_id = NULL,
-				    focus_project_id = NULL,
-				    last_active_at = CURRENT_TIMESTAMP,
-				    version = version + 1
-				WHERE agent_name = ? AND version = ?
-			`, newCursor, agentName, currentVersion)
-	default:
-		result, err = tx.ExecContext(context.Background(), `
-			UPDATE agent_state
-			SET last_seen_event_id = MAX(last_seen_event_id, ?),
-			    focus_task_id = NULL,
-			    last_active_at = CURRENT_TIMESTAMP,
-			    version = version + 1
-			WHERE agent_name = ? AND version = ?
-		`, newCursor, agentName, currentVersion)
+	setClauses := []string{
+		"last_seen_event_id = MAX(last_seen_event_id, ?)",
+		"last_active_at = CURRENT_TIMESTAMP",
+		"version = version + 1",
+	}
+	args := []any{newCursor}
+
+	// focusTaskID: empty means clear (NULL), non-empty means set
+	if focusTaskID != "" {
+		setClauses = append(setClauses, "focus_task_id = ?")
+		args = append(args, focusTaskID)
+	} else {
+		setClauses = append(setClauses, "focus_task_id = NULL")
 	}
 
+	// focusProjectID: nil means preserve, non-nil empty means clear, non-nil non-empty means set
+	if focusProjectID != nil {
+		if *focusProjectID != "" {
+			setClauses = append(setClauses, "focus_project_id = ?")
+			args = append(args, *focusProjectID)
+		} else {
+			setClauses = append(setClauses, "focus_project_id = NULL")
+		}
+	}
+
+	query := "UPDATE agent_state SET " + strings.Join(setClauses, ", ") + " WHERE agent_name = ? AND version = ?"
+	args = append(args, agentName, currentVersion)
+
+	result, err := tx.ExecContext(context.Background(), query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update agent state: %w", err)
 	}
@@ -861,7 +821,6 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 	if err != nil {
 		return fmt.Errorf("failed to check rows affected: %w", err)
 	}
-
 	if rowsAffected == 0 {
 		return ErrVersionConflict
 	}

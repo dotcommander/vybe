@@ -48,6 +48,9 @@ func SetMemory(db *sql.DB, key, value, valueType, scope, scopeID string, expires
 // Returns (eventID, error).
 // Exported for use by batch operations (e.g., push).
 func UpsertMemoryTx(tx *sql.Tx, agentName, key, value, valueType, scope, scopeID string, expiresAt *time.Time) (int64, error) {
+	if key == "" {
+		return 0, errors.New("memory key is required")
+	}
 	if err := validateValueType(valueType); err != nil {
 		return 0, err
 	}

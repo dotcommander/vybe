@@ -72,6 +72,8 @@ func attemptIdempotent[T any](
 
 // RunIdempotent executes an idempotent operation once per (agent_name, request_id, command).
 // It wraps retry, transaction lifecycle, idempotency begin/replay, completion, and commit.
+// The operation callback must perform only transactional work (DB reads/writes via tx).
+// Non-transactional side effects (HTTP, file I/O) will re-execute on retry.
 func RunIdempotent[T any](db *sql.DB, agentName, requestID, command string, operation func(tx *sql.Tx) (T, error)) (T, error) {
 	out, _, err := RunIdempotentWithRetry(db, agentName, requestID, command, 1, nil, operation)
 	return out, err

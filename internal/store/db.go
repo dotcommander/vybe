@@ -20,24 +20,26 @@ func CloseDB(db *sql.DB) error {
 	return db.Close()
 }
 
-// validCheckpointModes is the allowlist of accepted WAL checkpoint modes.
-var validCheckpointModes = map[string]bool{
-	"PASSIVE":  true,
-	"FULL":     true,
-	"TRUNCATE": true,
-	"RESTART":  true,
-}
-
 // CheckpointWAL triggers a WAL checkpoint.
 // mode must be one of: PASSIVE, FULL, TRUNCATE, RESTART.
 // Use "PASSIVE" for non-blocking, "FULL" to block until complete,
 // "TRUNCATE" to reset WAL file size back to zero,
 // "RESTART" to block and reset the WAL write position.
 func CheckpointWAL(ctx context.Context, db *sql.DB, mode string) error {
-	if !validCheckpointModes[mode] {
+	var pragma string
+	switch mode {
+	case "PASSIVE":
+		pragma = "PRAGMA wal_checkpoint(PASSIVE)"
+	case "FULL":
+		pragma = "PRAGMA wal_checkpoint(FULL)"
+	case "TRUNCATE":
+		pragma = "PRAGMA wal_checkpoint(TRUNCATE)"
+	case "RESTART":
+		pragma = "PRAGMA wal_checkpoint(RESTART)"
+	default:
 		return fmt.Errorf("invalid WAL checkpoint mode %q: must be one of PASSIVE, FULL, TRUNCATE, RESTART", mode)
 	}
-	_, err := db.ExecContext(ctx, "PRAGMA wal_checkpoint("+mode+")")
+	_, err := db.ExecContext(ctx, pragma)
 	return err
 }
 
