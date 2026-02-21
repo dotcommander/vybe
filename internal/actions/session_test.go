@@ -94,7 +94,7 @@ func TestSessionRetrospective_SkipsWhenCLIUnavailable(t *testing.T) {
 	// Clear PATH to ensure no CLI is found
 	t.Setenv("PATH", t.TempDir())
 
-	result, err := SessionRetrospective(db, "opencode-test", "retro_test")
+	result, err := SessionRetrospective(db, "opencode-test", "retro_test", "")
 	require.NoError(t, err)
 	require.True(t, result.Skipped)
 	require.Equal(t, "no lessons extracted", result.SkipReason)
@@ -113,7 +113,7 @@ func TestSessionRetrospective_SkipsWhenFewEvents(t *testing.T) {
 		return e
 	}))
 
-	result, err := SessionRetrospective(db, "test-agent", "retro_test")
+	result, err := SessionRetrospective(db, "test-agent", "retro_test", "")
 	require.NoError(t, err)
 	require.True(t, result.Skipped)
 	require.Contains(t, result.SkipReason, "insufficient events")

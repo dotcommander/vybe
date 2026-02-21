@@ -82,8 +82,9 @@ Output a JSON array of lessons. Each lesson:
 - "type": "correction" | "preference" | "pattern" | "knowledge"
 - "key": short snake_case identifier (max 64 chars)
 - "value": concise lesson description (max 256 chars)
-- "scope": "global" or "project"
-Rules: Only useful across sessions. Fewer high-quality > many low-quality. Max 10. JSON array only, no markdown fencing.`
+- "scope": "project" (default) or "global" (ONLY for universal agent behavior patterns, NOT domain knowledge)
+Rules: Only useful across sessions. Fewer high-quality > many low-quality. Max 10. JSON array only, no markdown fencing.
+Scope guidance: domain knowledge, codebase patterns, API details = "project". Universal agent corrections = "global".`
 
 // extractRuleBasedLessons applies deterministic pattern matching to extract lessons
 // without requiring LLM availability.
@@ -177,9 +178,10 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 		scopeID := ""
 		if scope == "project" && projectID != "" {
 			scopeID = projectID
-		} else {
-			scope = "global"
+		} else if scope == "project" {
+			continue // drop: no projectID available, don't promote to global
 		}
+		// scope == "global" passes through unchanged
 
 		prepared = append(prepared, preparedLesson{key: key, value: value, scope: scope, scopeID: scopeID})
 	}
@@ -215,18 +217,18 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 // SessionRetrospective analyzes session events and extracts durable lessons as memory.
 //
 //nolint:funlen,nestif // retrospective orchestrates LLM extraction with fallback to rule-based extraction; splitting degrades the fallback flow
-func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix string) (*sessionRetrospectiveResult, error) {
-	return sessionRetrospective(db, agentName, requestIDPrefix, true)
+func SessionRetrospective(db *sql.DB, agentName, requestIDPrefix, projectIDHint string) (*sessionRetrospectiveResult, error) {
+	return sessionRetrospective(db, agentName, requestIDPrefix, projectIDHint, true)
 }
 
 // SessionRetrospectiveRuleOnly performs retrospective extraction without invoking
 // external LLM CLIs. This avoids hook recursion in background job workers.
-func SessionRetrospectiveRuleOnly(db *sql.DB, agentName, requestIDPrefix string) (*sessionRetrospectiveResult, error) {
-	return sessionRetrospective(db, agentName, requestIDPrefix, false)
+func SessionRetrospectiveRuleOnly(db *sql.DB, agentName, requestIDPrefix, projectIDHint string) (*sessionRetrospectiveResult, error) {
+	return sessionRetrospective(db, agentName, requestIDPrefix, projectIDHint, false)
 }
 
 //nolint:funlen,nestif // same complexity as SessionRetrospective; split would duplicate flow.
-func sessionRetrospective(db *sql.DB, agentName, requestIDPrefix string, allowLLM bool) (*sessionRetrospectiveResult, error) {
+func sessionRetrospective(db *sql.DB, agentName, requestIDPrefix, projectIDHint string, allowLLM bool) (*sessionRetrospectiveResult, error) {
 	if agentName == "" {
 		return nil, errors.New("agent name is required")
 	}
@@ -236,6 +238,10 @@ func sessionRetrospective(db *sql.DB, agentName, requestIDPrefix string, allowLL
 		return nil, fmt.Errorf("session digest: %w", err)
 	}
 
+	// Use CWD hint as fallback when agent_state has no focus project
+	if digest.ProjectID == "" && projectIDHint != "" {
+		digest.ProjectID = projectIDHint
+	}
 	return sessionRetrospectiveFromDigest(db, requestIDPrefix, digest, allowLLM)
 }
 
