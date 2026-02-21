@@ -26,6 +26,7 @@ func NewMemoryCmd() *cobra.Command {
 	cmd.AddCommand(newMemoryListCmd())
 	cmd.AddCommand(newMemoryDeleteCmd())
 
+	namespaceIndex(cmd)
 	return cmd
 }
 
@@ -66,6 +67,7 @@ func newMemoryGCCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Int("limit", 500, "Maximum rows to delete in one run")
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
 
@@ -127,6 +129,7 @@ func newMemorySetCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("key")
 	_ = cmd.MarkFlagRequired("value")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
 
@@ -245,6 +248,7 @@ func newMemoryDeleteCmd() *cobra.Command {
 
 	_ = cmd.MarkFlagRequired("key")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
 

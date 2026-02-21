@@ -10,6 +10,7 @@ func NewArtifactsCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(newArtifactsListCmd())
+	namespaceIndex(cmd)
 	return cmd
 }
 

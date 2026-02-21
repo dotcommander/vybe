@@ -70,5 +70,6 @@ func NewPushCmd() *cobra.Command {
 
 	cmd.Flags().String("json", "", "JSON input payload")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }

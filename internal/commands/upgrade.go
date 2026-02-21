@@ -15,7 +15,7 @@ import (
 
 // NewUpgradeCmd creates the upgrade command.
 func NewUpgradeCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade vybe to the latest version",
 		Long:  `Pulls latest from git and runs go install. Requires git and go on PATH.`,
@@ -36,6 +36,8 @@ func NewUpgradeCmd() *cobra.Command {
 			return upgradeViaGitPull(srcDir)
 		},
 	}
+	cmd.Annotations = map[string]string{"mutates": "true"}
+	return cmd
 }
 
 func findSourceDir() string {

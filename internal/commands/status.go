@@ -349,31 +349,25 @@ func buildCommandSchema(cmd *cobra.Command) commandArgSchema {
 		argsSchema["required"] = required
 	}
 
-	mutates := isMutatingCommand(cmd)
 	return commandArgSchema{
 		Command:           cmd.CommandPath(),
 		Description:       cmd.Short,
 		ArgsSchema:        argsSchema,
-		Mutates:           mutates,
-		RequiresRequestID: mutates,
+		Mutates:           isMutatingCommand(cmd),
+		RequiresRequestID: requiresRequestID(cmd),
 	}
 }
 
-// isMutatingCommand returns true if the command modifies state and requires a request ID.
-// Read-only commands are explicitly listed; everything else is considered mutating.
+// isMutatingCommand returns true if the command modifies state.
+// Determined by the "mutates" annotation on the command.
 func isMutatingCommand(cmd *cobra.Command) bool {
-	readOnly := map[string]bool{
-		"vybe status":          true,
-		"vybe task get":        true,
-		"vybe task list":       true,
-		"vybe loop stats":      true,
-		"vybe events list":     true,
-		"vybe artifacts list":  true,
-		"vybe schema commands": true,
-		"vybe memory get":      true,
-		"vybe memory list":     true,
-	}
-	return !readOnly[cmd.CommandPath()]
+	return cmd.Annotations["mutates"] == "true"
+}
+
+// requiresRequestID returns true if the command requires --request-id for idempotency.
+// Determined by the "request_id" annotation on the command.
+func requiresRequestID(cmd *cobra.Command) bool {
+	return cmd.Annotations["request_id"] == "true"
 }
 
 func normalizeFlagType(flagType string) string {

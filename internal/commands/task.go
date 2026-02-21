@@ -30,6 +30,7 @@ func NewTaskCmd() *cobra.Command {
 	cmd.AddCommand(newTaskCompleteCmd())
 	cmd.AddCommand(newTaskSetPriorityCmd())
 
+	namespaceIndex(cmd)
 	return cmd
 }
 
@@ -82,6 +83,7 @@ func newTaskCreateCmd() *cobra.Command {
 	cmd.Flags().String("project-id", "", "Project ID to associate task with")
 	cmd.Flags().Int("priority", 0, "Task priority (higher = more urgent, default 0)")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
 
@@ -137,6 +139,7 @@ func newTaskSetStatusCmd() *cobra.Command {
 	cmd.Flags().String("id", "", "Task ID (required)")
 	cmd.Flags().String("status", "", "New status (required): pending|in_progress|completed|blocked")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
 
@@ -178,6 +181,7 @@ func newTaskBeginCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("id", "", "Task ID (required)")
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
 
@@ -288,6 +292,7 @@ func newTaskDepCmd(use, short, successFmt string, apply func(db *DB, agentName, 
 	cmd.Flags().String("id", "", "Task ID (required)")
 	cmd.Flags().String("depends-on", "", "Dependency task ID (required)")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
 
@@ -309,7 +314,6 @@ func newTaskRemoveDepCmd() *cobra.Command {
 	)
 }
 
-//nolint:dupl // newProjectDeleteCmd has the same cobra pattern; they operate on different entities and actions
 func newTaskDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete",
@@ -351,6 +355,7 @@ func newTaskDeleteCmd() *cobra.Command {
 
 	cmd.Flags().String("id", "", "Task ID to delete (required)")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
 
@@ -407,6 +412,7 @@ func newTaskCompleteCmd() *cobra.Command {
 	cmd.Flags().String("label", "", "Optional label stored in event metadata")
 	cmd.Flags().String("blocked-reason", "", "Reason for blocking (only used with --outcome=blocked)")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }
 
@@ -460,5 +466,6 @@ func newTaskSetPriorityCmd() *cobra.Command {
 	cmd.Flags().String("id", "", "Task ID (required)")
 	cmd.Flags().Int("priority", 0, "New priority value (required)")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
 }

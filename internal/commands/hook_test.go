@@ -165,12 +165,10 @@ func TestReadHookStdin_InvalidJSON(t *testing.T) {
 	require.Equal(t, "Bash", input.ToolName)
 }
 
-func TestReadHookStdin_BackwardCompat(t *testing.T) {
-	// Old camelCase sessionId should map to SessionIDOld
+func TestReadHookStdin_UnknownFieldsIgnored(t *testing.T) {
 	var input hookInput
-	err := json.Unmarshal([]byte(`{"sessionId":"old-id"}`), &input)
+	err := json.Unmarshal([]byte(`{"unknown_field":"value"}`), &input)
 	require.NoError(t, err)
-	require.Equal(t, "old-id", input.SessionIDOld)
 	require.Empty(t, input.SessionID)
 }
 

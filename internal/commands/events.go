@@ -12,6 +12,7 @@ func NewEventsCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(newEventsListCmd())
+	namespaceIndex(cmd)
 	return cmd
 }
 

@@ -286,7 +286,6 @@ func hasVybeHook(entries []any) bool {
 	return false
 }
 
-//nolint:gocyclo // recognizer checks multiple vybe command patterns across both legacy and current CLI shapes
 func isVybeHookCommand(command string) bool {
 	cmd := strings.TrimSpace(command)
 	if cmd == "" {
@@ -306,18 +305,13 @@ func isVybeHookCommand(command string) bool {
 	}
 
 	sub := parts[2]
-	return sub == "session-start" ||
-		sub == "session-end" ||
-		sub == "prompt" ||
-		sub == "tool-failure" ||
-		sub == "tool-success" ||
-		sub == "checkpoint" ||
-		sub == "task-completed" ||
-		sub == "retrospective" ||
-		sub == "retrospective-bg" ||
-		sub == "subagent-stop" ||
-		sub == "subagent-start" ||
-		sub == "stop"
+	switch sub {
+	case "session-start", "session-end", "prompt", "tool-failure", "tool-success", "checkpoint",
+		"task-completed", "retrospective", "retrospective-bg", "subagent-stop", "subagent-start", "stop":
+		return true
+	default:
+		return false
+	}
 }
 
 // hookEntryEqual compares two parsed hook entries by their JSON representation.
@@ -556,6 +550,7 @@ Idempotent — safe to run multiple times. Existing hooks/plugins are preserved.
 	cmd.Flags().Bool("opencode", false, "Install OpenCode bridge plugin")
 	cmd.Flags().Bool("project", false, "Install Claude hooks in ./.claude/settings.json instead of ~/.claude/settings.json")
 
+	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }
 
@@ -678,5 +673,6 @@ func newHookUninstallCmd() *cobra.Command {
 	cmd.Flags().Bool("opencode", false, "Uninstall OpenCode bridge plugin")
 	cmd.Flags().Bool("project", false, "Uninstall Claude hooks from ./.claude/settings.json instead of ~/.claude/settings.json")
 
+	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }

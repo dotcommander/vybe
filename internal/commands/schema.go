@@ -10,6 +10,7 @@ func NewSchemaCmd(root *cobra.Command) *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(newSchemaCommandsCmd(root))
+	namespaceIndex(cmd)
 	return cmd
 }
 

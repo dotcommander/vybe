@@ -89,5 +89,6 @@ Use --focus <task-id> to set the agent's focus task before resuming (request-id 
 	cmd.Flags().BoolVar(&peek, "peek", false, "Read current brief without advancing cursor (no request-id required)")
 	cmd.Flags().StringVar(&focus, "focus", "", "Set agent focus task before resuming (request-id required)")
 
+	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "conditional"}
 	return cmd
 }

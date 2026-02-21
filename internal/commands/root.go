@@ -65,8 +65,6 @@ func Execute(version string) error {
 
 	root.PersistentFlags().String("db-path", "", "Override database path")
 	root.PersistentFlags().StringP("agent", "a", "", "Agent name (default: $VYBE_AGENT)")
-	root.PersistentFlags().String("actor", "", "Deprecated: use --agent")
-	_ = root.PersistentFlags().MarkDeprecated("actor", "use --agent")
 	root.PersistentFlags().String("request-id", "", "Idempotency key for mutating operations (default: $VYBE_REQUEST_ID)")
 	root.Flags().BoolP("version", "v", false, "version for vybe")
 

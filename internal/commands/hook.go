@@ -70,6 +70,7 @@ func NewHookCmd() *cobra.Command {
 		cmd.AddCommand(sub)
 	}
 
+	namespaceIndex(cmd)
 	return cmd
 }
 
@@ -81,7 +82,6 @@ func isRetrospectiveChildProcess() bool {
 type hookInput struct {
 	CWD           string          `json:"cwd"`
 	SessionID     string          `json:"session_id"`
-	SessionIDOld  string          `json:"sessionId"` // backward compat: Claude Code migrated from camelCase to snake_case
 	HookEventName string          `json:"hook_event_name"`
 	Prompt        string          `json:"prompt"`
 	ToolName      string          `json:"tool_name"`
@@ -283,14 +283,11 @@ func readHookStdin() hookInput {
 		slog.Default().Warn("hook stdin unmarshal failed", "error", err, "bytes", len(data))
 	}
 	// Intentional double-unmarshal: struct tags handle known fields while
-	// the Raw map preserves unknown fields for forward compatibility.
+	// the Raw map preserves unknown fields for diagnostics/debugging.
 	// Hook payloads are <1 KB so the cost is negligible.
 	var raw map[string]any
 	_ = json.Unmarshal(data, &raw)
 	input.Raw = raw
-	if input.SessionID == "" {
-		input.SessionID = input.SessionIDOld
-	}
 	return input
 }
 
@@ -1003,9 +1000,6 @@ func newHookSessionEndCmd() *cobra.Command {
 
 			hctx := resolveHookContext(cmd)
 			sessionID := hctx.Input.SessionID
-			if sessionID == "" {
-				sessionID = hctx.Input.SessionIDOld
-			}
 			requestIDPrefix := stableHookRequestID("session_end", hctx.AgentName, sessionID)
 
 			if err := withDB(func(db *DB) error {

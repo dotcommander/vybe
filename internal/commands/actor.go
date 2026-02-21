@@ -13,7 +13,7 @@ import (
 
 // resolveActorName resolves the agent used for event attribution and agent_state identity.
 // Precedence:
-// 1) per-command flag (legacy, e.g. --agent on a subcommand)
+// 1) per-command flag override (when a command defines one)
 // 2) global flag --agent
 // 3) env var VYBE_AGENT
 func resolveActorName(cmd *cobra.Command, perCmdFlag string) string {
