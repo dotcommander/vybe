@@ -107,7 +107,7 @@ internal/actions/      # Business logic — orchestrate store calls
 internal/store/        # SQLite persistence — transactions, retry, CAS
 ```
 
-**Commands:** `agent`, `artifact`, `brief`, `events`, `hook`, `ingest`, `loop`, `memory`, `project`, `resume`, `schema`, `session`, `snapshot`, `status`, `task`, `upgrade`
+**Commands:** `hook`, `loop`, `memory`, `push`, `resume`, `status`, `task`, `upgrade`
 
 See [`docs/`](docs/) for full documentation.
 

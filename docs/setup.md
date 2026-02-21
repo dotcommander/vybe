@@ -20,7 +20,8 @@ export VYBE_DB_PATH="${VYBE_DB_PATH:-$HOME/.config/vybe/vybe.db}"
 
 req_id() { printf 'req_%s_%s\n' "$(date +%s)" "$RANDOM"; }
 
-vybe agent init --agent "$VYBE_AGENT" --request-id "$(req_id)" >/dev/null
+# resume auto-creates agent state on first call — no separate init needed
+vybe resume --agent "$VYBE_AGENT" --request-id "$(req_id)" >/dev/null
 ```
 
 ## Core loop
@@ -35,8 +36,8 @@ RESUME_JSON="$(vybe resume --agent "$VYBE_AGENT" --request-id "$(req_id)")"
 TASK_ID="$(echo "$RESUME_JSON" | jq -r '.data.focus_task_id // ""')"
 
 if [ -n "$TASK_ID" ]; then
-  vybe events add --agent "$VYBE_AGENT" --request-id "$(req_id)" \
-    --kind progress --task "$TASK_ID" --msg "working" >/dev/null
+  vybe push --agent "$VYBE_AGENT" --request-id "$(req_id)" --json \
+    "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"progress\",\"message\":\"working\"}}" >/dev/null
 
   # Do work...
 
@@ -45,25 +46,7 @@ if [ -n "$TASK_ID" ]; then
 fi
 ```
 
-If your worker pool has multiple concurrent agents, use the claim-based loop below.
-
-## Claim-based loop (multi-agent queues)
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-req_id() { printf 'req_%s_%s\n' "$(date +%s)" "$RANDOM"; }
-
-CLAIM="$(vybe task claim --agent "$VYBE_AGENT" --request-id "$(req_id)" --ttl-minutes 10)"
-TASK_ID="$(echo "$CLAIM" | jq -r '.data.task.id // ""')"
-
-if [ -n "$TASK_ID" ]; then
-  # Do work...
-  vybe task complete --agent "$VYBE_AGENT" --request-id "$(req_id)" \
-    --id "$TASK_ID" --outcome done --summary "Completed" >/dev/null
-fi
-```
+If your worker pool has multiple concurrent agents, use `vybe resume` — it applies the deterministic 5-rule focus selection algorithm, which is concurrency-safe and claim-free. Call `vybe task begin` after resume to mark the task in_progress.
 
 ## Required operating rules
 

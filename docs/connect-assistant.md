@@ -58,7 +58,7 @@ Inject `.data.prompt` (or `.data.brief`) into assistant system/session context.
 
 - create -> `vybe task create ...`
 - begin/in_progress -> `vybe task begin ...` (specific task) or
-  `vybe task claim ...` (server-side next-eligible selection)
+  `vybe resume ...` (deterministic focus selection — preferred for multi-agent)
 - complete/blocked -> `vybe task complete --outcome done|blocked --summary "..."` or
   `vybe task set-status ...` (low-level)
 
@@ -67,8 +67,8 @@ Inject `.data.prompt` (or `.data.brief`) into assistant system/session context.
 At meaningful checkpoints:
 
 ```bash
-vybe events add --agent "$AGENT" --request-id "$REQ" \
-  --kind progress --task "$TASK_ID" --msg "..."
+vybe push --agent "$AGENT" --request-id "$REQ" \
+  --json "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"progress\",\"message\":\"...\"}}"
 ```
 
 ### Durable Memory
@@ -87,14 +87,14 @@ Use project scope for cross-task facts.
 Persist output files:
 
 ```bash
-vybe artifact add --agent "$AGENT" --request-id "$REQ" \
-  --task "$TASK_ID" --path <file>
+vybe push --agent "$AGENT" --request-id "$REQ" \
+  --json "{\"task_id\":\"$TASK_ID\",\"artifacts\":[{\"file_path\":\"<file>\"}]}"
 ```
 
 ## Optional mappings
 
-- Commit event -> `vybe events add --kind commit --metadata ...`
-- Delegated subagent start/finish -> `vybe events add --kind subtask_* ...`
+- Commit event -> `vybe push --json '{"event":{"kind":"commit","message":"...","metadata":{...}}}'`
+- Delegated subagent start/finish -> `vybe push --json '{"event":{"kind":"subtask_start","message":"..."}}'`
 - Session idle -> `vybe memory compact` then `vybe memory gc`
 
 ## Request-ID Template

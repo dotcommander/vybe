@@ -123,9 +123,9 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="insight"><span class="arrow">→</span> Your agent's first command in any environment. Creates all tables — ready to remember everything.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">create_project</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">project create --name demo-project</span></div>
-<div class="detail">Project created</div>
-<div class="insight"><span class="arrow">→</span> Projects scope work. Your agent groups related tasks and memory under one project.</div></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume --project-dir demo-project</span></div>
+<div class="detail">Project auto-created on first resume</div>
+<div class="insight"><span class="arrow">→</span> Projects scope work. Pass <code>--project-dir</code> to resume and the project is created automatically if it doesn't exist.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">create_task_graph</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task create --title "Implement auth"</span></div>
@@ -186,8 +186,8 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="insight"><span class="arrow">→</span> <span class="hook hook-tool">PostToolUseFailure</span> hook. When tools fail, the next session sees exactly what broke and where.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">log_progress_events</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events add --kind progress --msg "Scaffolded JWT middleware"</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events add --kind progress --msg "Integrated with route handlers"</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">push --json '{"event":{"kind":"progress","message":"Scaffolded JWT middleware"}}'</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">push --json '{"event":{"kind":"progress","message":"Integrated with route handlers"}}'</span></div>
 <div class="detail">2 progress events recorded</div>
 <div class="insight"><span class="arrow">→</span> Your agent narrates its own work. Progress events are the journal that survives crashes.</div></div>
 
@@ -197,7 +197,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="insight"><span class="arrow">→</span> Task-scoped memory. A new agent picking up this task will know 'JWT' was the chosen auth strategy.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">link_artifact</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifact add --task &lt;id&gt; --path auth_impl.go --type text/x-go</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">push --json '{"task_id":"&lt;id&gt;","artifacts":[{"file_path":"auth_impl.go"}]}'</span></div>
 <div class="detail">Artifact linked: auth_impl.go → task</div>
 <div class="insight"><span class="arrow">→</span> Output files linked to tasks. New sessions find what was built immediately — no archaeology.</div></div>
 
@@ -239,7 +239,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="insight"><span class="arrow">→</span> New session, fresh context window, zero memory of Act II. Watch vybe restore everything.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">cross_session_continuity</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifact list --task &lt;implement_auth&gt;</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifacts list --task-id &lt;implement_auth&gt;</span></div>
 <div class="detail">Artifacts survived: 1 file(s)</div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">memory get --key go_version --scope global</span></div>
 <div class="detail">Global memory survived: go_version="1.26"</div>
@@ -293,7 +293,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="act-narration">Auditing the event stream. Everything vybe recorded is queryable. Events, memories (all scopes), artifacts, snapshots, and system health.</div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">query_event_stream</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events list --limit 100</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events list</span></div>
 <div class="detail">Event stream: 35 total events</div>
 <div class="insight"><span class="arrow">→</span> The complete activity log — every tool call, every progress note, every prompt. Fully queryable by kind.</div></div>
 
@@ -305,7 +305,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="insight"><span class="arrow">→</span> Three memory scopes: global (environment), project (team knowledge), task (work-specific decisions).</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">query_artifacts</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifact list --task &lt;implement_auth&gt;</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifacts list --task-id &lt;implement_auth&gt;</span></div>
 <div class="detail">Artifacts: 1 file(s) linked to auth task</div>
 <div class="insight"><span class="arrow">→</span> Files from Act II are still here in Act VI. Artifacts persist across all sessions.</div></div>
 
@@ -351,7 +351,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="insight"><span class="arrow">→</span> Short-lived memory auto-expires. Your agent stores temporary context that cleans itself up.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">structured_metadata</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events add --kind tool_call --msg "Ran go build" --metadata '{"tool":"Bash","exit_code":0}'</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">push --json '{"event":{"kind":"tool_call","message":"Ran go build","metadata":{"tool":"Bash","exit_code":0}}}'</span></div>
 <div class="detail">Event logged: kind=tool_call with JSON metadata</div>
 <div class="insight"><span class="arrow">→</span> JSON metadata on events makes them machine-queryable — filter by exit code, tool name, duration.</div></div>
 </div>
@@ -416,12 +416,12 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="act-narration">Each agent has its own cursor and state record in vybe. status, focus — multiple agents can operate simultaneously, each tracking its own position in the event stream.</div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">read_agent_state</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">agent status</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">status --agent demo-agent</span></div>
 <div class="detail">Agent status: agent_name="demo-agent"</div>
 <div class="insight"><span class="arrow">→</span> Agent status shows cursor position and current focus. Operators can see exactly where each agent is.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">override_focus</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">agent focus --task &lt;focus_target&gt;</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume --focus &lt;focus_target&gt;</span></div>
 <div class="detail">Agent focus updated</div>
 <div class="insight"><span class="arrow">→</span> Manual focus override. Your agent can skip the queue and work on a specific task when needed.</div></div>
 </div>
@@ -429,37 +429,27 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <!-- ACT 14 -->
 <div class="act" id="act-14">
 <div class="act-header"><div class="act-num">Act 14</div><h2>The Event Stream</h2></div>
-<div class="act-narration">The event log is the source of truth. As it grows, agents need to manage it. summarize: archive a range of events into a single summary event.</div>
+<div class="act-narration">The event log is the source of truth. As it grows, agents use resume (cursor-based) to consume only new events since last seen, and events list for a recent snapshot.</div>
 
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">compress_history</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events summarize --from-id 2 --to-id 73 --summary "Auth implementation complete"</span></div>
-<div class="detail">Events 2–73 summarized</div>
-<div class="insight"><span class="arrow">→</span> Event summarization compresses N events into one summary. Manages context window pressure over long sessions.</div></div>
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">advance_cursor</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume</span></div>
+<div class="detail">Cursor advanced — delta events included in brief packet</div>
+<div class="insight"><span class="arrow">→</span> Resume advances the cursor and returns only new events since the last call. No polling, no full scan — just your slice of the stream.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">recent_activity</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events list --limit 5</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">events list</span></div>
 <div class="detail">Recent events: 5 returned</div>
-<div class="insight"><span class="arrow">→</span> Quick poll of recent events. Your agent checks what happened since it last looked.</div></div>
+<div class="insight"><span class="arrow">→</span> Quick snapshot of recent events. Your agent checks what happened without advancing the cursor.</div></div>
 </div>
 
 <!-- ACT 15 -->
 <div class="act" id="act-15">
 <div class="act-header"><div class="act-num">Act 15</div><h2>System Introspection</h2></div>
-<div class="act-narration">Project detail and schema introspection. These commands give operators and agents a broader view of the system state.</div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">fetch_project</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">project get --id &lt;project_id&gt;</span></div>
-<div class="detail">Project: name="demo-project"</div>
-<div class="insight"><span class="arrow">→</span> Full project detail by ID — name, metadata, creation time. Projects are the top-level grouping.</div></div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">list_projects</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">project list</span></div>
-<div class="detail">1 project(s) returned</div>
-<div class="insight"><span class="arrow">→</span> List all projects in the system. Agents discover available work scopes without knowing IDs upfront.</div></div>
+<div class="act-narration">Schema introspection and system health. These commands give operators and agents a broader view of the system state.</div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">inspect_schema</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">schema</span></div>
-<div class="detail">Schema fetched — full SQLite structure returned</div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">schema commands</span></div>
+<div class="detail">Schema fetched — command schemas returned</div>
 <div class="insight"><span class="arrow">→</span> Full SQLite schema returned. Agents and operators can inspect the exact database structure.</div></div>
 </div>
 
@@ -489,31 +479,20 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="act-header"><div class="act-num">Act 17</div><h2>The Full Surface</h2></div>
 <div class="act-narration">The remaining commands that round out the vybe surface area. Artifact retrieval, history import, loop stats, project lifecycle, read-only briefs, hook management.</div>
 
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">artifact_get_by_id</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifact get --id &lt;artifact_id&gt;</span></div>
-<div class="detail">artifact get: correct id and task_id returned</div>
-<div class="insight"><span class="arrow">→</span> Fetch any artifact by ID — file path, type, linked task. Direct lookup without listing.</div></div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">history_import</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">ingest history --file history.jsonl</span></div>
-<div class="detail">History ingest complete: 3 event(s) imported</div>
-<div class="insight"><span class="arrow">→</span> Import Claude Code conversation history as vybe events. Backfill context from before vybe was installed.</div></div>
+<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">list_task_artifacts</span><span class="step-pass">✓</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifacts list --task-id &lt;task_id&gt;</span></div>
+<div class="detail">Artifacts listed: file path and task_id returned</div>
+<div class="insight"><span class="arrow">→</span> List artifacts linked to a task — file paths and metadata. Filter by task to see exactly what was produced.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">loop_iteration_stats</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">loop stats</span></div>
 <div class="detail">Loop stats: runs=0</div>
 <div class="insight"><span class="arrow">→</span> Loop stats track autonomous iteration cadence. Your agent monitors its own loop health.</div></div>
 
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">project_lifecycle</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">project create --name "Delete Me"</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">project delete --id &lt;id&gt;</span></div>
-<div class="detail">Project deleted and confirmed gone</div>
-<div class="insight"><span class="arrow">→</span> Create and delete projects. Full lifecycle management — no orphaned metadata.</div></div>
-
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">read_only_brief</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">brief</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">resume --peek</span></div>
 <div class="detail">brief returned: agent_name="demo-agent"</div>
-<div class="insight"><span class="arrow">→</span> Brief without cursor advancement. Your agent peeks at context without consuming events.</div></div>
+<div class="insight"><span class="arrow">→</span> Resume with --peek: brief without cursor advancement. Your agent reads context without consuming events.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">hook_install_uninstall</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook install --claude --project</span></div>

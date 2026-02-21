@@ -121,3 +121,4 @@ Pass condition: every command and subcommand listed above appears in help output
 - `common-tasks.md` for runnable recipes
 - `connect-assistant.md` for integration contract
 - `change-vybe.md` for contributor implementation workflow
+- `DECISIONS.md` for command rationale and anti-regression guardrails (see "Command Surface Guardrails (Do Not Regress)")

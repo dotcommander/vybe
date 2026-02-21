@@ -45,6 +45,8 @@ State is persisted in SQLite and managed through the CLI commands (tasks, events
 
 **Agents-Only CLI** - Continuity primitives for autonomous agents.
 
+**Beta** — No backward compatibility, migration support, or deprecation shims. Breaking changes are acceptable. Rename flags, remove commands, change schemas freely.
+
 Humans may read logs for debugging, but the product is not designed around human interaction.
 
 ### What Vybe Is
@@ -306,6 +308,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`
 - Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
-- Command surface: `hook` (install, uninstall), `loop` (stats), `memory` (set, get, list, delete, gc), `push`, `resume` (--peek, --focus, --project, --limit), `status` (--check, --events, --artifacts, --schema), `task` (create, begin, complete, get, list, delete, add-dep, remove-dep, set-status, set-priority), `upgrade`
+- Command surface: `artifacts` (list), `events` (list), `hook` (install, uninstall), `loop` (stats), `memory` (set, get, list, delete, gc), `push`, `resume` (--peek, --focus, --project-dir, --limit), `schema` (commands), `status` (--check), `task` (create, begin, complete, get, list, delete, add-dep, remove-dep, set-status, set-priority), `upgrade`
 - Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`
 - **After code changes**: rebuild binary and update symlink: `go build -o vybe ./cmd/vybe && ln -sf "$(pwd)/vybe" ~/go/bin/vybe`
