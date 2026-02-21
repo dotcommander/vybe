@@ -4,6 +4,8 @@ function reqID(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`
 }
 
+const IS_RETRO_CHILD = !!(process.env.VYBE_RETRO_CHILD && process.env.VYBE_RETRO_CHILD.trim() !== "")
+
 function projectKey(projectDir?: string): string {
   if (!projectDir || projectDir.trim() === "") return ""
   const base = projectDir.split(/[\\/]/).filter(Boolean).pop() ?? ""
@@ -58,10 +60,12 @@ async function runVybeJSON(args: string[]): Promise<any> {
 
 // Fire-and-forget: spawn vybe process without awaiting completion.
 // Optional env object is merged into process.env for the child.
-function runVybeBackground(args: string[], env?: Record<string, string>): void {
+// Optional stdinPayload is written to child stdin.
+function runVybeBackground(args: string[], env?: Record<string, string>, stdinPayload?: string): void {
   try {
     const opts: any = { cmd: ["vybe", ...args], stdout: "ignore", stderr: "ignore" }
     if (env) opts.env = { ...process.env, ...env }
+    if (typeof stdinPayload === "string") opts.stdin = new TextEncoder().encode(stdinPayload)
     Bun.spawn(opts)
   } catch (_) {
     // best-effort — don't block caller
@@ -96,7 +100,7 @@ const MUTATING_TOOLS: Record<string, boolean> = {
 // Minimal-intrusion OpenCode -> vybe bridge.
 // Hooks wired:
 // - session.created: hydrate state with vybe resume (project-scoped)
-// - session.deleted: checkpoint (compact/gc/summarize) + fire-and-forget retrospective
+// - session.deleted: unified session-end hook (checkpoint + retrospective enqueue)
 // - session.idle: heartbeat event
 // - todo.updated: append a compact snapshot event (debounced 3s)
 // - tool.execute.after: log tool failures + mutating tool successes
@@ -164,6 +168,8 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
   return {
     event: async ({ event }) => {
       try {
+        if (IS_RETRO_CHILD) return
+
         if (event.type === "session.created") {
           const session = event.properties.info
           if (session.directory && session.directory.trim() !== "") {
@@ -179,11 +185,13 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
           const projectDir = sessionProjects.get(sessionID)
           const agent = agentForSession(sessionID)
 
-          // Synchronous checkpoint
-          await runCheckpoint(agent, projectDir).catch(() => {})
-
-          // Fire-and-forget retrospective (pass agent via env since retrospective has no --agent flag)
-          runVybeBackground(["hook", "retrospective"], { VYBE_AGENT: agent })
+          // Fire-and-forget unified SessionEnd hook (checkpoint + retrospective enqueue).
+          const payload = JSON.stringify({
+            session_id: sessionID,
+            hook_event_name: "SessionEnd",
+            cwd: projectDir || "",
+          })
+          runVybeBackground(["hook", "session-end", "--agent", agent], undefined, payload)
 
           // Clean up maps
           sessionPrompts.delete(sessionID)
@@ -259,6 +267,8 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
 
     "tool.execute.after": async (input: any) => {
       try {
+        if (IS_RETRO_CHILD) return
+
         const tool: string = input.tool
         if (!tool) return
 
@@ -317,6 +327,8 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
 
     "chat.message": async (input, output) => {
       try {
+        if (IS_RETRO_CHILD) return
+
         const sessionID = input.sessionID
         const agent = agentForSession(sessionID)
         const prompt = extractUserPrompt(output.parts as any[])
@@ -344,6 +356,8 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
 
     "experimental.session.compacting": async (input: any, output: any) => {
       try {
+        if (IS_RETRO_CHILD) return
+
         const sessionID: string = input.sessionID
         const agent = agentForSession(sessionID)
         const projectDir = sessionProjects.get(sessionID)
@@ -356,6 +370,8 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
     },
 
     "experimental.chat.system.transform": async (input, output) => {
+      if (IS_RETRO_CHILD) return
+
       const existing = sessionPrompts.get(input.sessionID)
       if (!existing) {
         await hydrateSessionPrompt(input.sessionID, sessionProjects.get(input.sessionID))

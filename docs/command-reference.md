@@ -49,7 +49,22 @@ Use this page for full command parity checks. For workflows, use `setup.md`, `co
 ### `hook`
 
 - `install`
+- `checkpoint`
+- `prompt`
+- `retrospective`
+- `retrospective-bg`
+- `retrospective-worker`
+- `session-end`
+- `session-start`
+- `stop`
+- `subagent-start`
+- `subagent-stop`
+- `task-completed`
+- `tool-failure`
+- `tool-success`
 - `uninstall`
+
+Note: most hook subcommands are hidden/internal and used by assistant integrations.
 
 ### `ingest`
 

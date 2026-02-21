@@ -24,7 +24,7 @@ AI coding agents lose context when sessions end. Crashes, context resets, and ha
 **Scoped memory**
 - Key-value store scoped to global / project / task / agent
 - TTL, compaction, GC, and query support
-- Automatic retrospectives at session end
+- Session-end enqueues retrospectives; workers process them asynchronously
 
 **Deterministic resume**
 - 5-rule focus selection algorithm — no ambiguity on restart
@@ -44,7 +44,12 @@ AI coding agents lose context when sessions end. Crashes, context resets, and ha
 **Hook integration**
 - One-command install for Claude Code and OpenCode
 - Hooks cover: SessionStart, UserPromptSubmit, PostToolUseFailure, TaskCompleted, PreCompact, SessionEnd
-- Bidirectional context injection — resume data flows in, retrospectives flow out
+- Bidirectional context injection — resume data flows in, retrospectives flow out via durable queue
+
+**Internal maintenance**
+- Checkpoint/session-end run event summarization and archived-event pruning automatically
+- Maintenance policy is configurable in `config.yaml` (`events_retention_days`, `events_prune_batch`, `events_summarize_threshold`, `events_summarize_keep_recent`)
+- `vybe status` reports effective maintenance settings
 
 **SQLite-backed**
 - WAL mode, single file, no server required

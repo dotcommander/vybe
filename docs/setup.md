@@ -71,6 +71,19 @@ fi
 - Keep a stable agent identity (`--agent` or `VYBE_AGENT`).
 - For full machine I/O and idempotency policy, see `connect-assistant.md`.
 
+## Optional maintenance tuning
+
+`vybe` runs maintenance internally during checkpoint/session-end. You can tune it in `~/.config/vybe/config.yaml`:
+
+```yaml
+events_retention_days: 30
+events_prune_batch: 500
+events_summarize_threshold: 200
+events_summarize_keep_recent: 50
+```
+
+Use `vybe status` to confirm effective values in `.data.maintenance`.
+
 ## Verification
 
 Run this after bootstrap:
