@@ -539,17 +539,12 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <!-- ACT 17 -->
 <div class="act" id="act-17">
 <div class="act-header"><div class="act-num">Act 17</div><h2>The Full Surface</h2></div>
-<div class="act-narration">The remaining commands that round out the vybe surface area. Artifact retrieval, queued retrospective processing, history import, loop stats, project lifecycle, read-only briefs, JSONL streaming, hook management.</div>
+<div class="act-narration">The remaining commands that round out the vybe surface area. Artifact retrieval, retrospective processing, history import, loop stats, project lifecycle, read-only briefs, JSONL streaming, hook management.</div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">artifact_get_by_id</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">artifact get --id &lt;artifact_id&gt;</span></div>
 <div class="detail">artifact get: correct id and task_id returned</div>
 <div class="insight"><span class="arrow">→</span> Fetch any artifact by ID — file path, type, linked task. Direct lookup without listing.</div></div>
-
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">retrospective_worker_once</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook retrospective-worker --once</span></div>
-<div class="detail">Retrospective worker processed at most one queued job</div>
-<div class="insight"><span class="arrow">→</span> Session-end enqueues retrospective work; workers drain jobs asynchronously so hooks stay fast and non-recursive.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">history_import</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">ingest history --file history.jsonl</span></div>
@@ -594,11 +589,6 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="detail">Circuit breaker: task marked blocked after command exits without completing</div>
 <div class="insight"><span class="arrow">→</span> When a spawned command exits without completing the task, the loop marks it blocked. Prevents runaway loops.</div></div>
 
-<div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">session_end_enqueue_and_worker_loop</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook session-end</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">hook retrospective-worker --poll=2s</span></div>
-<div class="detail">Session-end enqueued a job; worker loop drained queue asynchronously</div>
-<div class="insight"><span class="arrow">→</span> The durable queue pattern avoids recursive subprocess chains and keeps session-end latency predictable.</div></div>
 </div>
 
 <!-- SUMMARY -->

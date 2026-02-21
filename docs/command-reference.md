@@ -53,7 +53,6 @@ Use this page for full command parity checks. For workflows, use `setup.md`, `co
 - `prompt`
 - `retrospective`
 - `retrospective-bg`
-- `retrospective-worker`
 - `session-end`
 - `session-start`
 - `stop`

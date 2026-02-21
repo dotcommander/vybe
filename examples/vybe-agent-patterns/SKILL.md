@@ -25,7 +25,6 @@ non-autonomous workflows requiring human approval.
 |---------|---------|------|
 | Resume after crash/restart | `vybe resume --request-id R` | Session start, after interruption |
 | Create work items | `vybe task create --request-id R --title T --desc D` | Planning phase, decomposing work |
-| Claim next task | `vybe task claim --request-id R --ttl-minutes 10` | Worker polling for work |
 | Log progress | `vybe events add --request-id R --kind progress --task T --msg M` | Meaningful checkpoints |
 | Save cross-session facts | `vybe memory set --request-id R --key K --value V --scope S --scope-id SI` | Discoveries that must survive restarts |
 | Attach output files | `vybe artifact add --request-id R --task T --path P` | Generated files linked to tasks |
@@ -128,7 +127,7 @@ vybe memory get --key api_base --scope project --scope-id "$PROJECT_DIR"
 - Multi-step tasks span sessions or risk interruption
 - Multiple agents work on the same project concurrently
 - Progress must survive crashes, context resets, or session limits
-- Task queues need deterministic focus selection and claim semantics
+- Task queues need deterministic focus selection
 - Artifacts (generated files, reports) need linking to the task that produced them
 - Cross-session memory is needed (facts, decisions, checkpoints)
 
@@ -150,8 +149,8 @@ After `vybe hook install`, Claude Code automatically:
 - **UserPromptSubmit**: Logs prompts for cross-session continuity
 - **PostToolUseFailure**: Records failed tool calls for recovery
 - **TaskCompleted**: Marks tasks complete and logs lifecycle signals
-- **PreCompact/SessionEnd**: Runs memory compaction and garbage collection
-- **SessionEnd**: Extracts session retrospective
+- **PreCompact**: Runs garbage collection and best-effort retrospective
+- **SessionEnd**: Runs garbage collection
 
 ### Proactive usage in CLAUDE.md
 
@@ -356,7 +355,6 @@ echo "Resuming refactor of: $FILES"
 vybe task create --request-id R --title T --desc D
 vybe task begin --request-id R --id ID
 vybe task complete --request-id R --id ID --outcome done --summary S
-vybe task claim --request-id R --ttl-minutes 10
 vybe task list
 vybe task get --id ID
 
@@ -393,4 +391,3 @@ vybe status
 | Ignoring `focus_task_id == null` | Crash when no work available | Check `if [ -z "$TASK_ID" ]` before processing |
 | Manual JSON parsing | Shell quoting errors, fragile | Use `jq` for all JSON extraction (BLOCKING) |
 | Skipping `--outcome` on complete | Audit trail incomplete, no success/failure signal | MUST provide `--outcome done|failed|skipped` |
-| Claiming without TTL | Worker crash leaves task locked forever | Always `--ttl-minutes N` when claiming tasks |
