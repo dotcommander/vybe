@@ -127,17 +127,37 @@ For comprehensive examples, see [Operator Guide](docs/operator-guide.md).
 
 ```
 cmd/vybe/main.go
+cmd/demo/main.go        # Interactive demo harness
   ↓
 internal/commands/     # Cobra CLI layer (parse flags, call actions)
   ↓
 internal/actions/      # Business logic (orchestrate store calls, build packets)
   ↓
 internal/store/        # SQLite persistence + migrations (transactions, retry, CAS)
+
+internal/app/          # Config loading, DB init, settings
+internal/output/       # JSON output formatting
+internal/llm/          # LLM CLI integration (extract runner)
+internal/demo/         # Demo acts, steps, runner
+internal/models/       # Domain types shared across layers
 ```
 
 **Layers:** Commands → Actions → Store
 
 **Models:** `internal/models/` (domain types shared across layers)
+
+## Action Modules
+
+| Module | Key Operations |
+|--------|----------------|
+| `task.go` | Create, start, close, set-status, set-priority, add/remove dependency |
+| `memory.go` | Set, get, list, delete, GC with TTL parsing |
+| `artifact.go` | Add, get, list by task |
+| `resume.go` | Resume with options, brief building, prompt assembly |
+| `project.go` | Create, focus, get, list, delete |
+| `push.go` | Atomic batch (event + memory + artifacts + status) |
+| `run.go` | Persist run results, run stats |
+| `session.go` | Digest, retrospective, auto-summarize, auto-prune |
 
 ## Coding Guidelines (Backend + CLI)
 
@@ -158,6 +178,9 @@ internal/store/        # SQLite persistence + migrations (transactions, retry, C
 | **Monotonic cursor** | `UPDATE agent_state SET last_seen_event_id = MAX(last_seen_event_id, ?)` |
 | **Retry logic** | `RetryWithBackoff()` for all DB ops; exponential backoff on SQLITE_BUSY |
 | **Type inference** | Memory values auto-detect: string, number, boolean, json, array |
+| **Event archiving** | Summarize + archive old events; auto-prune archived |
+| **Session management** | Digest, retrospective, rule-based lessons learned |
+| **Project isolation** | Project-scoped tasks, memory, events with focus tracking |
 
 ## Focus Selection Algorithm
 
@@ -193,12 +216,14 @@ When unset, all project-scoped memory is included.
 | Table | Purpose |
 |-------|---------|
 | `events` | Append-only continuity log (id, kind, agent_name, task_id, message, metadata) |
-| `tasks` | Mutable task definitions with optimistic concurrency (id, title, status, project_id, version) |
+| `tasks` | Mutable task definitions with optimistic concurrency (id, title, status, priority, blocked_reason, project_id, version) |
 | `agent_state` | Cursor position + focus tracking per agent (last_seen_event_id, focus_task_id, focus_project_id) |
-| `memory` | Scoped KV storage with TTL (scope: global/project/task/agent) |
+| `memory` | Scoped KV storage with TTL (scope: global/project/task/agent); unique constraint on (scope, scope_id, key) |
 | `artifacts` | Files/outputs linked to tasks (task_id, event_id, file_path) |
 | `idempotency` | Request deduplication (agent_name + request_id composite PK) |
 | `projects` | Project metadata (id, name, metadata, created_at) |
+
+**Note:** 19 migrations total; task claiming and retrospective jobs were added then removed.
 
 **SQLite Config:** WAL mode, busy_timeout=5000ms, synchronous=NORMAL, foreign_keys=ON
 
@@ -231,12 +256,16 @@ go build ./...
 
 ## Completion Status
 
-**Phase 1-4: ✅ Complete**
-- Core schema + migrations
-- All CRUD operations (tasks, events, memory, artifacts, agent state)
-- Idempotency system
+**Core: Complete**
+- Schema + 19 migrations (including cleanup of deprecated features)
+- All CRUD operations (tasks, events, memory, artifacts, agent state, projects)
+- Idempotency system with replay
 - Resume/brief with deterministic focus selection
-- Comprehensive test coverage (16 test files, >980 lines)
+- Project operations (create, focus, delete, isolation)
+- Session management (digest, retrospective, auto-summarize, auto-prune)
+- Run tracking and statistics
+- Event archiving and summarization
+- 50 test files across all layers
 
 **Known Gaps:**
 - No FK constraint on `tasks.project_id` or `agent_state.focus_project_id` — app layer validates
