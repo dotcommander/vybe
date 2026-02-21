@@ -22,3 +22,7 @@ linters:
       # Test files: relax gosec (executable scripts require 0755)
       - linters: [gosec]
         path: "_test\\.go"
+      # Demo harness: subprocess launched with controlled binary path (not user input)
+      - linters: [gosec]
+        text: "G204"
+        path: "(cmd/demo|internal/demo)"
