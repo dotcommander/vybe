@@ -55,7 +55,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 		})
 
 		// Step 2: Set project ID directly — project CLI was removed; task create with
-		// --project stores the project_id on the task without requiring a project row.
+		// --project-id stores the project_id on the task without requiring a project row.
 		t.Run("step2_create_project", func(t *testing.T) {
 			projectID = "proj_crash_test"
 			require.NotEmpty(t, projectID, "project ID should be set")
@@ -65,7 +65,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 		t.Run("step3_create_tasks", func(t *testing.T) {
 			outA := h.vybe("task", "create",
 				"--title", "Task A - In Progress",
-				"--project", projectID,
+				"--project-id", projectID,
 				"--request-id", crashRID("p1s3", 1),
 			)
 			mA := requireSuccess(t, outA)
@@ -74,7 +74,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 
 			outB := h.vybe("task", "create",
 				"--title", "Task B - Pending",
-				"--project", projectID,
+				"--project-id", projectID,
 				"--request-id", crashRID("p1s3", 2),
 			)
 			mB := requireSuccess(t, outB)
@@ -83,7 +83,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 
 			outC := h.vybe("task", "create",
 				"--title", "Task C - Blocked by A",
-				"--project", projectID,
+				"--project-id", projectID,
 				"--request-id", crashRID("p1s3", 3),
 			)
 			mC := requireSuccess(t, outC)
@@ -467,7 +467,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 		t.Run("step24_create_task_d", func(t *testing.T) {
 			out := h.vybe("task", "create",
 				"--title", "Task D - Rapid Crash",
-				"--project", projectID,
+				"--project-id", projectID,
 				"--request-id", crashRID("p5s24", 1),
 			)
 			m := requireSuccess(t, out)

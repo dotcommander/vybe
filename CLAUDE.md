@@ -121,7 +121,7 @@ Assume **multiple concurrent agents and workers** operating on the same DB at on
   - Persist intent/checkpoints before side effects where possible, and always record completion/failure.
   - Resume must be deterministic: reconstruct from persisted state, not in-memory agent context.
 
-For comprehensive examples, see [Common Tasks](docs/common-tasks.md).
+For comprehensive examples, see [Operator Guide](docs/operator-guide.md).
 
 ## Architecture
 
@@ -182,7 +182,7 @@ Deterministic 5-rule system (in `internal/store/resume.go`):
 ```
 
 When `focus_project_id` is set, project-scoped memory is filtered to that project only.
-When unset, all project-scoped memory is included (legacy behavior).
+When unset, all project-scoped memory is included.
 
 **Resume vs Peek:**
 - `vybe resume`: Fetch deltas + build brief + advance cursor atomically
@@ -255,8 +255,8 @@ Claude Code is integrated with vybe via hooks. The system automatically:
 - **UserPromptSubmit**: Logs user prompts for cross-session continuity
 - **PostToolUseFailure**: Logs failed tool calls for recovery context
 - **TaskCompleted**: Logs task completion lifecycle signals
-- **PreCompact/SessionEnd**: Performs memory checkpoint (`memory compact` + `memory gc`)
-- **SessionEnd**: Extracts session retrospective via `vybe hook retrospective`
+- **PreCompact**: Performs checkpoint + best-effort retrospective extraction
+- **SessionEnd**: Performs best-effort checkpoint maintenance
 - **Agent delegation**: Logs spawned agents as vybe events
 - **Commits**: Logs git commits as vybe events
 

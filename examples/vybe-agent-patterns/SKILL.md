@@ -29,7 +29,7 @@ non-autonomous workflows requiring human approval.
 | Save cross-session facts | `vybe memory set --request-id R --key K --value V --scope S --scope-id SI` | Discoveries that must survive restarts |
 | Attach output files | `vybe push --json '{"artifacts":[{"file_path":"P"}],"task_id":"T"}'` | Generated files linked to tasks |
 | Read-only context snapshot | `vybe resume --peek` | Inspect state without advancing cursor |
-| Run autonomous work loop | `vybe loop --request-id R --max-iterations N` | Continuous agent execution |
+| Run autonomous work loop | `vybe loop --max-tasks N --max-fails M` | Continuous agent execution |
 | Create project context | `vybe resume --project-dir P` (auto-creates) | Scoping tasks and memory to project |
 | Focus on project | `vybe resume --focus T --project-dir P` | Filtering brief to project scope |
 
@@ -52,7 +52,7 @@ vybe hook install
 export VYBE_AGENT=claude
 
 # Verify setup
-vybe status  # MUST show "agent: claude" and "db: connected"
+vybe status --agent claude | jq -r '.success and .data.db.ok'
 ```
 
 **If `vybe status` fails:** Check `~/.config/vybe/config.yaml` exists and `db_path` is writable.
@@ -343,7 +343,7 @@ vybe memory set --request-id "mem_$(date +%s)" \
 
 # Session 2: Resume from checkpoint
 RESUME=$(vybe resume --request-id "resume_$(date +%s)")
-FILES=$(echo "$RESUME" | jq -r '.relevant_memory[] | select(.key=="files_refactored") | .value')
+FILES=$(echo "$RESUME" | jq -r '.data.brief.relevant_memory[] | select(.key=="files_refactored") | .value')
 echo "Resuming refactor of: $FILES"
 ```
 
@@ -389,4 +389,4 @@ vybe status
 | Hardcoded task IDs | Brittle, breaks on schema changes | Use `jq -r '.data.focus_task_id'` to extract from resume |
 | Ignoring `focus_task_id == null` | Crash when no work available | Check `if [ -z "$TASK_ID" ]` before processing |
 | Manual JSON parsing | Shell quoting errors, fragile | Use `jq` for all JSON extraction (BLOCKING) |
-| Skipping `--outcome` on complete | Audit trail incomplete, no success/failure signal | MUST provide `--outcome done|failed|skipped` |
+| Skipping `--outcome` on complete | Audit trail incomplete, no success/failure signal | MUST provide `--outcome done|blocked` |

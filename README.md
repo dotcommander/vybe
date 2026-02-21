@@ -13,17 +13,17 @@ AI coding agents lose context when sessions end. Crashes, context resets, and ha
 ## Features
 
 **Task lifecycle**
-- Create, begin, claim, complete, block tasks with priority and dependencies
-- Heartbeat and GC to reclaim stale claimed tasks
+- Create, begin, complete, and block tasks with priority and dependencies
+- Dependency-aware progression via deterministic resume focus selection
 - Valid statuses: `pending`, `in_progress`, `completed`, `blocked`
 
 **Event log**
 - Append-only structured log of all agent activity
-- Tail, summarize, and ingest from external sources
+- Query via `events list`, summarize, and ingest from external sources
 
 **Scoped memory**
 - Key-value store scoped to global / project / task / agent
-- TTL, compaction, GC, and query support
+- TTL and GC support
 - PreCompact runs best-effort retrospective (synchronous, rule-based)
 
 **Deterministic resume**
@@ -39,7 +39,7 @@ AI coding agents lose context when sessions end. Crashes, context resets, and ha
 **Multi-agent coordination**
 - Per-agent state, focus tracking, and heartbeats
 - Optimistic concurrency on task and agent state rows
-- Claims with expiry and automatic reclaim
+- Retry-safe idempotent mutations for concurrent workers
 
 **Hook integration**
 - One-command install for Claude Code and OpenCode
@@ -54,7 +54,7 @@ AI coding agents lose context when sessions end. Crashes, context resets, and ha
 **SQLite-backed**
 - WAL mode, single file, no server required
 - Busy-timeout and retry logic built in
-- Schema introspection via `vybe schema`
+- Schema introspection via `vybe schema commands`
 
 **Project scoping**
 - Group tasks and memory under named projects
@@ -107,7 +107,7 @@ internal/actions/      # Business logic — orchestrate store calls
 internal/store/        # SQLite persistence — transactions, retry, CAS
 ```
 
-**Commands:** `hook`, `loop`, `memory`, `push`, `resume`, `status`, `task`, `upgrade`
+**Commands:** `artifacts`, `events`, `hook`, `loop`, `memory`, `push`, `resume`, `schema`, `status`, `task`, `upgrade`
 
 See [`docs/`](docs/) for full documentation.
 
@@ -115,11 +115,10 @@ See [`docs/`](docs/) for full documentation.
 
 | Doc | Contents |
 |-----|----------|
-| [`docs/setup.md`](docs/setup.md) | Install, bootstrap, and core agent loop |
-| [`docs/common-tasks.md`](docs/common-tasks.md) | Copy-paste recipes for common workflows |
-| [`docs/connect-assistant.md`](docs/connect-assistant.md) | Integration contract for connecting any assistant |
-| [`docs/command-reference.md`](docs/command-reference.md) | Full command and subcommand map |
-| [`docs/change-vybe.md`](docs/change-vybe.md) | Contributor guide for making code changes |
+| [`docs/operator-guide.md`](docs/operator-guide.md) | Install/bootstrap plus operational loop recipes |
+| [`docs/agent-contract.md`](docs/agent-contract.md) | Canonical machine I/O and integration contract |
+| [`docs/contributor-guide.md`](docs/contributor-guide.md) | Contributor workflow for safe code changes |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why command-surface choices exist and what must not regress |
 
 ## Uninstall
 

@@ -132,7 +132,7 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
     const agent = stableAgent(sessionID, projectDir)
     const args = ["resume", "--agent", agent, "--request-id", reqID("oc_session_start")]
     if (projectDir && projectDir.trim() !== "") {
-      args.push("--project", projectDir)
+      args.push("--project-dir", projectDir)
     }
 
     const resume = await runVybeJSON(args)

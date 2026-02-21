@@ -24,7 +24,7 @@ func stepUpgradeDatabase(r *Runner, ctx *DemoContext) error {
 
 func stepCreateProject(r *Runner, ctx *DemoContext) error {
 	// Projects are implicit — no CLI command to create them.
-	// The session-start hook (or task create with --project) ensures the project row exists.
+	// The session-start hook (or task create with --project-id) ensures the project row exists.
 	// We use a fixed project ID so the demo has a consistent scope.
 	ctx.ProjectID = "proj_demo_001"
 	r.printDetail("Project ID: %s (implicit — created by session-start hook)", ctx.ProjectID)
@@ -36,7 +36,7 @@ func stepCreateTaskGraph(r *Runner, ctx *DemoContext) error {
 	for i, title := range taskTitles {
 		m, raw, err := r.vybe("task", "create",
 			"--title", title,
-			"--project", ctx.ProjectID,
+			"--project-id", ctx.ProjectID,
 			"--request-id", rid("p1s3", i),
 		)
 		if err != nil {

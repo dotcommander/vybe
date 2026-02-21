@@ -12,7 +12,7 @@ rm -f "$OUT_DIR"/*.md 2>/dev/null || true
 export VYBE_DB_PATH="$DB_PATH"
 export VYBE_AGENT="genealogy-loop-demo"
 
-# Use the demo DB directory as a stable project ID (resume --project-dir auto-scopes to it).
+# Use the demo DB directory as a stable project ID.
 PROJECT_ID="$ROOT_DIR/.work/demo"
 
 rid() {
@@ -31,7 +31,7 @@ create_task() {
   vybe task create \
     --agent "$VYBE_AGENT" \
     --request-id "$(rid task)" \
-    --project "$PROJECT_ID" \
+    --project-id "$PROJECT_ID" \
     --title "$title" \
     --desc "$desc" | jq -r '.data.task.id'
 }
