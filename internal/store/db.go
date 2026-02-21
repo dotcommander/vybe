@@ -47,16 +47,6 @@ func CheckpointWAL(ctx context.Context, db *sql.DB, mode string) error {
 // Override with VYBE_BUSY_TIMEOUT_MS for environments with high contention.
 const defaultBusyTimeoutMS = 5000
 
-// InitDB initializes the database connection with SQLite + WAL mode
-// and runs migrations automatically.
-func InitDB() (*sql.DB, error) {
-	dbPath, err := app.GetDBPath()
-	if err != nil {
-		return nil, err
-	}
-	return InitDBWithPath(dbPath)
-}
-
 // OpenDB opens a database connection and configures SQLite pragmas, but does
 // NOT run migrations. Use InitDBWithPath for test/upgrade scenarios, or pair
 // with MigrateDB for production commands (auto-migration on every open).
@@ -124,19 +114,6 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	}
 
 	return db, nil
-}
-
-// CheckSchemaVersion verifies the database schema is up to date.
-// Returns an error with remediation instructions if migrations are pending.
-func CheckSchemaVersion(db *sql.DB) error {
-	current, latest, err := SchemaVersion(db)
-	if err != nil {
-		return fmt.Errorf("check schema version: %w", err)
-	}
-	if current < latest {
-		return fmt.Errorf("schema version %d, expected %d: run 'vybe upgrade' to apply migrations", current, latest)
-	}
-	return nil
 }
 
 // InitDBWithPath opens a database and runs migrations. Used by tests and
