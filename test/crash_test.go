@@ -54,14 +54,10 @@ func TestCrashRecovery_OOM(t *testing.T) {
 			require.Equal(t, true, m["success"], "upgrade should succeed: %s", out)
 		})
 
-		// Step 2: Create project
+		// Step 2: Set project ID directly — project CLI was removed; task create with
+		// --project stores the project_id on the task without requiring a project row.
 		t.Run("step2_create_project", func(t *testing.T) {
-			out := h.vybe("project", "create",
-				"--name", "crash-test-project",
-				"--request-id", crashRID("p1", 2),
-			)
-			m := requireSuccess(t, out)
-			projectID = getStr(m, "data", "project", "id")
+			projectID = "proj_crash_test"
 			require.NotEmpty(t, projectID, "project ID should be set")
 		})
 
@@ -133,16 +129,12 @@ func TestCrashRecovery_OOM(t *testing.T) {
 		t.Run("step7_add_10_progress_events", func(t *testing.T) {
 			for i := 0; i < 10; i++ {
 				msg := fmt.Sprintf("Progress note %d for Task A", i+1)
-				out := h.vybe("events", "add",
-					"--kind", "progress",
-					"--msg", msg,
-					"--task", taskAID,
-					"--request-id", crashRID("p1s7", i),
-				)
+				pushJSON := fmt.Sprintf(`{"task_id":%q,"event":{"kind":"progress","message":%q}}`, taskAID, msg)
+				out := h.vybe("push", "--json", pushJSON, "--request-id", crashRID("p1s7", i))
 				requireSuccess(t, out)
 			}
 			// Verify events were added
-			eventsOut := h.vybe("events", "list", "--task", taskAID, "--kind", "progress", "--limit", "20")
+			eventsOut := h.vybe("status", "--events", "--task", taskAID, "--kind", "progress", "--limit", "20")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.GreaterOrEqual(t, len(events), 10, "expected at least 10 progress events")
@@ -203,22 +195,14 @@ func TestCrashRecovery_OOM(t *testing.T) {
 
 			art1 := filepath.Join(dir, "crash_artifact1.go")
 			require.NoError(t, os.WriteFile(art1, []byte("package crash\n"), 0600))
-			out := h.vybe("artifact", "add",
-				"--task", taskAID,
-				"--path", art1,
-				"--type", "text/x-go",
-				"--request-id", crashRID("p1s9", 1),
-			)
+			push1 := fmt.Sprintf(`{"task_id":%q,"artifacts":[{"file_path":%q,"content_type":"text/x-go"}]}`, taskAID, art1)
+			out := h.vybe("push", "--json", push1, "--request-id", crashRID("p1s9", 1))
 			requireSuccess(t, out)
 
 			art2 := filepath.Join(dir, "crash_artifact2.txt")
 			require.NoError(t, os.WriteFile(art2, []byte("crash recovery notes\n"), 0600))
-			out = h.vybe("artifact", "add",
-				"--task", taskAID,
-				"--path", art2,
-				"--type", "text/plain",
-				"--request-id", crashRID("p1s9", 2),
-			)
+			push2 := fmt.Sprintf(`{"task_id":%q,"artifacts":[{"file_path":%q,"content_type":"text/plain"}]}`, taskAID, art2)
+			out = h.vybe("push", "--json", push2, "--request-id", crashRID("p1s9", 2))
 			requireSuccess(t, out)
 		})
 
@@ -234,7 +218,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 				h.vybeWithStdin(stdin, "hook", "prompt")
 			}
 			// Verify prompt events were logged
-			eventsOut := h.vybe("events", "list", "--kind", "user_prompt", "--limit", "10")
+			eventsOut := h.vybe("status", "--events", "--kind", "user_prompt", "--limit", "10", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.GreaterOrEqual(t, len(events), 3, "expected at least 3 user_prompt events")
@@ -251,7 +235,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 			h.vybeWithStdin(stdin2, "hook", "tool-success")
 
 			// Verify tool events logged
-			eventsOut := h.vybe("events", "list", "--kind", "tool_success", "--limit", "10")
+			eventsOut := h.vybe("status", "--events", "--kind", "tool_success", "--limit", "10", "--all")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.GreaterOrEqual(t, len(events), 2, "expected at least 2 tool_success events")
@@ -362,22 +346,22 @@ func TestCrashRecovery_OOM(t *testing.T) {
 
 		// Step 15: Verify artifacts survived the crash
 		t.Run("step15_artifacts_intact", func(t *testing.T) {
-			artOut := h.vybe("artifact", "list", "--task", taskAID)
+			artOut := h.vybe("status", "--artifacts", "--task", taskAID)
 			artM := requireSuccess(t, artOut)
 			artifacts := artM["data"].(map[string]any)["artifacts"].([]any)
 			require.GreaterOrEqual(t, len(artifacts), 2, "both artifacts must survive crash")
 		})
 
-		// Step 16: Verify brief matches resume
+		// Step 16: Verify resume --peek matches resume
 		t.Run("step16_brief_matches_resume", func(t *testing.T) {
-			briefOut := h.vybe("brief")
+			briefOut := h.vybe("resume", "--peek")
 			briefM := requireSuccess(t, briefOut)
 			briefData := briefM["data"].(map[string]any)["brief"].(map[string]any)
 
 			task := briefData["task"]
-			require.NotNil(t, task, "brief should have a focus task after recovery")
+			require.NotNil(t, task, "resume --peek should have a focus task after recovery")
 			briefTaskID := task.(map[string]any)["id"].(string)
-			require.Equal(t, taskAID, briefTaskID, "brief focus task must match resume focus task")
+			require.Equal(t, taskAID, briefTaskID, "resume --peek focus task must match resume focus task")
 		})
 
 		// Step 17: Status check — no corruption
@@ -397,12 +381,8 @@ func TestCrashRecovery_OOM(t *testing.T) {
 		t.Run("step18_add_post_recovery_events", func(t *testing.T) {
 			for i := 0; i < 3; i++ {
 				msg := fmt.Sprintf("Post-recovery progress %d", i+1)
-				out := h.vybe("events", "add",
-					"--kind", "progress",
-					"--msg", msg,
-					"--task", taskAID,
-					"--request-id", crashRID("p4s18", i),
-				)
+				pushJSON := fmt.Sprintf(`{"task_id":%q,"event":{"kind":"progress","message":%q}}`, taskAID, msg)
+				out := h.vybe("push", "--json", pushJSON, "--request-id", crashRID("p4s18", i))
 				requireSuccess(t, out)
 			}
 		})
@@ -461,7 +441,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 		// Step 23: Verify no data was lost from pre-crash session
 		t.Run("step23_no_data_loss", func(t *testing.T) {
 			// All 10 original progress events should still be there
-			eventsOut := h.vybe("events", "list", "--task", taskAID, "--kind", "progress", "--limit", "20")
+			eventsOut := h.vybe("status", "--events", "--task", taskAID, "--kind", "progress", "--limit", "20")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			// Original 10 + 3 post-recovery = 13 progress events
@@ -469,7 +449,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 				"original 10 progress events must not be lost after crash+recovery, got: %d", len(events))
 
 			// Artifacts still linked
-			artOut := h.vybe("artifact", "list", "--task", taskAID)
+			artOut := h.vybe("status", "--artifacts", "--task", taskAID)
 			artM := requireSuccess(t, artOut)
 			artifacts := artM["data"].(map[string]any)["artifacts"].([]any)
 			require.GreaterOrEqual(t, len(artifacts), 2, "artifacts must not be lost after crash+recovery")
@@ -503,12 +483,8 @@ func TestCrashRecovery_OOM(t *testing.T) {
 			)
 			requireSuccess(t, beginOut)
 
-			evtOut := h.vybe("events", "add",
-				"--kind", "progress",
-				"--msg", "Crash cycle 1 event",
-				"--task", taskDID,
-				"--request-id", crashRID("p5s25", 2),
-			)
+			pushJSON := fmt.Sprintf(`{"task_id":%q,"event":{"kind":"progress","message":"Crash cycle 1 event"}}`, taskDID)
+			evtOut := h.vybe("push", "--json", pushJSON, "--request-id", crashRID("p5s25", 2))
 			requireSuccess(t, evtOut)
 
 			// "Crash" — no session-end or checkpoint
@@ -530,7 +506,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 				"Task D should be in focus after rapid crash 1 recovery: %s", additionalCtx)
 
 			// Verify the event is visible
-			eventsOut := h.vybe("events", "list", "--task", taskDID, "--kind", "progress", "--limit", "5")
+			eventsOut := h.vybe("status", "--events", "--task", taskDID, "--kind", "progress", "--limit", "5")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.GreaterOrEqual(t, len(events), 1, "event from crash cycle 1 must be visible")
@@ -538,12 +514,8 @@ func TestCrashRecovery_OOM(t *testing.T) {
 
 		// Step 27: Add 1 more event, "crash" again
 		t.Run("step27_crash_cycle_2", func(t *testing.T) {
-			evtOut := h.vybe("events", "add",
-				"--kind", "progress",
-				"--msg", "Crash cycle 2 event",
-				"--task", taskDID,
-				"--request-id", crashRID("p5s27", 1),
-			)
+			pushJSON := fmt.Sprintf(`{"task_id":%q,"event":{"kind":"progress","message":"Crash cycle 2 event"}}`, taskDID)
+			evtOut := h.vybe("push", "--json", pushJSON, "--request-id", crashRID("p5s27", 1))
 			requireSuccess(t, evtOut)
 
 			// "Crash" — no session-end or checkpoint
@@ -556,7 +528,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 			h.vybeWithStdin(stdin, "hook", "session-start")
 
 			// Both events must be visible
-			eventsOut := h.vybe("events", "list", "--task", taskDID, "--kind", "progress", "--limit", "10")
+			eventsOut := h.vybe("status", "--events", "--task", taskDID, "--kind", "progress", "--limit", "10")
 			eventsM := requireSuccess(t, eventsOut)
 			events := eventsM["data"].(map[string]any)["events"].([]any)
 			require.GreaterOrEqual(t, len(events), 2, "both events from crash cycles must be visible")
@@ -588,44 +560,27 @@ func TestCrashRecovery_OOM(t *testing.T) {
 	// Phase 6: WAL Recovery / Final Integrity Check
 	// -------------------------------------------------------------------------
 	t.Run("Phase6_WALRecoveryAndIntegrity", func(t *testing.T) {
-		// Step 31: Run snapshot — captures full state
-		t.Run("step31_snapshot", func(t *testing.T) {
-			snapOut := h.vybe("snapshot", "--request-id", crashRID("p6s31", 1))
-			snapM := requireSuccess(t, snapOut)
-			data := snapM["data"]
-			require.NotNil(t, data, "snapshot must return data")
+		// Step 31: Verify system integrity via status check + task list
+		t.Run("step31_integrity_check", func(t *testing.T) {
+			statusOut := h.vybe("status", "--check")
+			statusM := requireSuccess(t, statusOut)
+			queryOK := statusM["data"].(map[string]any)["query_ok"]
+			require.Equal(t, true, queryOK, "status check must pass after all crash cycles")
 
-			// Verify snapshot contains task counts (tasks were created)
-			// CheckpointResult structure: data.snapshot.task_counts.{pending,in_progress,completed,blocked}
-			dataMap, ok := data.(map[string]any)
-			require.True(t, ok, "snapshot data must be a map")
+			// Verify task counts via task list
+			tasksOut := h.vybe("task", "list")
+			tasksM := requireSuccess(t, tasksOut)
+			tasksList := tasksM["data"].(map[string]any)["tasks"].([]any)
 
-			snapshot := dataMap["snapshot"]
-			require.NotNil(t, snapshot, "snapshot data must have a 'snapshot' key")
-
-			snapMap, ok := snapshot.(map[string]any)
-			require.True(t, ok, "snapshot must be a map")
-
-			// Verify task_counts is present in snapshot
-			taskCounts := snapMap["task_counts"]
-			require.NotNil(t, taskCounts, "snapshot must include task_counts")
-
-			taskCountsMap, ok := taskCounts.(map[string]any)
-			require.True(t, ok, "task_counts must be a map")
-
-			// We completed Task A and Task D; Task B and C may be pending/blocked.
-			// Total completed should be at least 2.
-			completed, _ := taskCountsMap["completed"].(float64)
-			require.GreaterOrEqual(t, int(completed), 2,
-				"snapshot task_counts.completed must show at least 2 completed tasks")
-
-			// cursor_position should be > 0 (we added many events)
-			cursorPos := snapMap["cursor_position"]
-			require.NotNil(t, cursorPos, "snapshot must include cursor_position")
-			cursorVal, ok := cursorPos.(float64)
-			require.True(t, ok, "cursor_position must be a number")
-			require.Greater(t, int(cursorVal), 0,
-				"cursor_position must be > 0 after all the events we recorded")
+			completed := 0
+			for _, raw := range tasksList {
+				task := raw.(map[string]any)
+				if task["status"].(string) == "completed" {
+					completed++
+				}
+			}
+			require.GreaterOrEqual(t, completed, 2,
+				"at least 2 tasks should be completed (A and D)")
 		})
 
 		// Step 32: Final status --check

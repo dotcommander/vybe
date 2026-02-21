@@ -29,7 +29,7 @@ type Act struct {
 	Steps     []Step
 }
 
-// BuildActs returns all 17 acts with their steps.
+// BuildActs returns all acts with their steps.
 func BuildActs() []Act {
 	return []Act{
 		{
@@ -37,12 +37,12 @@ func BuildActs() []Act {
 			Name:   "Building The World",
 			Narration: []string{
 				"Setting up the world an agent operates in.",
-				"DB init, project creation, task graph with dependencies, memory at multiple scopes.",
+				"DB init, project scoping, task graph with dependencies, memory at multiple scopes.",
 				"Vybe is the durable backbone — everything an agent knows or intends lives here.",
 			},
 			Steps: []Step{
 				{Name: "upgrade_database", Fn: stepUpgradeDatabase, Insight: "Your agent's first command in any environment. Creates all tables — ready to remember everything."},
-				{Name: "create_project", Fn: stepCreateProject, Insight: "Projects scope work. Your agent groups related tasks and memory under one project."},
+				{Name: "create_project", Fn: stepCreateProject, Insight: "Projects are implicit — scoped by a project ID. The session-start hook ensures the project row exists."},
 				{Name: "create_task_graph", Fn: stepCreateTaskGraph, Insight: "Three real tasks, just like your agent would create when breaking down a feature request."},
 				{Name: "set_dependencies", Fn: stepSetDependencies, Insight: "'Write tests' can't start until 'Implement auth' is done. Your agent's task queue respects this automatically."},
 				{Name: "store_global_memory", Fn: stepStoreGlobalMemory, Insight: "Global memory is visible to every agent, every session. Environment facts like Go version live here."},
@@ -66,7 +66,7 @@ func BuildActs() []Act {
 				{Name: "tool_failure_tracking", Fn: stepToolFailureTracking, Insight: "Claude Code hook: PostToolUseFailure. When tools fail, the next session sees exactly what broke and where."},
 				{Name: "log_progress_events", Fn: stepLogProgressEvents, Insight: "Your agent narrates its own work. Progress events are the journal that survives crashes."},
 				{Name: "store_task_memory", Fn: stepStoreTaskMemory, Insight: "Task-scoped memory. A new agent picking up this task will know 'JWT' was the chosen auth strategy."},
-				{Name: "link_artifact", Fn: stepLinkArtifact, Insight: "Output files linked to tasks. New sessions find what was built immediately — no archaeology."},
+				{Name: "link_artifact", Fn: stepLinkArtifact, Insight: "Output files linked to tasks via push. New sessions find what was built immediately — no archaeology."},
 				{Name: "complete_task", Fn: stepCompleteTask, Insight: "Task done. Next resume auto-advances to the next task in the queue."},
 				{Name: "task_completion_hook", Fn: stepTaskCompletionHook, Insight: "Claude Code hook: TaskCompleted. The IDE signals vybe so the event stream reflects IDE-level milestones."},
 			},
@@ -118,13 +118,12 @@ func BuildActs() []Act {
 			Name:   "Auditing The Record",
 			Narration: []string{
 				"Auditing the event stream. Everything vybe recorded is queryable.",
-				"Events, memories (all scopes), artifacts, snapshots, and system health.",
+				"Events, memories (all scopes), artifacts, and system health.",
 			},
 			Steps: []Step{
 				{Name: "query_event_stream", Fn: stepQueryEventStream, Insight: "The complete activity log — every tool call, every progress note, every prompt. Fully queryable by kind."},
 				{Name: "query_all_memory_scopes", Fn: stepQueryAllMemoryScopes, Insight: "Three memory scopes: global (environment), project (team knowledge), task (work-specific decisions)."},
 				{Name: "query_artifacts", Fn: stepQueryArtifacts, Insight: "Files from Act II are still here in Act VI. Artifacts persist across all sessions."},
-				{Name: "capture_snapshot", Fn: stepCaptureSnapshot, Insight: "Point-in-time snapshot of the entire system. Useful for diffing state before/after operations."},
 				{Name: "health_check", Fn: stepHealthCheck, Insight: "One command confirms the database is healthy and responsive. Agents call this before critical work."},
 			},
 		},
@@ -146,10 +145,9 @@ func BuildActs() []Act {
 			Name:   "Production Hardening",
 			Narration: []string{
 				"Edge cases that matter in real deployments:",
-				"Heartbeats for agent liveness detection, TTL-based memory expiry, structured event metadata.",
+				"TTL-based memory expiry, structured event metadata.",
 			},
 			Steps: []Step{
-				{Name: "heartbeat_liveness", Fn: stepHeartbeatLiveness, Insight: "Agents send heartbeats to prove they're alive. Stale tasks without heartbeats get reclaimed by GC."},
 				{Name: "ttl_expiry_and_gc", Fn: stepTTLExpiryAndGC, Insight: "Short-lived memory auto-expires. Your agent stores temporary context that cleans itself up."},
 				{Name: "structured_metadata", Fn: stepStructuredMetadata, Insight: "JSON metadata on events makes them machine-queryable — filter by exit code, tool name, duration."},
 			},
@@ -158,14 +156,11 @@ func BuildActs() []Act {
 			Number: 9,
 			Name:   "Task Intelligence",
 			Narration: []string{
-				"Agents query the task graph to understand what's available, what's blocked, and what's next.",
-				"get, stats, next, unlocks — four ways to read the task state without modifying anything.",
+				"Agents query the task graph to understand what's available and what's completed.",
+				"get and list — ways to read the task state without modifying anything.",
 			},
 			Steps: []Step{
 				{Name: "fetch_single_task", Fn: stepFetchSingleTask, Insight: "Fetch any task by ID — status, title, project, dependencies. Full detail in one call."},
-				{Name: "aggregate_stats", Fn: stepAggregateStats, Insight: "Task stats at a glance: how many pending, in_progress, completed, blocked. Project health in one number."},
-				{Name: "pending_queue", Fn: stepPendingQueue, Insight: "The prioritized work queue — what's next, in what order. Agents check this before claiming."},
-				{Name: "dependency_impact", Fn: stepDependencyImpact, Insight: "'If I finish this task, what gets unblocked?' Agents use this to prioritize high-impact work."},
 			},
 		},
 		{
@@ -173,13 +168,10 @@ func BuildActs() []Act {
 			Name:   "Multi-Agent Coordination",
 			Narration: []string{
 				"Atomic task claiming prevents two agents from working on the same task simultaneously.",
-				"`task claim` is a compare-and-swap operation — only one agent wins the race.",
-				"`task gc` releases abandoned claim leases when agents crash without completing.",
+				"`task begin` uses compare-and-swap on the version column — only one agent wins the race.",
 			},
 			Steps: []Step{
-				{Name: "atomic_claim", Fn: stepAtomicClaim, Insight: "Compare-and-swap claim. Two agents race — only one wins. No double-work, no conflicts."},
-				{Name: "claim_lease_renewal", Fn: stepClaimLeaseRenewal, Insight: "Heartbeat renews the claim lease. GC won't reclaim a task while its agent is actively pinging."},
-				{Name: "lease_gc", Fn: stepLeaseGC, Insight: "Garbage collection for abandoned tasks. When agents crash, their stuck tasks return to the queue."},
+				{Name: "atomic_claim", Fn: stepAtomicClaim, Insight: "Status change uses compare-and-swap on the version column. Two agents racing — only one succeeds."},
 			},
 		},
 		{
@@ -200,12 +192,9 @@ func BuildActs() []Act {
 			Name:   "Knowledge Management",
 			Narration: []string{
 				"Memory is a first-class system in vybe. Agents read, write, and manage knowledge across sessions.",
-				"compact: merge/prune entries. touch: refresh access time. query: pattern search. delete: explicit removal.",
+				"Explicit delete keeps knowledge current.",
 			},
 			Steps: []Step{
-				{Name: "compact_memory", Fn: stepCompactMemory, Insight: "Memory compaction reduces footprint by merging low-value entries. Keeps the brief packet lean."},
-				{Name: "refresh_access_time", Fn: stepRefreshAccessTime, Insight: "Touch refreshes a key's timestamp without changing its value. Keeps important facts alive through GC cycles."},
-				{Name: "pattern_search", Fn: stepPatternSearch, Insight: "Wildcard search across memory keys. Your agent finds related facts without knowing exact names."},
 				{Name: "explicit_deletion", Fn: stepExplicitDeletion, Insight: "Explicit delete for facts that are no longer true. Clean knowledge means better agent decisions."},
 			},
 		},
@@ -214,12 +203,11 @@ func BuildActs() []Act {
 			Name:   "Agent Identity",
 			Narration: []string{
 				"Each agent has its own cursor and state record in vybe.",
-				"init: create/reset state. status: read cursor position and current focus. focus: explicitly set focus task.",
+				"status: read cursor position and current focus. resume --focus: explicitly override focus task.",
 			},
 			Steps: []Step{
-				{Name: "initialize_agent", Fn: stepInitializeAgent, Insight: "Each agent gets its own cursor in the event stream. Multiple agents track their own position independently."},
-				{Name: "read_agent_state", Fn: stepReadAgentState, Insight: "Agent status shows cursor position and current focus. Operators can see exactly where each agent is."},
-				{Name: "override_focus", Fn: stepOverrideFocus, Insight: "Manual focus override. Your agent can skip the queue and work on a specific task when needed."},
+				{Name: "read_agent_state", Fn: stepReadAgentState, Insight: "Status with --agent shows cursor position and current focus. Operators can see exactly where each agent is."},
+				{Name: "override_focus", Fn: stepOverrideFocus, Insight: "Manual focus override via resume --focus. Your agent can skip the queue and work on a specific task when needed."},
 			},
 		},
 		{
@@ -227,10 +215,10 @@ func BuildActs() []Act {
 			Name:   "The Event Stream",
 			Narration: []string{
 				"The event log is the source of truth. As it grows, agents need to manage it.",
-				"summarize: archive a range of events into a single summary event.",
+				"push: batch-write events atomically. status --events: query the full log.",
 			},
 			Steps: []Step{
-				{Name: "compress_history", Fn: stepCompressHistory, Insight: "Event summarization compresses N events into one summary. Manages context window pressure over long sessions."},
+				{Name: "compress_history", Fn: stepCompressHistory, Insight: "Push adds events atomically. Status --events queries the log. Together they manage the event history."},
 				{Name: "recent_activity", Fn: stepRecentActivity, Insight: "Quick poll of recent events. Your agent checks what happened since it last looked."},
 			},
 		},
@@ -238,13 +226,11 @@ func BuildActs() []Act {
 			Number: 15,
 			Name:   "System Introspection",
 			Narration: []string{
-				"Project detail, session digest, and schema introspection.",
-				"These commands give operators and agents a broader view of the system state.",
+				"Schema introspection via status --schema.",
+				"Gives operators and agents a view of all available command arguments.",
 			},
 			Steps: []Step{
-				{Name: "fetch_project", Fn: stepFetchProject, Insight: "Full project detail by ID — name, metadata, creation time. Projects are the top-level grouping."},
-				{Name: "session_digest", Fn: stepSessionDigest, Insight: "Session digest: a structured summary of what happened. Agents use this for handoff notes."},
-				{Name: "inspect_schema", Fn: stepInspectSchema, Insight: "Full SQLite schema returned. Agents and operators can inspect the exact database structure."},
+				{Name: "inspect_schema", Fn: stepInspectSchema, Insight: "Full command argument schema returned. Agents and operators can inspect the exact CLI surface."},
 			},
 		},
 		{
@@ -265,17 +251,14 @@ func BuildActs() []Act {
 			Name:   "The Full Surface",
 			Narration: []string{
 				"The remaining commands that round out the vybe surface area.",
-				"Artifact retrieval, retrospective extraction, history import, loop stats,",
-				"project lifecycle, read-only briefs, JSONL streaming, hook management.",
+				"Artifact retrieval, retrospective extraction, loop stats,",
+				"read-only briefs, hook management.",
 			},
 			Steps: []Step{
-				{Name: "artifact_get_by_id", Fn: stepArtifactGetByID, Insight: "Fetch any artifact by ID — file path, type, linked task. Direct lookup without listing."},
+				{Name: "artifact_get_by_id", Fn: stepArtifactGetByID, Insight: "List artifacts and inspect their metadata — file path, type, linked task. All via status --artifacts."},
 				{Name: "retrospective_extraction", Fn: stepRetrospectiveExtraction, Insight: "Retrospectives distill session activity into persistent memory. Your agent learns from its own history."},
-				{Name: "history_import", Fn: stepHistoryImport, Insight: "Import Claude Code conversation history as vybe events. Backfill context from before vybe was installed."},
 				{Name: "loop_iteration_stats", Fn: stepLoopIterationStats, Insight: "Loop stats track autonomous iteration cadence. Your agent monitors its own loop health."},
-				{Name: "project_lifecycle", Fn: stepProjectLifecycle, Insight: "Create and delete projects. Full lifecycle management — no orphaned metadata."},
-				{Name: "read_only_brief", Fn: stepReadOnlyBrief, Insight: "Brief without cursor advancement. Your agent peeks at context without consuming events."},
-				{Name: "jsonl_streaming", Fn: stepJSONLStreaming, Insight: "JSONL output for streaming processors. Your agent pipes events directly into analysis pipelines."},
+				{Name: "read_only_brief", Fn: stepReadOnlyBrief, Insight: "Resume --peek: brief without cursor advancement. Your agent peeks at context without consuming events."},
 				{Name: "hook_install_uninstall", Fn: stepHookInstallUninstall, Insight: "One command wires vybe into Claude Code. One command removes it. Clean install, clean uninstall."},
 				{Name: "loop_dry_run", Fn: stepLoopDryRun, Insight: "The autonomous loop finds pending tasks and reports what it would do. Dry-run mode for safe testing."},
 				{Name: "loop_circuit_breaker", Fn: stepLoopCircuitBreaker, Insight: "When a spawned command exits without completing the task, the loop marks it blocked. Prevents runaway loops."},
