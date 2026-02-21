@@ -61,7 +61,6 @@ func BuildActs() []Act {
 				{Name: "resume", Fn: stepResume, Insight: "The agent cursor advances and the brief packet loads: focus task, memory, recent events, artifacts. Everything needed to start working."},
 				{Name: "prompt_logging", Fn: stepPromptLogging, Insight: "Claude Code hook: UserPromptSubmit. Every prompt you type is logged — future sessions see the full conversation trail."},
 				{Name: "claim_focus_task", Fn: stepClaimFocusTask, Insight: "Your agent claims work before starting. No other agent can grab this task now."},
-				{Name: "tool_success_tracking", Fn: stepToolSuccessTracking, Insight: "Claude Code hook: PostToolUse. Successful mutating tool calls are logged — builds a complete execution history."},
 				{Name: "tool_failure_tracking", Fn: stepToolFailureTracking, Insight: "Claude Code hook: PostToolUseFailure. When tools fail, the next session sees exactly what broke and where."},
 				{Name: "log_progress_events", Fn: stepLogProgressEvents, Insight: "Your agent narrates its own work. Progress events are the journal that survives crashes."},
 				{Name: "store_task_memory", Fn: stepStoreTaskMemory, Insight: "Task-scoped memory. A new agent picking up this task will know 'JWT' was the chosen auth strategy."},
@@ -74,7 +73,7 @@ func BuildActs() []Act {
 			Number: 3,
 			Name:   "The Agent Sleeps",
 			Narration: []string{
-				"Close the session safely with checkpoint and retrospective extraction.",
+				"Close the session safely with checkpoint maintenance.",
 				"State remains durable in SQLite, so crashes do not lose context.",
 			},
 			Steps: []Step{
@@ -174,12 +173,11 @@ func BuildActs() []Act {
 			Number: 11,
 			Name:   "Task Lifecycle",
 			Narration: []string{
-				"Mutate lifecycle state with priority, status updates, and deletion.",
+				"Mutate lifecycle state with priority and explicit status updates.",
 				"Agents adapt queue shape quickly as requirements change.",
 			},
 			Steps: []Step{
 				{Name: "priority_boost", Fn: stepPriorityBoost, Insight: "Priority 10 jumps ahead of priority 0. Your agent can escalate urgent work instantly."},
-				{Name: "delete_task", Fn: stepDeleteTask, Insight: "Obsolete tasks get pruned. Your agent keeps the queue clean as requirements evolve."},
 				{Name: "status_transitions", Fn: stepStatusTransitions, Insight: "Any status to any status. Agents define their own workflow — vybe doesn't enforce rigid state machines."},
 			},
 		},
@@ -231,33 +229,17 @@ func BuildActs() []Act {
 		},
 		{
 			Number: 16,
-			Name:   "IDE Integration",
-			Narration: []string{
-				"Capture IDE lifecycle signals through hook commands.",
-				"Spawn and completion events plus heartbeats keep the stream aligned with conversation flow.",
-			},
-			Steps: []Step{
-				{Name: "track_subagent_spawn", Fn: stepTrackSubagentSpawn, Insight: "Claude Code hook: SubagentStart. When your agent spawns a sub-agent, vybe logs it for the parent to track."},
-				{Name: "track_subagent_completion", Fn: stepTrackSubagentCompletion, Insight: "Claude Code hook: SubagentStop. Sub-agent finished — the parent agent sees the completion in the event stream."},
-				{Name: "turn_boundary_heartbeat", Fn: stepTurnBoundaryHeartbeat, Insight: "Claude Code hook: Stop. Turn boundaries are logged so the event stream reflects IDE conversation flow."},
-			},
-		},
-		{
-			Number: 17,
 			Name:   "The Full Surface",
 			Narration: []string{
-				"Cover the remaining surface: artifacts, retrospectives, loop controls, and hook lifecycle.",
-				"Background retrospective workers keep heavy extraction asynchronous.",
+				"Cover the remaining surface: artifacts, loop controls, and hook lifecycle.",
+				"This keeps the public surface focused on continuity-critical operations.",
 			},
 			Steps: []Step{
 				{Name: "artifact_get_by_id", Fn: stepArtifactGetByID, Insight: "List artifacts and inspect their metadata — file path, type, linked task. All via artifacts list."},
-				{Name: "retrospective_extraction", Fn: stepRetrospectiveExtraction, Insight: "Retrospectives distill session activity into persistent memory. Your agent learns from its own history."},
-				{Name: "loop_iteration_stats", Fn: stepLoopIterationStats, Insight: "Loop stats track autonomous iteration cadence. Your agent monitors its own loop health."},
 				{Name: "read_only_brief", Fn: stepReadOnlyBrief, Insight: "Resume --peek: brief without cursor advancement. Your agent peeks at context without consuming events."},
 				{Name: "hook_install_uninstall", Fn: stepHookInstallUninstall, Insight: "One command wires vybe into Claude Code. One command removes it. Clean install, clean uninstall."},
 				{Name: "loop_dry_run", Fn: stepLoopDryRun, Insight: "The autonomous loop finds pending tasks and reports what it would do. Dry-run mode for safe testing."},
 				{Name: "loop_circuit_breaker", Fn: stepLoopCircuitBreaker, Insight: "When a spawned command exits without completing the task, the loop marks it blocked. Prevents runaway loops."},
-				{Name: "background_retrospective", Fn: stepBackgroundRetrospective, Insight: "Background retrospective worker processes payloads asynchronously. Sessions don't block on LLM analysis."},
 			},
 		},
 	}

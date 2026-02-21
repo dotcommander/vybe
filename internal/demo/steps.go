@@ -219,26 +219,6 @@ func stepClaimFocusTask(r *Runner, ctx *DemoContext) error {
 	return nil
 }
 
-func stepToolSuccessTracking(r *Runner, ctx *DemoContext) error {
-	stdin := hookStdinWithToolInput("PostToolUse", ctx.SessionID, ctx.ProjectID, "Bash",
-		map[string]any{"command": "go build ./..."})
-	_, _, _ = r.vybeWithStdin(stdin, "hook", "tool-success")
-
-	m, raw, err := r.vybe("events", "list", "--kind", "tool_success", "--limit", "5", "--all")
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(m, raw); err != nil {
-		return err
-	}
-	events, ok := m["data"].(map[string]any)["events"].([]any)
-	if !ok || len(events) == 0 {
-		return fmt.Errorf("tool_success event should be logged: %s", raw)
-	}
-	r.printDetail("tool_success event logged: %d event(s)", len(events))
-	return nil
-}
-
 func stepToolFailureTracking(r *Runner, ctx *DemoContext) error {
 	stdin := hookStdinWithToolInput("PostToolUseFailure", ctx.SessionID, ctx.ProjectID, "Bash",
 		map[string]any{"command": "go test ./..."})
@@ -627,9 +607,6 @@ func stepQueryEventStream(r *Runner, ctx *DemoContext) error {
 	if !kinds["user_prompt"] && !kinds["progress"] {
 		return fmt.Errorf("expected user_prompt or progress events, got kinds: %v", kinds)
 	}
-	if !kinds["tool_success"] {
-		return fmt.Errorf("expected tool_success events, got kinds: %v", kinds)
-	}
 	if !kinds["tool_failure"] {
 		return fmt.Errorf("expected tool_failure events, got kinds: %v", kinds)
 	}
@@ -997,46 +974,6 @@ func stepPriorityBoost(r *Runner, ctx *DemoContext) error {
 	return nil
 }
 
-func stepDeleteTask(r *Runner, ctx *DemoContext) error {
-	cm, craw, err := r.vybe("task", "create",
-		"--title", "Task To Delete",
-		"--request-id", rid("p11s45", 1),
-	)
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(cm, craw); err != nil {
-		return err
-	}
-	deleteTaskID := getStr(cm, "data", "task", "id")
-	if deleteTaskID == "" {
-		return fmt.Errorf("task ID should be set: %s", craw)
-	}
-
-	dm, draw, err := r.vybe("task", "delete",
-		"--id", deleteTaskID,
-		"--request-id", rid("p11s45", 2),
-	)
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(dm, draw); err != nil {
-		return err
-	}
-
-	// Verify it's gone
-	gm, _, _ := r.vybe("task", "get", "--id", deleteTaskID)
-	if gm != nil && gm["success"] == true {
-		if data, ok := gm["data"].(map[string]any); ok {
-			if data["task"] != nil {
-				return fmt.Errorf("deleted task should not be retrievable")
-			}
-		}
-	}
-	r.printDetail("Task %s deleted and confirmed gone", deleteTaskID)
-	return nil
-}
-
 func stepStatusTransitions(r *Runner, ctx *DemoContext) error {
 	cm, craw, err := r.vybe("task", "create",
 		"--title", "Status Update Task",
@@ -1264,86 +1201,7 @@ func stepInspectSchema(r *Runner, ctx *DemoContext) error {
 	return nil
 }
 
-// Act XVI: IDE Integration
-
-func stepTrackSubagentSpawn(r *Runner, ctx *DemoContext) error {
-	hookSession := "sess_demo_hook_phase"
-	payload := map[string]any{
-		"hook_event_name": "SubagentStart",
-		"session_id":      hookSession,
-		"cwd":             ctx.ProjectID,
-		"description":     "quality-agent",
-	}
-	data, _ := json.Marshal(payload)
-	_, _, _ = r.vybeWithStdin(string(data), "hook", "subagent-start")
-
-	m, raw, err := r.vybe("events", "list", "--kind", "agent_spawned", "--limit", "5", "--all")
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(m, raw); err != nil {
-		return err
-	}
-	events, ok := m["data"].(map[string]any)["events"].([]any)
-	if !ok || len(events) == 0 {
-		return fmt.Errorf("agent_spawned event should be logged: %s", raw)
-	}
-	r.printDetail("agent_spawned event recorded: %d event(s)", len(events))
-	return nil
-}
-
-func stepTrackSubagentCompletion(r *Runner, ctx *DemoContext) error {
-	hookSession := "sess_demo_hook_phase"
-	payload := map[string]any{
-		"hook_event_name": "SubagentStop",
-		"session_id":      hookSession,
-		"cwd":             ctx.ProjectID,
-		"description":     "quality-agent",
-	}
-	data, _ := json.Marshal(payload)
-	_, _, _ = r.vybeWithStdin(string(data), "hook", "subagent-stop")
-
-	m, raw, err := r.vybe("events", "list", "--kind", "agent_completed", "--limit", "5", "--all")
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(m, raw); err != nil {
-		return err
-	}
-	events, ok := m["data"].(map[string]any)["events"].([]any)
-	if !ok || len(events) == 0 {
-		return fmt.Errorf("agent_completed event should be logged: %s", raw)
-	}
-	r.printDetail("agent_completed event recorded: %d event(s)", len(events))
-	return nil
-}
-
-func stepTurnBoundaryHeartbeat(r *Runner, ctx *DemoContext) error {
-	hookSession := "sess_demo_hook_phase"
-	payload := map[string]any{
-		"hook_event_name": "Stop",
-		"session_id":      hookSession,
-		"cwd":             ctx.ProjectID,
-	}
-	data, _ := json.Marshal(payload)
-	_, _, _ = r.vybeWithStdin(string(data), "hook", "stop")
-
-	m, raw, err := r.vybe("events", "list", "--kind", "heartbeat", "--limit", "5", "--all")
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(m, raw); err != nil {
-		return err
-	}
-	events, ok := m["data"].(map[string]any)["events"].([]any)
-	if !ok || len(events) == 0 {
-		return fmt.Errorf("heartbeat event should be logged: %s", raw)
-	}
-	r.printDetail("heartbeat event recorded: %d event(s)", len(events))
-	return nil
-}
-
-// Act XVII: The Full Surface
+// Act XVI: The Full Surface
 
 func stepArtifactGetByID(r *Runner, ctx *DemoContext) error {
 	// List artifacts via artifacts list --task-id
@@ -1369,48 +1227,6 @@ func stepArtifactGetByID(r *Runner, ctx *DemoContext) error {
 		return fmt.Errorf("expected task_id=%s, got %s", ctx.AuthTaskID, artTaskID)
 	}
 	r.printDetail("artifact: id=%s file_path=%s task_id=%s", artID, artFilePath, artTaskID)
-	return nil
-}
-
-func stepRetrospectiveExtraction(r *Runner, ctx *DemoContext) error {
-	pushJSON1 := `{"event":{"kind":"progress","message":"retrospective event A"}}`
-	_, _, _ = r.vybe("push",
-		"--json", pushJSON1,
-		"--request-id", rid("p17s63", 1),
-	)
-	pushJSON2 := `{"event":{"kind":"progress","message":"retrospective event B"}}`
-	_, _, _ = r.vybe("push",
-		"--json", pushJSON2,
-		"--request-id", rid("p17s63", 2),
-	)
-
-	payload := map[string]any{
-		"hook_event_name": "SessionEnd",
-		"session_id":      ctx.SessionID,
-		"cwd":             ctx.ProjectID,
-	}
-	data, _ := json.Marshal(payload)
-	_, _, _ = r.vybeWithStdin(string(data), "hook", "retrospective")
-	r.printDetail("hook retrospective fired (best-effort)")
-	return nil
-}
-
-func stepLoopIterationStats(r *Runner, ctx *DemoContext) error {
-	m, raw, err := r.vybe("loop", "stats")
-	if err != nil {
-		return err
-	}
-	if err := r.mustSuccess(m, raw); err != nil {
-		return err
-	}
-	data, ok := m["data"].(map[string]any)
-	if !ok {
-		return fmt.Errorf("loop stats data missing: %s", raw)
-	}
-	if _, hasRuns := data["runs"]; !hasRuns {
-		return fmt.Errorf("loop stats should include a runs field: %s", raw)
-	}
-	r.printDetail("Loop stats: runs=%v", data["runs"])
 	return nil
 }
 
@@ -1613,22 +1429,5 @@ func stepLoopCircuitBreaker(r *Runner, ctx *DemoContext) error {
 		return fmt.Errorf("task should be marked blocked after command exits without completing, got %v", r0["status"])
 	}
 	r.printDetail("Circuit breaker: task %v status=%v", r0["task_id"], r0["status"])
-	return nil
-}
-
-func stepBackgroundRetrospective(r *Runner, ctx *DemoContext) error {
-	payloadDir, err := os.MkdirTemp("", "vybe-demo-retro-*")
-	if err != nil {
-		return fmt.Errorf("create temp dir: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(payloadDir) }()
-
-	payloadFile := filepath.Join(payloadDir, "retro_payload.json")
-	if err := os.WriteFile(payloadFile, []byte(`{}`), 0600); err != nil {
-		return fmt.Errorf("write payload file: %w", err)
-	}
-
-	r.vybeRaw("hook", "retrospective-bg", "demo-agent", payloadFile)
-	r.printDetail("hook retrospective-bg completed without panic")
 	return nil
 }

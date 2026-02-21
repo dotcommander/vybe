@@ -1,5 +1,5 @@
-// Command demo runs a colorized, self-contained demonstration of all vybe capabilities.
-// It shells out to the vybe binary and exercises all 72 steps from the integration test.
+// Command demo runs a colorized, self-contained demonstration of vybe capabilities.
+// It shells out to the vybe binary and exercises the same scenario covered by integration tests.
 package main
 
 import (
