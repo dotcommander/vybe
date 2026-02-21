@@ -455,7 +455,9 @@ func isClaudeCommand(command string) bool {
 }
 
 // markTaskBlocked sets a task to blocked status via vybe and records the failure reason.
+// Best-effort: called from error recovery path; DB errors are logged but not propagated.
 func markTaskBlocked(agentName, taskID, reason string) {
+	//nolint:errcheck // best-effort recovery — if DB is also down, nothing to do
 	_ = withDB(func(db *DB) error {
 		requestID := fmt.Sprintf("block_%s_%d", taskID, time.Now().UnixMilli())
 

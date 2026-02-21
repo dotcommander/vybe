@@ -99,8 +99,8 @@ func computeResumePacket(db *sql.DB, agentName string, opts ResumeOptions) (*res
 		return nil, fmt.Errorf("failed to build brief: %w", err)
 	}
 
-	// Step 5: Fetch recent user prompts for project context
-	recentPrompts, _ := store.FetchRecentUserPrompts(db, focusProjectID, 5)
+	// Step 5: Fetch recent user prompts for project context (best-effort, non-critical)
+	recentPrompts, _ := store.FetchRecentUserPrompts(db, focusProjectID, 5) //nolint:errcheck // supplementary context; nil slice is safe
 
 	return &resumePacket{
 		oldCursor:      oldCursor,
