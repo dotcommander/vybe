@@ -23,7 +23,7 @@ non-autonomous workflows requiring human approval.
 
 | Problem | Command | When |
 |---------|---------|------|
-| Resume after crash/restart | `vybe resume --request-id R` | Session start, after interruption |
+| Resume after crash/restart | `vybe resume --agent "$VYBE_AGENT" --request-id R` | Session start, after interruption |
 | Create work items | `vybe task create --request-id R --title T --desc D` | Planning phase, decomposing work |
 | Log progress | `vybe push --json '{"event":{"kind":"progress","message":"M"},"task_id":"T"}'` | Meaningful checkpoints |
 | Save cross-session facts | `vybe memory set --request-id R --key K --value V --scope S --scope-id SI` | Discoveries that must survive restarts |
@@ -46,7 +46,7 @@ non-autonomous workflows requiring human approval.
 go install github.com/dotcommander/vybe/cmd/vybe@latest
 
 # MUST install hooks for automatic Claude Code integration
-vybe hook install
+vybe hook install --claude
 
 # MUST set stable agent identity (add to ~/.bashrc or ~/.zshrc)
 export VYBE_AGENT=claude
@@ -81,7 +81,7 @@ The fundamental pattern: resume -> work -> log -> complete -> resume.
 BRIEF=$(vybe resume --request-id "resume_$(date +%s)")
 
 # 2. Extract focus task (MUST use jq for JSON parsing)
-TASK_ID=$(echo "$BRIEF" | jq -r '.data.focus_task_id // ""')
+TASK_ID=$(echo "$BRIEF" | jq -r '.data.brief.task.id // ""')
 
 # 3. MUST check for null before proceeding
 if [ -z "$TASK_ID" ]; then
@@ -98,7 +98,7 @@ vybe task complete --request-id "done_$(date +%s)" \
   --id "$TASK_ID" --outcome done --summary "Auth middleware shipped"
 ```
 
-**BLOCKING:** Always check `focus_task_id` for null. Resume returns empty focus when no work available.
+**BLOCKING:** Always check `.data.brief.task.id` for null. Resume returns empty focus when no work available.
 
 ### Memory Scopes
 
@@ -143,7 +143,7 @@ vybe memory get --key api_base --scope project --scope-id "$PROJECT_DIR"
 
 ### Automatic (hooks)
 
-After `vybe hook install`, Claude Code automatically:
+After `vybe hook install --claude`, Claude Code automatically:
 
 - **SessionStart**: Injects task context, memory, and recent events
 - **UserPromptSubmit**: Logs prompts for cross-session continuity
@@ -181,7 +181,7 @@ vybe push --agent=claude --request-id=push_$(date +%s) --json '{
 ```bash
 #!/usr/bin/env bash
 # Missing request IDs, no null checks, no error handling
-TASK_ID=$(vybe resume --peek | jq '.data.focus_task_id')
+TASK_ID=$(vybe resume --peek | jq '.data.brief.task.id')
 vybe task complete --id "$TASK_ID" --outcome done
 ```
 
@@ -193,7 +193,7 @@ AGENT="${VYBE_AGENT:-worker-001}"
 
 while true; do
   RESUME=$(vybe resume --agent "$AGENT" --request-id "resume_$(date +%s%N)")
-  TASK_ID=$(echo "$RESUME" | jq -r '.data.focus_task_id // ""')
+  TASK_ID=$(echo "$RESUME" | jq -r '.data.brief.task.id // ""')
 
   if [ -z "$TASK_ID" ]; then
     echo "No work available"
@@ -292,35 +292,37 @@ fi
 
 # Coordinator: decompose research into tasks
 export VYBE_AGENT=research-coordinator
+AGENT="$VYBE_AGENT"
 TS=$(date +%s)
 
-vybe task create --request-id "task1_$TS" \
+vybe task create --agent "$AGENT" --request-id "task1_$TS" \
   --title "Gather academic papers" \
   --desc "Search arxiv.org for relevant papers on topic X"
 
-vybe task create --request-id "task2_$TS" \
+vybe task create --agent "$AGENT" --request-id "task2_$TS" \
   --title "Extract citations" \
   --desc "Parse PDFs and extract citation graphs"
 
-vybe task create --request-id "task3_$TS" \
+vybe task create --agent "$AGENT" --request-id "task3_$TS" \
   --title "Synthesize findings" \
   --desc "Aggregate results into summary report"
 
 # Worker agent: claim and execute
 export VYBE_AGENT=research-worker-01
+AGENT="$VYBE_AGENT"
 
-RESUME=$(vybe resume --request-id "resume_$TS")
-TASK_ID=$(echo "$RESUME" | jq -r '.data.focus_task_id // ""')
+RESUME=$(vybe resume --agent "$AGENT" --request-id "resume_$TS")
+TASK_ID=$(echo "$RESUME" | jq -r '.data.brief.task.id // ""')
 
 if [ -n "$TASK_ID" ]; then
-  vybe task begin --request-id "begin_$TS" --id "$TASK_ID"
+  vybe task begin --agent "$AGENT" --request-id "begin_$TS" --id "$TASK_ID"
 
   # Execute work...
 
-  vybe push --request-id "push_$TS" --json \
+  vybe push --agent "$AGENT" --request-id "push_$TS" --json \
     "{\"task_id\":\"$TASK_ID\",\"artifacts\":[{\"file_path\":\"./output/papers.json\"}]}"
 
-  vybe task complete --request-id "done_$TS" --id "$TASK_ID" \
+  vybe task complete --agent "$AGENT" --request-id "done_$TS" --id "$TASK_ID" \
     --outcome done --summary "Found 47 papers, extracted 1200 citations"
 fi
 ```
@@ -351,20 +353,20 @@ echo "Resuming refactor of: $FILES"
 
 ```bash
 # Task lifecycle
-vybe task create --request-id R --title T --desc D
-vybe task begin --request-id R --id ID
-vybe task complete --request-id R --id ID --outcome done --summary S
+vybe task create --agent "$VYBE_AGENT" --request-id R --title T --desc D
+vybe task begin --agent "$VYBE_AGENT" --request-id R --id ID
+vybe task complete --agent "$VYBE_AGENT" --request-id R --id ID --outcome done --summary S
 vybe task list
 vybe task get --id ID
 
 # Push (atomic: event + memory + artifacts + status in one call)
-vybe push --request-id R --json '{"task_id":"T","event":{"kind":"K","message":"M"},"artifacts":[{"file_path":"P"}]}'
+vybe push --agent "$VYBE_AGENT" --request-id R --json '{"task_id":"T","event":{"kind":"K","message":"M"},"artifacts":[{"file_path":"P"}]}'
 
 # Events (read)
 vybe events list --task-id T
 
 # Memory
-vybe memory set --request-id R --key K --value V --scope S --scope-id SI
+vybe memory set --agent "$VYBE_AGENT" --request-id R --key K --value V --scope S --scope-id SI
 vybe memory get --key K --scope S --scope-id SI
 vybe memory list --scope S --scope-id SI
 
@@ -372,9 +374,9 @@ vybe memory list --scope S --scope-id SI
 vybe artifacts list --task-id T
 
 # Context
-vybe resume --request-id R
-vybe resume --peek
-vybe status
+vybe resume --agent "$VYBE_AGENT" --request-id R
+vybe resume --agent "$VYBE_AGENT" --peek
+vybe status --agent "$VYBE_AGENT"
 ```
 
 ## Anti-Patterns
@@ -383,10 +385,10 @@ vybe status
 |-------------|---------|-----|
 | Missing `--request-id` | Duplicate events/tasks on retry, no idempotency | `--request-id "push_$(date +%s%N)"` for every write |
 | Volatile agent names | Cursor/state lost between sessions, no continuity | `export VYBE_AGENT=stable_name` at shell init |
-| Storing large blobs in memory | Memory is KV store, not file storage; 16KB limit | Use `vybe push --json '{"artifacts":[...]}'` for files/outputs |
+| Storing large blobs in memory | Memory is size-limited KV store, not file storage | Use `vybe push --json '{"artifacts":[...]}'` for files/outputs |
 | Polling `vybe resume --peek` in tight loop | DB lock contention, no cursor advancement | Call `vybe resume` once per session start, cache brief |
-| Skipping `vybe resume` | No focus task, no memory, cold start every session | MUST `vybe resume` before accessing `focus_task_id` |
-| Hardcoded task IDs | Brittle, breaks on schema changes | Use `jq -r '.data.focus_task_id'` to extract from resume |
-| Ignoring `focus_task_id == null` | Crash when no work available | Check `if [ -z "$TASK_ID" ]` before processing |
+| Skipping `vybe resume` | No focus task, no memory, cold start every session | MUST `vybe resume` before accessing `.data.brief.task.id` |
+| Hardcoded task IDs | Brittle, breaks on schema changes | Use `jq -r '.data.brief.task.id'` to extract from resume |
+| Ignoring `task.id == null` | Crash when no work available | Check `if [ -z "$TASK_ID" ]` before processing |
 | Manual JSON parsing | Shell quoting errors, fragile | Use `jq` for all JSON extraction (BLOCKING) |
 | Skipping `--outcome` on complete | Audit trail incomplete, no success/failure signal | MUST provide `--outcome done|blocked` |

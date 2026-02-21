@@ -45,8 +45,10 @@ All demo state is isolated to:
 - Logs `research_started` and `research_finished` events via `vybe push`
 - Writes task-scoped memory checkpoints
 - Writes an artifact markdown file per task via `vybe push`
-- Marks task `blocked` when title contains `BLOCKED_DEMO`
-- Marks task `completed` otherwise
+- Calls `vybe task complete --outcome blocked` when title contains `BLOCKED_DEMO`
+- Calls `vybe task complete --outcome done` otherwise
+
+All scripts are executable (`chmod +x` already applied).
 
 This gives a realistic automation pass without needing an external LLM.
 

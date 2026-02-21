@@ -32,7 +32,7 @@ The skill teaches Claude Code to:
 ## Prerequisites
 
 - `vybe` installed and on PATH (`go install github.com/dotcommander/vybe/cmd/vybe@latest`)
-- Claude Code hooks installed (`vybe hook install`)
+- Claude Code hooks installed (`vybe hook install --claude`)
 - `VYBE_AGENT` environment variable set
 
 ## Verify
