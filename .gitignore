@@ -57,3 +57,7 @@ tmp/
 output/
 .work/
 repomix-output.md
+
+# Demo artifacts
+/vybe-demo
+demo-output.txt
