@@ -52,7 +52,7 @@ func TestAgentStateIdempotentAndCursorHelpers(t *testing.T) {
 	task, err := CreateTask(db, "focus task", "", "", 0)
 	require.NoError(t, err)
 
-	focusEventID, err := SetAgentFocusTaskWithEvent(db, "agent-a", task.ID)
+	focusEventID, err := SetAgentFocusTaskWithEventIdempotent(db, "agent-a", "req-focus-task", task.ID)
 	require.NoError(t, err)
 	require.Greater(t, focusEventID, int64(0))
 

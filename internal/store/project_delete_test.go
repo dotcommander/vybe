@@ -43,7 +43,7 @@ func TestDeleteProject_ClearsReferences(t *testing.T) {
 	// Create agent state with focus on project
 	_, err = LoadOrCreateAgentState(db, "agent1")
 	require.NoError(t, err)
-	err = SetAgentFocusProject(db, "agent1", project.ID)
+	_, err = SetAgentFocusProjectWithEventIdempotent(db, "agent1", "req-del-proj-focus", project.ID)
 	require.NoError(t, err)
 
 	// Delete the project

@@ -170,7 +170,7 @@ func TestSetAgentFocusProject(t *testing.T) {
 	project, err := CreateProject(db, "Test Project", "")
 	require.NoError(t, err)
 
-	err = SetAgentFocusProject(db, "test-agent", project.ID)
+	_, err = SetAgentFocusProjectWithEventIdempotent(db, "test-agent", "req-set-proj", project.ID)
 	require.NoError(t, err)
 
 	state, err := LoadOrCreateAgentState(db, "test-agent")
@@ -188,7 +188,7 @@ func TestSetAgentFocusProjectWithEvent(t *testing.T) {
 	project, err := CreateProject(db, "Test Project", "")
 	require.NoError(t, err)
 
-	eventID, err := SetAgentFocusProjectWithEvent(db, "test-agent", project.ID)
+	eventID, err := SetAgentFocusProjectWithEventIdempotent(db, "test-agent", "req-proj-evt", project.ID)
 	require.NoError(t, err)
 	assert.Greater(t, eventID, int64(0))
 
@@ -207,11 +207,11 @@ func TestSetAgentFocusProjectClear(t *testing.T) {
 	project, err := CreateProject(db, "Test Project", "")
 	require.NoError(t, err)
 
-	err = SetAgentFocusProject(db, "test-agent", project.ID)
+	_, err = SetAgentFocusProjectWithEventIdempotent(db, "test-agent", "req-set-proj-clear", project.ID)
 	require.NoError(t, err)
 
 	// Clear
-	err = SetAgentFocusProject(db, "test-agent", "")
+	_, err = SetAgentFocusProjectWithEventIdempotent(db, "test-agent", "req-clear-proj", "")
 	require.NoError(t, err)
 
 	state, err := LoadOrCreateAgentState(db, "test-agent")
