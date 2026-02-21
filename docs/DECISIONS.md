@@ -52,13 +52,13 @@ Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists
 ### `agent init` / `agent status` / `agent focus` (removed)
 
 **Removed:** v0.x simplification
-**Reason:** `resume` auto-creates agent state on first call. Explicit initialization ceremony adds nothing — agents don't need a separate "create my state record" step before they can work. Agent status is available via `vybe status --agent A`. Focus override is via `vybe resume --focus T --project P`.
-**Alternative:** `vybe resume` (auto-creates state + returns brief), `vybe status --agent A` (read agent state), `vybe resume --focus T` (override focus).
+**Reason:** `resume` auto-creates agent state on first call. Explicit initialization ceremony adds nothing — agents don't need a separate "create my state record" step before they can work. Agent status is available via `vybe status --agent A`. Focus override is via `vybe resume --focus T --project-dir P`.
+**Alternative:** `vybe resume` (auto-creates state + returns brief), `vybe status --agent A` (read agent state), `vybe resume --focus T --project-dir P` (override focus).
 
-### `--actor` flag (deprecated alias)
+### `--actor` flag alias (removed)
 
 **Removed:** v0.x cleanup
-**Reason:** Legacy alias for `--agent`. Maintained for backward compatibility during v0.x. No external consumers remain.
+**Reason:** Single canonical flag (`--agent`) keeps schemas and tool calls deterministic.
 
 ## Kept (Investigated but Retained)
 
@@ -115,7 +115,7 @@ Breaking them increases tool-call error rates and retry noise in autonomous work
 
 **Why not keep both forms:** Dual forms create schema drift and increase LLM invocation variance.
 
-**Guardrail:** New ID-bearing commands should be flag-only. If positional compatibility is retained, treat it as deprecated and non-canonical.
+**Guardrail:** New ID-bearing commands must be flag-only.
 
 ### Overloaded `--project` semantics (path vs project id)
 
