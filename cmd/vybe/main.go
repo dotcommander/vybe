@@ -1,3 +1,6 @@
+// Vybe provides durable continuity for AI coding agents.
+// It stores task state, event logs, scoped memory, and artifacts in SQLite,
+// enabling agents to resume deterministically after crashes or context resets.
 package main
 
 import (
