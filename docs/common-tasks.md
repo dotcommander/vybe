@@ -116,7 +116,28 @@ if [ -n "$TASK_ID" ]; then
 fi
 ```
 
-## 8) Install or remove hooks
+## 8) Atomic batch push
+
+Report results in a single call instead of 3-5 separate mutations:
+
+```bash
+vybe push --agent claude --request-id push_$(date +%s) --json '{
+  "task_id": "task_123",
+  "event": {"kind": "progress", "message": "Implemented feature X"},
+  "memories": [{"key": "api_endpoint", "value": "/v2/users", "scope": "task", "scope_id": "task_123"}],
+  "artifacts": [{"file_path": "/tmp/output.json"}],
+  "task_status": {"status": "completed", "summary": "Feature X implemented and tested"}
+}'
+```
+
+Or pipe via stdin:
+
+```bash
+echo '{"event": {"kind": "note", "message": "Session checkpoint"}}' | \
+  vybe push --agent claude --request-id push_$(date +%s)
+```
+
+## 9) Install or remove hooks
 
 ```bash
 # Claude Code

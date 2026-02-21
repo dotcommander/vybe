@@ -69,6 +69,7 @@ func Execute(version string) error {
 	root.AddCommand(NewStatusCmd())
 	root.AddCommand(NewUpgradeCmd())
 	root.AddCommand(NewSnapshotCmd())
+	root.AddCommand(NewPushCmd())
 	root.AddCommand(newSchemaCmd(root))
 
 	err := root.Execute()

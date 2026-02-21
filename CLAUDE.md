@@ -254,6 +254,15 @@ vybe events add --agent=claude --kind=progress --task=<task_id> --msg="<what hap
 
 #-Link output files to tasks
 vybe artifact add --agent=claude --task=<id> --path=<path> --request-id=art_$(date +%s)
+
+#-Atomic batch push (preferred for multi-mutation reporting)
+vybe push --agent=claude --request-id=push_$(date +%s) --json '{
+  "task_id": "<task_id>",
+  "event": {"kind": "progress", "message": "<what happened>"},
+  "memories": [{"key": "<key>", "value": "<value>", "scope": "task", "scope_id": "<task_id>"}],
+  "artifacts": [{"file_path": "<path>"}],
+  "task_status": {"status": "completed", "summary": "<summary>"}
+}'
 ```
 
 ### After Plan Approval
@@ -283,6 +292,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`
 - Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
-- Command surface: `agent`, `artifact`, `brief`, `events` (add, list, tail, summarize), `hook`, `ingest`, `loop`, `memory`, `project`, `resume`, `schema`, `session`, `snapshot`, `status` (--check), `task` (begin, complete, ...), `upgrade`
+- Command surface: `agent`, `artifact`, `brief`, `events` (add, list, tail, summarize), `hook`, `ingest`, `loop`, `memory`, `project`, `push`, `resume`, `schema`, `session`, `snapshot`, `status` (--check), `task` (begin, complete, ...), `upgrade`
 - Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`
 - **After code changes**: rebuild binary and update symlink: `go build -o vybe ./cmd/vybe && ln -sf "$(pwd)/vybe" ~/go/bin/vybe`

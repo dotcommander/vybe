@@ -16,6 +16,7 @@ Use this page for full command parity checks. For workflows, use `setup.md`, `co
 - `loop`
 - `memory`
 - `project`
+- `push`
 - `resume`
 - `schema`
 - `session`
@@ -76,6 +77,28 @@ Use this page for full command parity checks. For workflows, use `setup.md`, `co
 - `get`
 - `list`
 
+### `push`
+
+Atomic batch mutation — combines event, memories, artifacts, and task status change into a single idempotent transaction.
+
+**Flags:**
+- `--json` — JSON input payload (alternative: pipe via stdin)
+- `--agent` / `VYBE_AGENT` — Agent name (required)
+- `--request-id` / `VYBE_REQUEST_ID` — Idempotency key (required)
+
+**Input schema:**
+```json
+{
+  "task_id": "task_...",
+  "event": {"kind": "progress", "message": "...", "metadata": "{}"},
+  "memories": [{"key": "k", "value": "v", "scope": "global"}],
+  "artifacts": [{"file_path": "/path/to/file"}],
+  "task_status": {"status": "completed", "summary": "Done"}
+}
+```
+
+All fields except constraints are optional. `task_id` is required when `artifacts` or `task_status` are provided.
+
 ### `session`
 
 - `digest`
@@ -103,6 +126,7 @@ Use this page for full command parity checks. For workflows, use `setup.md`, `co
 
 - `brief`
 - `help`
+- `push`
 - `resume`
 - `schema`
 - `snapshot`
