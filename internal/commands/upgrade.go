@@ -2,10 +2,12 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,18 +51,41 @@ func NewUpgradeCmd() *cobra.Command {
 }
 
 func findSourceDir() string {
-	// Check common locations
 	home, _ := os.UserHomeDir()
+
+	// Determine GOPATH (default: ~/go)
+	gopath := os.Getenv("GOPATH")
+	if gopath == "" {
+		gopath = filepath.Join(home, "go")
+	}
+
 	candidates := []string{
-		home + "/go/src/vybe",
-		home + "/src/vybe",
+		filepath.Join(gopath, "src", "vybe"),
+		filepath.Join(gopath, "src", "github.com", "dotcommander", "vybe"),
+		filepath.Join(home, "go", "src", "vybe"),
+		filepath.Join(home, "src", "vybe"),
 	}
 
 	for _, dir := range candidates {
-		if _, err := os.Stat(dir + "/go.mod"); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}
 	}
+
+	// Check if the installed binary is a symlink pointing into a source tree.
+	if binPath, err := exec.LookPath("vybe"); err == nil {
+		if resolved, err := filepath.EvalSymlinks(binPath); err == nil {
+			srcDir := filepath.Dir(resolved)
+			if _, err := os.Stat(filepath.Join(srcDir, "go.mod")); err == nil {
+				return srcDir
+			}
+			srcDir = filepath.Dir(srcDir)
+			if _, err := os.Stat(filepath.Join(srcDir, "go.mod")); err == nil {
+				return srcDir
+			}
+		}
+	}
+
 	return ""
 }
 
@@ -116,6 +141,8 @@ func upgradeViaGitPull(srcDir string) error {
 }
 
 func upgradeViaGoInstall() error {
+	oldVersion := getVybeVersion()
+
 	installCtx, installCancel := context.WithTimeout(context.Background(), upgradeGoInstallTimeout)
 	defer installCancel()
 
@@ -126,17 +153,24 @@ func upgradeViaGoInstall() error {
 		return cmdExecErr(installCtx, "go install", upgradeGoInstallTimeout, err)
 	}
 
+	newVersion := getVybeVersion()
 	migrated, migrateErr := migrateAfterUpgrade()
 
 	type result struct {
 		Source       string `json:"source"`
 		Method       string `json:"method"`
+		OldVersion   string `json:"old_version"`
+		NewVersion   string `json:"new_version"`
+		Updated      bool   `json:"updated"`
 		Migrated     bool   `json:"migrated"`
 		MigrateError string `json:"migrate_error,omitempty"`
 	}
 	return output.PrintSuccess(result{
 		Source:       "github.com/dotcommander/vybe@latest",
 		Method:       "go install",
+		OldVersion:   oldVersion,
+		NewVersion:   newVersion,
+		Updated:      oldVersion != newVersion,
 		Migrated:     migrated,
 		MigrateError: migrateErr,
 	})
@@ -178,4 +212,22 @@ func getGitVersion(dir string) string {
 		return "unknown"
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func getVybeVersion() string {
+	ctx, cancel := context.WithTimeout(context.Background(), upgradeVersionTimeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "vybe", "--version").Output() //nolint:gosec // G204: vybe is the tool being upgraded
+	if err != nil {
+		return "unknown"
+	}
+
+	var v struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return "unknown"
+	}
+	return v.Version
 }
