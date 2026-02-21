@@ -89,56 +89,66 @@ func AddArtifact(db *sql.DB, agentName, taskID, filePath, contentType string) (*
 	return artifact, eventID, nil
 }
 
+// AddArtifactTx inserts an artifact row and its event within an existing transaction.
+// Exported for use by batch operations (e.g., push).
+func AddArtifactTx(tx *sql.Tx, agentName, taskID, filePath, contentType string) (artifactID string, eventID int64, err error) {
+	if agentName == "" {
+		return "", 0, errors.New("agent name is required")
+	}
+	if taskID == "" {
+		return "", 0, errors.New("task ID is required")
+	}
+	if filePath == "" {
+		return "", 0, errors.New("file path is required")
+	}
+
+	artifactID = generateArtifactID()
+	projectID, err := resolveTaskProjectIDTx(tx, taskID)
+	if err != nil {
+		return "", 0, err
+	}
+
+	meta := struct {
+		ArtifactID  string `json:"artifact_id"`
+		FilePath    string `json:"file_path"`
+		ContentType string `json:"content_type,omitempty"`
+	}{
+		ArtifactID:  artifactID,
+		FilePath:    filePath,
+		ContentType: contentType,
+	}
+	metaBytes, _ := json.Marshal(meta)
+
+	eventID, err = InsertEventTx(tx, models.EventKindArtifactAdded, agentName, taskID, fmt.Sprintf("Artifact added: %s", filePath), string(metaBytes))
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to append event: %w", err)
+	}
+
+	_, err = tx.ExecContext(context.Background(), `
+		INSERT INTO artifacts (id, task_id, project_id, event_id, file_path, content_type, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+	`, artifactID, taskID, projectID, eventID, filePath, nullIfEmpty(contentType))
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to insert artifact: %w", err)
+	}
+
+	return artifactID, eventID, nil
+}
+
 // AddArtifactIdempotent performs AddArtifact once per (agent_name, request_id).
 // On retries with the same request id, it returns the originally created artifact + event id.
 //nolint:revive // argument-limit: all artifact params are required and distinct; a struct would add boilerplate at every callsite
 func AddArtifactIdempotent(db *sql.DB, agentName, requestID, taskID, filePath, contentType string) (*models.Artifact, int64, error) {
-	if agentName == "" {
-		return nil, 0, errors.New("agent name is required")
-	}
-	if taskID == "" {
-		return nil, 0, errors.New("task ID is required")
-	}
-	if filePath == "" {
-		return nil, 0, errors.New("file path is required")
-	}
-
 	type idemResult struct {
 		ArtifactID string `json:"artifact_id"`
 		EventID    int64  `json:"event_id"`
 	}
 
 	r, err := RunIdempotent(db, agentName, requestID, "artifact.add", func(tx *sql.Tx) (idemResult, error) {
-		artifactID := generateArtifactID()
-		projectID, err := resolveTaskProjectIDTx(tx, taskID)
+		artifactID, eventID, err := AddArtifactTx(tx, agentName, taskID, filePath, contentType)
 		if err != nil {
 			return idemResult{}, err
 		}
-
-		meta := struct {
-			ArtifactID  string `json:"artifact_id"`
-			FilePath    string `json:"file_path"`
-			ContentType string `json:"content_type,omitempty"`
-		}{
-			ArtifactID:  artifactID,
-			FilePath:    filePath,
-			ContentType: contentType,
-		}
-		metaBytes, _ := json.Marshal(meta)
-
-		eventID, err := InsertEventTx(tx, models.EventKindArtifactAdded, agentName, taskID, fmt.Sprintf("Artifact added: %s", filePath), string(metaBytes))
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to append event: %w", err)
-		}
-
-		_, err = tx.ExecContext(context.Background(), `
-			INSERT INTO artifacts (id, task_id, project_id, event_id, file_path, content_type, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-		`, artifactID, taskID, projectID, eventID, filePath, nullIfEmpty(contentType))
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to insert artifact: %w", err)
-		}
-
 		return idemResult{ArtifactID: artifactID, EventID: eventID}, nil
 	})
 	if err != nil {

@@ -105,12 +105,15 @@ func SetMemory(db *sql.DB, key, value, valueType, scope, scopeID string, expires
 	})
 }
 
-// UpsertMemoryWithEventIdempotent performs canonical-key memory upsert once per (agent_name, request_id).
-// If a canonical-key match already exists in the same scope, it is updated/reinforced.
+// UpsertMemoryTx performs the canonical-key memory upsert within an existing transaction.
+// Returns (eventID, reinforced, finalConfidence, canonicalKey, error).
+// Exported for use by batch operations (e.g., push).
 //
-//nolint:gocognit,gocyclo,funlen,nestif,revive // upsert+reinforce logic requires shared event-log path across insert and update branches; splitting obscures the race-condition recovery sequence
-func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, confidence *float64, sourceEventID *int64) (int64, bool, float64, string, error) {
-	if err := validateValueType(valueType); err != nil {
+//nolint:gocognit,gocyclo,funlen,nestif,revive // upsert+reinforce logic requires shared event-log path across insert and update branches
+func UpsertMemoryTx(tx *sql.Tx, agentName, key, value, valueType, scope, scopeID string,
+	expiresAt *time.Time, confidence *float64, sourceEventID *int64,
+) (eventID int64, reinforced bool, finalConfidence float64, canonicalKey string, err error) {
+	if err = validateValueType(valueType); err != nil {
 		return 0, false, 0, "", err
 	}
 
@@ -118,11 +121,11 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 		valueType = inferValueType(value)
 	}
 
-	if err := validateScope(scope, scopeID); err != nil {
+	if err = validateScope(scope, scopeID); err != nil {
 		return 0, false, 0, "", err
 	}
 
-	canonicalKey := NormalizeMemoryKey(key)
+	canonicalKey = NormalizeMemoryKey(key)
 	if canonicalKey == "" {
 		return 0, false, 0, "", errors.New("key cannot normalize to empty canonical key")
 	}
@@ -132,6 +135,171 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 		taskID = scopeID
 	}
 
+	var (
+		existingID         int64
+		existingValue      string
+		existingValueType  string
+		existingConfidence float64
+	)
+
+	lookupErr := tx.QueryRowContext(context.Background(), `
+		SELECT id, value, value_type, confidence
+		FROM memory
+		WHERE scope = ? AND scope_id = ? AND canonical_key = ?
+		  AND superseded_by IS NULL
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, scope, scopeID, canonicalKey).Scan(&existingID, &existingValue, &existingValueType, &existingConfidence)
+
+	reinforced = false
+	if lookupErr != nil && !errors.Is(lookupErr, sql.ErrNoRows) {
+		return 0, false, 0, "", fmt.Errorf("failed to lookup canonical memory: %w", lookupErr)
+	}
+
+	newConfidence := 0.5
+	if confidence != nil {
+		newConfidence = ClampConfidence(*confidence)
+	}
+
+	inserted := false
+	if errors.Is(lookupErr, sql.ErrNoRows) {
+		_, execErr := tx.ExecContext(context.Background(), `
+			INSERT INTO memory (
+				key, canonical_key, value, value_type, scope, scope_id,
+				expires_at, confidence, last_seen_at, source_event_id
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+		`, key, canonicalKey, value, valueType, scope, scopeID, expiresAt, newConfidence, sourceEventID)
+		if execErr != nil {
+			// Race condition: another agent inserted the same canonical_key
+			// Retry the lookup+update path
+			if IsUniqueConstraintErr(execErr) {
+				retryErr := tx.QueryRowContext(context.Background(), `
+					SELECT id, value, value_type, confidence
+					FROM memory
+					WHERE scope = ? AND scope_id = ? AND canonical_key = ?
+					  AND superseded_by IS NULL
+					ORDER BY created_at DESC
+					LIMIT 1
+				`, scope, scopeID, canonicalKey).Scan(&existingID, &existingValue, &existingValueType, &existingConfidence)
+				if retryErr != nil {
+					if errors.Is(retryErr, sql.ErrNoRows) {
+						// Row was deleted between our INSERT attempt and retry lookup (concurrent GC).
+						// Re-attempt the INSERT since the canonical_key slot is now free.
+						_, reinsertErr := tx.ExecContext(context.Background(), `
+							INSERT INTO memory (
+								key, canonical_key, value, value_type, scope, scope_id,
+								expires_at, confidence, last_seen_at, source_event_id
+							)
+							VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+						`, key, canonicalKey, value, valueType, scope, scopeID, expiresAt, newConfidence, sourceEventID)
+						if reinsertErr != nil {
+							return 0, false, 0, "", fmt.Errorf("failed to re-insert memory after GC race: %w", reinsertErr)
+						}
+						inserted = true
+					} else {
+						return 0, false, 0, "", fmt.Errorf("failed to lookup canonical memory after race: %w", retryErr)
+					}
+				}
+				// Fall through to update logic below (only when inserted is false)
+				reinforced = existingValue == value && existingValueType == valueType
+				if confidence == nil {
+					if reinforced {
+						newConfidence = ClampConfidence(existingConfidence + 0.05)
+					} else {
+						newConfidence = existingConfidence
+					}
+				}
+			} else {
+				return 0, false, 0, "", fmt.Errorf("failed to insert memory: %w", execErr)
+			}
+		} else {
+			inserted = true
+		}
+	} else {
+		reinforced = existingValue == value && existingValueType == valueType
+		if confidence == nil {
+			if reinforced {
+				newConfidence = ClampConfidence(existingConfidence + 0.05)
+			} else {
+				newConfidence = existingConfidence
+			}
+		}
+	}
+
+	// Update path (shared by initial lookup and race-condition retry)
+	if !inserted {
+		if sourceEventID != nil {
+			_, err = tx.ExecContext(context.Background(), `
+				UPDATE memory
+				SET key = ?,
+				    canonical_key = ?,
+				    value = ?,
+				    value_type = ?,
+				    expires_at = ?,
+				    confidence = ?,
+				    last_seen_at = CURRENT_TIMESTAMP,
+				    source_event_id = ?
+				WHERE id = ?
+			`, key, canonicalKey, value, valueType, expiresAt, newConfidence, *sourceEventID, existingID)
+		} else {
+			_, err = tx.ExecContext(context.Background(), `
+				UPDATE memory
+				SET key = ?,
+				    canonical_key = ?,
+				    value = ?,
+				    value_type = ?,
+				    expires_at = ?,
+				    confidence = ?,
+				    last_seen_at = CURRENT_TIMESTAMP
+				WHERE id = ?
+			`, key, canonicalKey, value, valueType, expiresAt, newConfidence, existingID)
+		}
+		if err != nil {
+			return 0, false, 0, "", fmt.Errorf("failed to update memory: %w", err)
+		}
+	}
+
+	eventKind := models.EventKindMemoryUpserted
+	if reinforced {
+		eventKind = models.EventKindMemoryReinforced
+	}
+
+	meta := struct {
+		Key          string     `json:"key"`
+		CanonicalKey string     `json:"canonical_key"`
+		ValueType    string     `json:"value_type"`
+		Scope        string     `json:"scope"`
+		ScopeID      string     `json:"scope_id,omitempty"`
+		ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+		Reinforced   bool       `json:"reinforced"`
+		Confidence   float64    `json:"confidence"`
+	}{
+		Key:          key,
+		CanonicalKey: canonicalKey,
+		ValueType:    valueType,
+		Scope:        scope,
+		ScopeID:      scopeID,
+		ExpiresAt:    expiresAt,
+		Reinforced:   reinforced,
+		Confidence:   newConfidence,
+	}
+	metaBytes, marshalErr := json.Marshal(meta)
+	if marshalErr != nil {
+		return 0, false, 0, "", fmt.Errorf("failed to marshal memory event metadata: %w", marshalErr)
+	}
+
+	eventID, err = InsertEventTx(tx, eventKind, agentName, taskID, fmt.Sprintf("Memory upserted: %s", key), string(metaBytes))
+	if err != nil {
+		return 0, false, 0, "", fmt.Errorf("failed to append event: %w", err)
+	}
+
+	return eventID, reinforced, newConfidence, canonicalKey, nil
+}
+
+// UpsertMemoryWithEventIdempotent performs canonical-key memory upsert once per (agent_name, request_id).
+// If a canonical-key match already exists in the same scope, it is updated/reinforced.
+func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, confidence *float64, sourceEventID *int64) (int64, bool, float64, string, error) {
 	type idemResult struct {
 		EventID      int64   `json:"event_id"`
 		Reinforced   bool    `json:"reinforced"`
@@ -140,166 +308,11 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 	}
 
 	r, err := RunIdempotent(db, agentName, requestID, "memory.upsert", func(tx *sql.Tx) (idemResult, error) {
-		var (
-			existingID         int64
-			existingValue      string
-			existingValueType  string
-			existingConfidence float64
-		)
-
-		err := tx.QueryRowContext(context.Background(), `
-			SELECT id, value, value_type, confidence
-			FROM memory
-			WHERE scope = ? AND scope_id = ? AND canonical_key = ?
-			  AND superseded_by IS NULL
-			ORDER BY created_at DESC
-			LIMIT 1
-		`, scope, scopeID, canonicalKey).Scan(&existingID, &existingValue, &existingValueType, &existingConfidence)
-
-		reinforced := false
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return idemResult{}, fmt.Errorf("failed to lookup canonical memory: %w", err)
+		eid, reinforced, finalConf, canonKey, txErr := UpsertMemoryTx(tx, agentName, key, value, valueType, scope, scopeID, expiresAt, confidence, sourceEventID)
+		if txErr != nil {
+			return idemResult{}, txErr
 		}
-
-		newConfidence := 0.5
-		if confidence != nil {
-			newConfidence = ClampConfidence(*confidence)
-		}
-
-		inserted := false
-		if errors.Is(err, sql.ErrNoRows) {
-			_, execErr := tx.ExecContext(context.Background(), `
-				INSERT INTO memory (
-					key, canonical_key, value, value_type, scope, scope_id,
-					expires_at, confidence, last_seen_at, source_event_id
-				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-			`, key, canonicalKey, value, valueType, scope, scopeID, expiresAt, newConfidence, sourceEventID)
-			if execErr != nil {
-				// Race condition: another agent inserted the same canonical_key
-				// Retry the lookup+update path
-				if IsUniqueConstraintErr(execErr) {
-					retryErr := tx.QueryRowContext(context.Background(), `
-						SELECT id, value, value_type, confidence
-						FROM memory
-						WHERE scope = ? AND scope_id = ? AND canonical_key = ?
-						  AND superseded_by IS NULL
-						ORDER BY created_at DESC
-						LIMIT 1
-					`, scope, scopeID, canonicalKey).Scan(&existingID, &existingValue, &existingValueType, &existingConfidence)
-					if retryErr != nil {
-						if errors.Is(retryErr, sql.ErrNoRows) {
-							// Row was deleted between our INSERT attempt and retry lookup (concurrent GC).
-							// Re-attempt the INSERT since the canonical_key slot is now free.
-							_, reinsertErr := tx.ExecContext(context.Background(), `
-								INSERT INTO memory (
-									key, canonical_key, value, value_type, scope, scope_id,
-									expires_at, confidence, last_seen_at, source_event_id
-								)
-								VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-							`, key, canonicalKey, value, valueType, scope, scopeID, expiresAt, newConfidence, sourceEventID)
-							if reinsertErr != nil {
-								return idemResult{}, fmt.Errorf("failed to re-insert memory after GC race: %w", reinsertErr)
-							}
-							inserted = true
-						} else {
-							return idemResult{}, fmt.Errorf("failed to lookup canonical memory after race: %w", retryErr)
-						}
-					}
-					// Fall through to update logic below (only when inserted is false)
-					reinforced = existingValue == value && existingValueType == valueType
-					if confidence == nil {
-						if reinforced {
-							newConfidence = ClampConfidence(existingConfidence + 0.05)
-						} else {
-							newConfidence = existingConfidence
-						}
-					}
-				} else {
-					return idemResult{}, fmt.Errorf("failed to insert memory: %w", execErr)
-				}
-			} else {
-				inserted = true
-			}
-		} else {
-			reinforced = existingValue == value && existingValueType == valueType
-			if confidence == nil {
-				if reinforced {
-					newConfidence = ClampConfidence(existingConfidence + 0.05)
-				} else {
-					newConfidence = existingConfidence
-				}
-			}
-		}
-
-		// Update path (shared by initial lookup and race-condition retry)
-		if !inserted {
-			if sourceEventID != nil {
-				_, err = tx.ExecContext(context.Background(), `
-					UPDATE memory
-					SET key = ?,
-					    canonical_key = ?,
-					    value = ?,
-					    value_type = ?,
-					    expires_at = ?,
-					    confidence = ?,
-					    last_seen_at = CURRENT_TIMESTAMP,
-					    source_event_id = ?
-					WHERE id = ?
-				`, key, canonicalKey, value, valueType, expiresAt, newConfidence, *sourceEventID, existingID)
-			} else {
-				_, err = tx.ExecContext(context.Background(), `
-					UPDATE memory
-					SET key = ?,
-					    canonical_key = ?,
-					    value = ?,
-					    value_type = ?,
-					    expires_at = ?,
-					    confidence = ?,
-					    last_seen_at = CURRENT_TIMESTAMP
-					WHERE id = ?
-				`, key, canonicalKey, value, valueType, expiresAt, newConfidence, existingID)
-			}
-			if err != nil {
-				return idemResult{}, fmt.Errorf("failed to update memory: %w", err)
-			}
-		}
-
-		eventKind := models.EventKindMemoryUpserted
-		if reinforced {
-			eventKind = models.EventKindMemoryReinforced
-		}
-
-		meta := struct {
-			Key          string     `json:"key"`
-			CanonicalKey string     `json:"canonical_key"`
-			ValueType    string     `json:"value_type"`
-			Scope        string     `json:"scope"`
-			ScopeID      string     `json:"scope_id,omitempty"`
-			ExpiresAt    *time.Time `json:"expires_at,omitempty"`
-			Reinforced   bool       `json:"reinforced"`
-			Confidence   float64    `json:"confidence"`
-		}{
-			Key:          key,
-			CanonicalKey: canonicalKey,
-			ValueType:    valueType,
-			Scope:        scope,
-			ScopeID:      scopeID,
-			ExpiresAt:    expiresAt,
-			Reinforced:   reinforced,
-			Confidence:   newConfidence,
-		}
-		metaBytes, err := json.Marshal(meta)
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to marshal memory event metadata: %w", err)
-		}
-
-		eventID, err := InsertEventTx(tx, eventKind, agentName, taskID, fmt.Sprintf("Memory upserted: %s", key), string(metaBytes))
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to append event: %w", err)
-		}
-
-		return idemResult{EventID: eventID, Reinforced: reinforced, Confidence: newConfidence, CanonicalKey: canonicalKey}, nil
+		return idemResult{EventID: eid, Reinforced: reinforced, Confidence: finalConf, CanonicalKey: canonKey}, nil
 	})
 	if err != nil {
 		return 0, false, 0, "", err
