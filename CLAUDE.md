@@ -181,6 +181,17 @@ internal/models/       # Domain types shared across layers
 | **Event archiving** | Summarize + archive old events; auto-prune archived |
 | **Session management** | Digest, retrospective, rule-based lessons learned |
 | **Project isolation** | Project-scoped tasks, memory, events with focus tracking |
+| **State mutation fixes** | Trace every caller that depends on current clearing/preserving/defaulting behavior before changing it; a fix for one edge case that breaks the normal path is worse than the original bug |
+| **Zero-value filter trap** | When a parameter's zero value (0, "") is a valid domain value, use a sentinel (-1, pointer) to mean "no filter"; see `ListTasks` `priorityFilter` |
+| **Read-outside-tx TOCTOU** | If a write tx depends on data read outside it, the read is stale under concurrency; read inside the tx or verify with CAS |
+| **Idempotent terminal conditions** | "Not found" on delete and "already exists" on create are successes; returning errors poisons the idempotency record |
+| **Graph traversal naming** | Node-count limits vs depth limits protect against different shapes; name the limit for what it actually counts |
+| **UTF-8 truncation** | Never slice strings by byte index when storing/serializing; use `[]rune` or `unicode/utf8` |
+| **Resource handle sharing** | N sequential ops on the same DB/file → open once, share handle; don't pay setup/migration/lock N times |
+| **SQL CASE NULL semantics** | `ELSE NULL` clears; `ELSE column_name` preserves — opposite meanings; trace caller expectations |
+| **Test the inverse of fixes** | After fixing an edge case, verify the happy path still works; most regressions break the normal path |
+| **No mutable package globals** | Pass shared state explicitly or embed in a struct; package globals couple tests and concurrent callers |
+| **Boundary validation** | Cap inputs (string length, array size, numeric range) at the store/action boundary; trust internally |
 
 ## Focus Selection Algorithm
 
