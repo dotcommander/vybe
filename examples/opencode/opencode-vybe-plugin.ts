@@ -86,6 +86,38 @@ function truncate(str: string | undefined, max: number): string {
   return str.slice(0, max)
 }
 
+function formatAgentProtocol(protocol: any): string {
+  if (!protocol || typeof protocol !== "object") return ""
+
+  const resumeCommand = typeof protocol.resume_command === "string" ? protocol.resume_command : ""
+  const focusTaskField = typeof protocol.focus_task_field === "string" ? protocol.focus_task_field : ""
+  const terminalStatusCommand = typeof protocol.terminal_status_command === "string" ? protocol.terminal_status_command : ""
+  const optionalProgressCommand = typeof protocol.optional_progress_command === "string" ? protocol.optional_progress_command : ""
+  const rule = typeof protocol.rule === "string" ? protocol.rule : ""
+
+  if (!resumeCommand || !focusTaskField || !terminalStatusCommand) return ""
+
+  const statuses = Array.isArray(protocol.terminal_statuses)
+    ? protocol.terminal_statuses.filter((s: any) => typeof s === "string" && s.trim() !== "").join("|")
+    : "completed|blocked"
+
+  const lines = [
+    `- Resume: \`${resumeCommand}\``,
+    `- Focus task id field: \`${focusTaskField}\``,
+    `- Terminal status (required once): \`${terminalStatusCommand}\``,
+    `- Allowed terminal statuses: \`${statuses || "completed|blocked"}\``,
+  ]
+
+  if (optionalProgressCommand) {
+    lines.push(`- Optional progress: \`${optionalProgressCommand}\``)
+  }
+  if (rule) {
+    lines.push(`- Rule: ${rule}`)
+  }
+
+  return lines.join("\n")
+}
+
 const MUTATING_TOOLS: Record<string, boolean> = {
   Write: true,
   Edit: true,
@@ -109,6 +141,7 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
   const sessionProjects = new Map<string, string>()
   const todoTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const todoPending = new Map<string, any[]>()
+  let cachedAgentProtocolPrompt = ""
   const TODO_DEBOUNCE_MS = 3000
 
   const log = async (level: string, message: string, extra?: Record<string, any>) => {
@@ -143,6 +176,19 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
     }
   }
 
+  const hydrateAgentProtocolPrompt = async () => {
+    if (cachedAgentProtocolPrompt !== "") return
+    try {
+      const schema = await runVybeJSON(["schema", "commands"])
+      const protocolPrompt = formatAgentProtocol(schema?.data?.agent_protocol)
+      if (protocolPrompt.trim() !== "") {
+        cachedAgentProtocolPrompt = protocolPrompt
+      }
+    } catch (_) {
+      // best-effort only
+    }
+  }
+
   return {
     event: async ({ event }) => {
       try {
@@ -152,7 +198,10 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
             sessionProjects.set(session.id, session.directory)
           }
           const agent = stableAgent(session.id, session.directory)
-          await hydrateSessionPrompt(session.id, session.directory)
+          await Promise.all([
+            hydrateSessionPrompt(session.id, session.directory),
+            hydrateAgentProtocolPrompt(),
+          ])
           await log("info", "session.created -> vybe resume", { sessionID: session.id, agent })
         }
 
@@ -334,11 +383,19 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
       if (!existing) {
         await hydrateSessionPrompt(input.sessionID, sessionProjects.get(input.sessionID))
       }
+
+      if (!cachedAgentProtocolPrompt) {
+        await hydrateAgentProtocolPrompt()
+      }
+
       const prompt = sessionPrompts.get(input.sessionID)
       if (!prompt || prompt.trim() === "") {
         return
       }
 
+      if (cachedAgentProtocolPrompt) {
+        output.system.push(`## Vybe Agent Protocol\n${cachedAgentProtocolPrompt}`)
+      }
       output.system.push(`## Vybe Resume Context\n${prompt}`)
     },
   }

@@ -84,12 +84,31 @@ func runEventsMode(cmd *cobra.Command, all bool, taskID, kind string, since int6
 }
 
 func runSchemaMode(root *cobra.Command) error {
+	type agentProtocol struct {
+		ResumeCommand           string   `json:"resume_command"`
+		FocusTaskField          string   `json:"focus_task_field"`
+		TerminalStatusCommand   string   `json:"terminal_status_command"`
+		TerminalStatuses        []string `json:"terminal_statuses"`
+		OptionalProgressCommand string   `json:"optional_progress_command"`
+		Rule                    string   `json:"rule"`
+	}
 	type resp struct {
-		Commands []commandArgSchema `json:"commands"`
+		Commands      []commandArgSchema `json:"commands"`
+		AgentProtocol agentProtocol      `json:"agent_protocol"`
 	}
 	schemas := make([]commandArgSchema, 0)
 	collectCommandSchemas(root, &schemas)
-	return output.PrintSuccess(resp{Commands: schemas})
+
+	protocol := agentProtocol{
+		ResumeCommand:           "vybe resume --agent <AGENT> --request-id <REQ>",
+		FocusTaskField:          "data.focus_task_id",
+		TerminalStatusCommand:   "vybe task set-status --agent <AGENT> --request-id <REQ> --id <TASK_ID> --status <STATUS>",
+		TerminalStatuses:        []string{"completed", "blocked"},
+		OptionalProgressCommand: "vybe push --agent <AGENT> --request-id <REQ> --json '{\"task_id\":\"<TASK_ID>\",\"event\":{\"kind\":\"progress\",\"message\":\"...\"}}'",
+		Rule:                    "Per loop step, close the focus task with exactly one terminal status: completed or blocked.",
+	}
+
+	return output.PrintSuccess(resp{Commands: schemas, AgentProtocol: protocol})
 }
 
 func runArtifactsMode(taskID string, limit int) error {

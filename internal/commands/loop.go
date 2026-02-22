@@ -394,12 +394,13 @@ func buildAgentPrompt(r *actions.ResumeResponse) string {
 	// Autonomous behavior rules — tells the agent HOW to work, not WHAT commands to run
 	b.WriteString("\n== AUTONOMOUS MODE ==\n")
 	b.WriteString("There is no human to ask questions. You must work independently.\n\n")
-	b.WriteString("Steps:\n")
-	b.WriteString("1. Read \"Your current task\" above. Do exactly what the description says.\n")
-	b.WriteString("2. Work on the task. Log progress using command 3 from COMMANDS above.\n")
-	b.WriteString("3. When finished, run command 1 (DONE) from COMMANDS above.\n")
-	b.WriteString("4. If you get stuck, run command 2 (STUCK) from COMMANDS above.\n")
-	b.WriteString("5. You MUST run either DONE or STUCK before you stop.\n")
+	b.WriteString("Execution contract:\n")
+	b.WriteString("1. Work only on \"Your current task\" and its task_id.\n")
+	b.WriteString("2. Optional: emit progress logs with LOG.\n")
+	b.WriteString("3. Before stopping, run exactly one terminal command:\n")
+	b.WriteString("   - DONE (set-status completed), OR\n")
+	b.WriteString("   - STUCK (set-status blocked).\n")
+	b.WriteString("4. Do not use 'vybe task complete' in autonomous mode.\n")
 
 	return b.String()
 }

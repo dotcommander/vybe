@@ -146,6 +146,7 @@ func buildPrompt(agentName string, brief *store.BriefPacket, recentPrompts []*mo
 	b.WriteString("== VYBE (task tracker) ==\n")
 	task := getBriefTask(brief)
 	appendTaskContext(&b, brief, task)
+	appendDecisionProtocol(&b, task)
 	appendMemoryContext(&b, brief)
 	appendEventContext(&b, brief)
 	appendRecentPromptsContext(&b, recentPrompts)
@@ -183,6 +184,17 @@ func appendTaskContext(b *strings.Builder, brief *store.BriefPacket, task *model
 		actionable = brief.Counts.Pending + brief.Counts.InProgress
 	}
 	fmt.Fprintf(b, "\n%d task(s) awaiting action in this project.\n", actionable)
+}
+
+func appendDecisionProtocol(b *strings.Builder, task *models.Task) {
+	if task == nil {
+		return
+	}
+
+	b.WriteString("\nDecision protocol (strict):\n")
+	fmt.Fprintf(b, "  - Work only on task_id=%s\n", task.ID)
+	b.WriteString("  - Before stopping, set terminal status exactly once: completed OR blocked\n")
+	b.WriteString("  - Use DONE/STUCK commands below (set-status path)\n")
 }
 
 func appendMemoryContext(b *strings.Builder, brief *store.BriefPacket) {
@@ -303,22 +315,23 @@ func appendTaskCommands(b *strings.Builder, agentName string, task *models.Task)
 		return
 	}
 
-	b.WriteString("\n== COMMANDS (run in Bash) ==\n")
-	b.WriteString("Copy-paste these commands exactly. Only replace UPPER_CASE words.\n\n")
+	b.WriteString("\n== COMMANDS (canonical agent path) ==\n")
+	b.WriteString("Run in Bash. Copy-paste exactly. Only replace UPPER_CASE words.\n")
+	b.WriteString("Required terminal action: run command 1 OR 2 exactly once before stopping.\n\n")
 
-	fmt.Fprintf(b, "1. DONE — when you finish the task:\n")
+	fmt.Fprintf(b, "1. DONE (required on success):\n")
 	fmt.Fprintf(b, "   vybe task set-status --agent=%s --request-id=done_$RANDOM --id=%s --status=completed\n\n", agentName, task.ID)
 
-	fmt.Fprintf(b, "2. STUCK — if you cannot complete the task:\n")
+	fmt.Fprintf(b, "2. STUCK (required when blocked):\n")
 	fmt.Fprintf(b, "   vybe task set-status --agent=%s --request-id=block_$RANDOM --id=%s --status=blocked\n\n", agentName, task.ID)
 
-	fmt.Fprintf(b, "3. LOG — to record progress (replace YOUR_MESSAGE):\n")
+	fmt.Fprintf(b, "3. LOG (optional progress):\n")
 	fmt.Fprintf(b, "   vybe push --agent=%s --request-id=log_$RANDOM --json '{\"task_id\":\"%s\",\"event\":{\"kind\":\"progress\",\"message\":\"YOUR_MESSAGE\"}}'\n\n", agentName, task.ID)
 
-	fmt.Fprintf(b, "4. SAVE — to save a note for future sessions (replace YOUR_KEY and YOUR_VALUE):\n")
+	fmt.Fprintf(b, "4. SAVE (optional memory):\n")
 	fmt.Fprintf(b, "   vybe memory set --agent=%s --request-id=mem_$RANDOM --key=YOUR_KEY --value=\"YOUR_VALUE\" --scope=task --scope-id=%s\n\n", agentName, task.ID)
 
-	fmt.Fprintf(b, "5. THINK — after interpreting what the user wants, capture your reasoning:\n")
+	fmt.Fprintf(b, "5. THINK (optional reasoning checkpoint):\n")
 	fmt.Fprintf(b, "   vybe push --agent=%s --request-id=reason_$RANDOM --json '{\"task_id\":\"%s\",\"event\":{\"kind\":\"reasoning\",\"message\":\"INTENT_SUMMARY\",\"metadata\":{\"intent\":\"...\",\"approach\":\"...\",\"files\":[]}}}'\n\n", agentName, task.ID)
 
 	b.WriteString("$RANDOM is a bash variable that generates a unique number. Do not replace it.\n")

@@ -306,8 +306,8 @@ func newTaskAddDepCmd() *cobra.Command {
 func newTaskCompleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "complete",
-		Short: "Atomically complete a task with structured outcome",
-		Long:  "Sets status + emits task_closed event with summary/label metadata in one transaction. Outcome: done|blocked.",
+		Short: "Structured task closure (non-canonical for autonomous loops)",
+		Long:  "Sets status + emits task_closed event with summary/label metadata in one transaction. Outcome: done|blocked. For autonomous loop agents, prefer task set-status with completed|blocked.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			outcome, _ := cmd.Flags().GetString("outcome")

@@ -1,6 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -86,4 +89,52 @@ func TestCollectCommandSchemas_FiltersRootSchemaAndHidden(t *testing.T) {
 
 	require.Len(t, out, 1)
 	require.Equal(t, "vybe task", out[0].Command)
+}
+
+func TestRunSchemaMode_IncludesAgentProtocol(t *testing.T) {
+	root := &cobra.Command{Use: "vybe"}
+	root.AddCommand(&cobra.Command{Use: "task", Short: "Task operations"})
+
+	var runErr error
+	raw := captureStdout(t, func() {
+		runErr = runSchemaMode(root)
+	})
+	require.NoError(t, runErr)
+
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal([]byte(raw), &envelope))
+	require.Equal(t, true, envelope["success"])
+
+	data, ok := envelope["data"].(map[string]any)
+	require.True(t, ok)
+
+	protocol, ok := data["agent_protocol"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "data.focus_task_id", protocol["focus_task_field"])
+
+	statuses, ok := protocol["terminal_statuses"].([]any)
+	require.True(t, ok)
+	require.ElementsMatch(t, []any{"completed", "blocked"}, statuses)
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	defer func() {
+		os.Stdout = origStdout
+	}()
+
+	fn()
+	require.NoError(t, w.Close())
+
+	out, readErr := io.ReadAll(r)
+	require.NoError(t, readErr)
+	require.NoError(t, r.Close())
+
+	return string(out)
 }
