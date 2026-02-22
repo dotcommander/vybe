@@ -121,22 +121,27 @@ func upgradeViaGitPull(srcDir string) error {
 	newVersion := getGitVersion(srcDir)
 
 	migrated, migrateErr := migrateAfterUpgrade()
+	hooksReinstalled, hooksErr := reinstallHooks()
 
 	type result struct {
-		Source       string `json:"source"`
-		OldCommit    string `json:"old_commit"`
-		NewCommit    string `json:"new_commit"`
-		Updated      bool   `json:"updated"`
-		Migrated     bool   `json:"migrated"`
-		MigrateError string `json:"migrate_error,omitempty"`
+		Source           string `json:"source"`
+		OldCommit        string `json:"old_commit"`
+		NewCommit        string `json:"new_commit"`
+		Updated          bool   `json:"updated"`
+		Migrated         bool   `json:"migrated"`
+		MigrateError     string `json:"migrate_error,omitempty"`
+		HooksReinstalled bool   `json:"hooks_reinstalled"`
+		HooksError       string `json:"hooks_error,omitempty"`
 	}
 	return output.PrintSuccess(result{
-		Source:       srcDir,
-		OldCommit:    oldVersion,
-		NewCommit:    newVersion,
-		Updated:      oldVersion != newVersion,
-		Migrated:     migrated,
-		MigrateError: migrateErr,
+		Source:           srcDir,
+		OldCommit:        oldVersion,
+		NewCommit:        newVersion,
+		Updated:          oldVersion != newVersion,
+		Migrated:         migrated,
+		MigrateError:     migrateErr,
+		HooksReinstalled: hooksReinstalled,
+		HooksError:       hooksErr,
 	})
 }
 
@@ -155,24 +160,29 @@ func upgradeViaGoInstall() error {
 
 	newVersion := getVybeVersion()
 	migrated, migrateErr := migrateAfterUpgrade()
+	hooksReinstalled, hooksErr := reinstallHooks()
 
 	type result struct {
-		Source       string `json:"source"`
-		Method       string `json:"method"`
-		OldVersion   string `json:"old_version"`
-		NewVersion   string `json:"new_version"`
-		Updated      bool   `json:"updated"`
-		Migrated     bool   `json:"migrated"`
-		MigrateError string `json:"migrate_error,omitempty"`
+		Source           string `json:"source"`
+		Method           string `json:"method"`
+		OldVersion       string `json:"old_version"`
+		NewVersion       string `json:"new_version"`
+		Updated          bool   `json:"updated"`
+		Migrated         bool   `json:"migrated"`
+		MigrateError     string `json:"migrate_error,omitempty"`
+		HooksReinstalled bool   `json:"hooks_reinstalled"`
+		HooksError       string `json:"hooks_error,omitempty"`
 	}
 	return output.PrintSuccess(result{
-		Source:       "github.com/dotcommander/vybe@latest",
-		Method:       "go install",
-		OldVersion:   oldVersion,
-		NewVersion:   newVersion,
-		Updated:      oldVersion != newVersion,
-		Migrated:     migrated,
-		MigrateError: migrateErr,
+		Source:           "github.com/dotcommander/vybe@latest",
+		Method:           "go install",
+		OldVersion:       oldVersion,
+		NewVersion:       newVersion,
+		Updated:          oldVersion != newVersion,
+		Migrated:         migrated,
+		MigrateError:     migrateErr,
+		HooksReinstalled: hooksReinstalled,
+		HooksError:       hooksErr,
 	})
 }
 
@@ -190,6 +200,32 @@ func migrateAfterUpgrade() (bool, string) {
 	if err := store.MigrateDB(db, dbPath); err != nil {
 		return false, err.Error()
 	}
+	return true, ""
+}
+
+// reinstallHooks runs hook uninstall + install to pick up changes in the new binary.
+// Best-effort: returns status and error string, never fails the upgrade.
+func reinstallHooks() (bool, string) {
+	uninstallCtx, uninstallCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer uninstallCancel()
+
+	uninstall := exec.CommandContext(uninstallCtx, "vybe", "hook", "uninstall") //nolint:gosec // G204: vybe is the tool being upgraded
+	uninstall.Stdout = os.Stderr
+	uninstall.Stderr = os.Stderr
+	if err := uninstall.Run(); err != nil {
+		return false, fmt.Sprintf("hook uninstall failed: %v", err)
+	}
+
+	installCtx, installCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer installCancel()
+
+	install := exec.CommandContext(installCtx, "vybe", "hook", "install") //nolint:gosec // G204: vybe is the tool being upgraded
+	install.Stdout = os.Stderr
+	install.Stderr = os.Stderr
+	if err := install.Run(); err != nil {
+		return false, fmt.Sprintf("hook install failed: %v", err)
+	}
+
 	return true, ""
 }
 
