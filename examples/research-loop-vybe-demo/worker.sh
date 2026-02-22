@@ -10,27 +10,11 @@ if [[ -z "${VYBE_AGENT:-}" ]]; then
   exit 2
 fi
 
-PROJECT_ARG=""
-PROMPT=""
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --project)
-      PROJECT_ARG="$2"
-      shift 2
-      ;;
-    -p)
-      PROMPT="$2"
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-  esac
-done
+# vybe loop passes extra flags; ignore them.
+shift $#
 
 rid() {
-  printf '%s_%s_%s' "$1" "$(date +%s%N)" "$RANDOM"
+  printf '%s_%s_%s' "$1" "$(date +%s)" "$$_$RANDOM"
 }
 
 BRIEF_JSON="$(vybe resume --agent "$VYBE_AGENT" --peek)"
@@ -61,9 +45,7 @@ cat >"$ARTIFACT_PATH" <<EOF
 
 - task_id: $TASK_ID
 - title: $TITLE
-- project_arg: ${PROJECT_ARG:-none}
 - workflow: local-first simulated
-- prompt_bytes: ${#PROMPT}
 
 ## Observation
 

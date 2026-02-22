@@ -1,69 +1,45 @@
-# Vybe Research Loop Demo (Genealogy Style)
+# Vybe Research Loop Demo
 
-This demo models a genealogy-style research queue using `vybe` primitives.
-
-It shows a loop like:
-
-1. seed research tasks
-2. resume deterministic focus
-3. run worker on one task
-4. log progress + memory + artifacts
-5. mark task `completed` or `blocked`
-6. continue automatically
-
-The worker is intentionally simple and deterministic so we can measure what
-`vybe` supports natively and what is still missing for a full genealogy loop.
+Demonstrates `vybe loop` driving a mock worker through a dependency chain of four tasks.
 
 ## Requirements
 
 - `vybe` binary on PATH
 - `jq`
 
-## Quick Run
+## Run
 
 ```bash
-cd ~/go/src/vybe
-
-# 1) seed isolated demo DB + tasks
-./examples/research-loop-vybe-demo/setup-demo.sh
-
-# 2) run autonomous loop with mock worker
-./examples/research-loop-vybe-demo/run-demo.sh
-
-# 3) print support/missing report from this run
-./examples/research-loop-vybe-demo/evaluate-support.sh
+./examples/research-loop-vybe-demo/demo.sh
 ```
 
-All demo state is isolated to:
+This single command:
 
-- `./.work/demo/research-loop-vybe.db`
-- `./output/research-loop-vybe-demo/`
+1. Creates an isolated demo DB at `.work/demo/research-loop-vybe.db`
+2. Seeds 4 genealogy-themed research tasks with a dependency chain
+3. Sets project-scoped memory (`evidence_mode`, `local_first`)
+4. Runs `vybe loop` with the mock worker
+5. Prints a summary of task statuses
 
-## What The Mock Worker Does
+## What The Worker Does
 
 - Reads current focus via `vybe resume --peek`
-- Logs `research_started` and `research_finished` events via `vybe push`
+- Logs `research_started` / `research_finished` events via `vybe push`
 - Writes task-scoped memory checkpoints
-- Writes an artifact markdown file per task via `vybe push`
-- Calls `vybe task complete --outcome blocked` when title contains `BLOCKED_DEMO`
-- Calls `vybe task complete --outcome done` otherwise
+- Writes an artifact markdown file per task
+- Marks task `blocked` when title contains `BLOCKED_DEMO`
+- Marks task `done` otherwise
 
-All scripts are executable (`chmod +x` already applied).
+## Files
 
-This gives a realistic automation pass without needing an external LLM.
+| File | Purpose |
+|------|---------|
+| `demo.sh` | Setup + run + summary (single entry point) |
+| `worker.sh` | Mock worker invoked by `vybe loop --command` |
 
-## Interpreting "Support vs Missing"
+## Demo State
 
-The evaluator script reports two sections:
+All state is isolated and gitignored:
 
-- **Supported now**: capabilities proven by commands/events in this run
-- **Missing for genealogy parity**: features you still implement outside vybe
-
-Current expected "missing" areas are:
-
-- no built-in source-tier evidence policy engine (Tier 1/2/3/4 conflict rules)
-- no built-in queue statuses `queued`/`claimed` heartbeat semantics per task
-- no built-in remote cache protocol (`sha256(url)` cache file convention)
-- no built-in domain packet generator from ancestor facts files
-
-These are workflow/domain layers that can be built on top of `vybe`.
+- `.work/demo/research-loop-vybe.db`
+- `output/research-loop-vybe-demo/`
