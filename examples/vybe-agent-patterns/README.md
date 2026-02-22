@@ -4,13 +4,13 @@ A ready-to-use Claude Code skill that teaches Claude how and when to use `vybe` 
 
 ## Install
 
-Copy the skill directory into your Claude Code skills:
+Copy the skill directory into your Claude Code skills (run from the vybe repo root):
 
 ```bash
 cp -r examples/vybe-agent-patterns ~/.claude/skills/vybe-agent-patterns
 ```
 
-Or symlink it to track upstream changes:
+Or symlink it to track upstream changes (run from the vybe repo root):
 
 ```bash
 ln -sf "$(pwd)/examples/vybe-agent-patterns" ~/.claude/skills/vybe-agent-patterns

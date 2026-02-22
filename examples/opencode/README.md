@@ -22,6 +22,12 @@ Register the plugin in your OpenCode config by pointing to the plugin file:
 
 Or symlink it into your OpenCode plugins directory and reference it by name.
 
+## Configuration
+
+The plugin uses the default vybe database at `~/.config/vybe/vybe.db`. To use a
+different database, set `VYBE_DB_PATH` in your environment before launching
+OpenCode.
+
 ## Hook Entry Points
 
 The plugin wires 8 OpenCode hook entry points:

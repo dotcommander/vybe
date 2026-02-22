@@ -36,7 +36,6 @@ async function runVybe(args: string[]): Promise<{ stdout: string; stderr: string
   const [outBuf, errBuf] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
-    proc.exited,
   ])
 
   const code = await proc.exited
@@ -126,6 +125,10 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
     if (sessionPrompts.size >= 100) {
       const oldest = sessionPrompts.keys().next().value
       if (oldest) sessionPrompts.delete(oldest)
+    }
+    if (sessionProjects.size >= 100) {
+      const oldest = sessionProjects.keys().next().value
+      if (oldest) sessionProjects.delete(oldest)
     }
     const agent = stableAgent(sessionID, projectDir)
     const args = ["resume", "--agent", agent, "--request-id", reqID("oc_session_start")]
@@ -242,18 +245,18 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
         if (isError) {
           // Log all tool failures
           const msg = truncate(`${tool} failed`, 500)
-          const metadata = JSON.stringify({
+          const metadata = {
             source: "opencode",
             session_id: sessionID,
             tool_name: tool,
             error: truncate(String(input.error || ""), 2048),
             metadata_schema_version: "v1",
-          })
+          }
           await runVybe([
             "push",
             "--agent", agent,
             "--request-id", reqID("oc_tool_failure"),
-            "--json", JSON.stringify({ event: { kind: "tool_failure", message: msg, metadata: JSON.parse(metadata) } }),
+            "--json", JSON.stringify({ event: { kind: "tool_failure", message: msg, metadata } }),
           ])
         } else if (MUTATING_TOOLS[tool]) {
           // Only log mutating tool successes
@@ -264,17 +267,17 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
           else if (args.command) msg = `${tool}: ${truncate(String(args.command), 120)}`
           msg = truncate(msg, 500)
 
-          const metadata = JSON.stringify({
+          const metadata = {
             source: "opencode",
             session_id: sessionID,
             tool_name: tool,
             metadata_schema_version: "v1",
-          })
+          }
           await runVybe([
             "push",
             "--agent", agent,
             "--request-id", reqID("oc_tool_success"),
-            "--json", JSON.stringify({ event: { kind: "tool_success", message: msg, metadata: JSON.parse(metadata) } }),
+            "--json", JSON.stringify({ event: { kind: "tool_success", message: msg, metadata } }),
           ])
         }
       } catch (err) {
@@ -291,7 +294,7 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
         const prompt = extractUserPrompt(output.parts as any[])
         if (!prompt) return
 
-        const truncated = prompt.length > 500 ? prompt.slice(0, 500) : prompt
+        const truncated = truncate(prompt, 500)
 
         await runVybe([
           "push",
