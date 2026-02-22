@@ -12,7 +12,7 @@ Purpose: route you to the next correct action fast.
 
 Working examples (Claude Code skill, autonomous loop demo, OpenCode plugin) are in [`examples/`](../examples/).
 
-For machine callers, use `vybe schema commands` as the source of truth for flags/required fields.
+For machine callers, use `vybe schema commands` as the source of truth for flags/required fields and the `agent_protocol` contract.
 
 Beta policy: no backward-compatibility shims. Keep one canonical command/flag shape.
 

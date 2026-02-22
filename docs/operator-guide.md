@@ -50,8 +50,8 @@ if [ -n "$TASK_ID" ]; then
 
   # Do work...
 
-  vybe task complete --agent "$VYBE_AGENT" --request-id "$(req_id)" \
-    --id "$TASK_ID" --outcome done --summary "Completed" >/dev/null
+  vybe task set-status --agent "$VYBE_AGENT" --request-id "$(req_id)" \
+    --id "$TASK_ID" --status completed >/dev/null
 fi
 ```
 

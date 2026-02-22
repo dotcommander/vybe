@@ -33,7 +33,7 @@ Purpose: canonical machine-facing contract for assistants, plugins, and autonomo
 ### Command discovery
 
 - `vybe` (no args) returns JSON command index.
-- `vybe schema commands` returns argument schema + mutation hints.
+- `vybe schema commands` returns argument schema + mutation hints + `agent_protocol` guidance.
 - Prefer schema-driven calls over hardcoded flags.
 
 ## Canonical command surface
@@ -78,12 +78,14 @@ vybe resume --agent "$AGENT" --request-id "$REQ" --project-dir "$WORKSPACE"
 
 Inject `.data.prompt` (or `.data.brief`) into assistant context.
 
+For autonomous loops, use one terminal path: `task set-status --status completed|blocked` exactly once for the current `focus_task_id`.
+
 ### Task sync
 
 - create: `vybe task create ...`
 - claim/start: `vybe task begin ...` or `vybe resume ...` (deterministic focus)
-- complete/blocked: `vybe task complete --outcome done|blocked --summary "..."`
-- low-level transition: `vybe task set-status ...`
+- terminal status (canonical agent path): `vybe task set-status --id ... --status completed|blocked`
+- structured closure (optional, non-canonical for autonomous loops): `vybe task complete --outcome done|blocked --summary "..."`
 - task read: `vybe task get --id ...`
 - queue read: `vybe task list --project-id ...`
 

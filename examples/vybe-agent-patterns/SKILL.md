@@ -31,7 +31,7 @@ Patterns and commands for using vybe as the durable state layer in autonomous ag
 - Every write command MUST include `--request-id` (enables idempotent retries)
 - Agent MUST set `VYBE_AGENT` env var or `--agent` flag (stable identity)
 - Resume MUST be called at session start before accessing focus task
-- Task completion MUST include `--outcome` and `--summary` (audit trail)
+- Task closure in autonomous loops MUST use `vybe task set-status --status completed|blocked`
 
 ## Install (BLOCKING)
 
@@ -72,7 +72,7 @@ vybe task create --request-id "plan_step1_$(date +%s)_$$" \
 
 ### Resume Cycle (MUST Follow)
 
-The fundamental pattern: resume -> work -> log -> complete -> resume.
+The fundamental pattern: resume -> work -> log -> set-status -> resume.
 
 ```bash
 export VYBE_AGENT=claude
@@ -99,9 +99,9 @@ fi
 vybe push --request-id "push_$(date +%s)_$$" --json \
   "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"progress\",\"message\":\"Implemented JWT validation\"}}"
 
-# 6. Complete task (next resume auto-advances to next task)
-vybe task complete --request-id "done_$(date +%s)_$$" \
-  --id "$TASK_ID" --outcome done --summary "Auth middleware shipped"
+# 6. Close task (canonical agent path: set terminal status)
+vybe task set-status --request-id "done_$(date +%s)_$$" \
+  --id "$TASK_ID" --status completed
 ```
 
 **BLOCKING:** Always check `.data.focus_task_id` for null/empty. Resume returns empty focus when no work available.
@@ -241,7 +241,7 @@ vybe push --request-id=push_$(date +%s)_$$ --json '{
 #!/usr/bin/env bash
 # Missing request IDs, no null checks, no error handling
 TASK_ID=$(vybe resume --peek | jq '.data.brief.task.id')
-vybe task complete --id "$TASK_ID" --outcome done
+vybe task set-status --id "$TASK_ID" --status completed
 ```
 
 **After (crash-safe):**
@@ -270,12 +270,12 @@ while true; do
   vybe push --request-id "push_$(date +%s)_$$" --json \
     "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"progress\",\"message\":\"Processing...\"}}"
 
-  vybe task complete --request-id "done_$(date +%s)_$$" \
-    --id "$TASK_ID" --outcome done --summary "Processed"
+  vybe task set-status --request-id "done_$(date +%s)_$$" \
+    --id "$TASK_ID" --status completed
 done
 ```
 
-**Key improvements:** idempotent request IDs, success check, null checks, resume instead of brief, explicit outcomes.
+**Key improvements:** idempotent request IDs, success check, null checks, resume instead of brief, explicit terminal status.
 
 ### Task Decomposition (Before/After)
 
@@ -388,8 +388,8 @@ if [ -n "$TASK_ID" ] && [ "$TASK_ID" != "null" ]; then
   vybe push --request-id "push_$TS" --json \
     "{\"task_id\":\"$TASK_ID\",\"artifacts\":[{\"file_path\":\"./output/papers.json\"}]}"
 
-  vybe task complete --request-id "done_$TS" --id "$TASK_ID" \
-    --outcome done --summary "Found 47 papers, extracted 1200 citations"
+  vybe task set-status --request-id "done_$TS" --id "$TASK_ID" \
+    --status completed
 fi
 ```
 
@@ -425,7 +425,7 @@ export VYBE_AGENT=claude
 # Task lifecycle
 vybe task create --request-id R --title T --desc D
 vybe task begin  --request-id R --id ID
-vybe task complete --request-id R --id ID --outcome done --summary S
+vybe task set-status --request-id R --id ID --status completed
 vybe task list
 vybe task get --id ID
 
@@ -463,7 +463,7 @@ vybe status --check                         # fast health gate (exit code)
 | Hardcoded task IDs | Brittle, breaks on task recreation | Use `jq -r '.data.focus_task_id'` to extract from resume |
 | Ignoring `focus_task_id == null` | Crash when no work available | Check `if [ -z "$TASK_ID" ]` before processing |
 | Manual JSON parsing | Shell quoting errors, fragile | Use `jq` for all JSON extraction (BLOCKING) |
-| Skipping `--outcome` on complete | Audit trail incomplete, no signal | MUST provide `--outcome done\|blocked` |
+| Skipping terminal status update | Loop cannot classify task outcome | MUST run `task set-status --status completed\|blocked` once per focus task |
 | Unchecked `.success` field | Silent failures, wrong data consumed | Always check `jq -r '.success'` before using `.data` |
 | Global memory for task state | Data leaks across tasks | Use `--scope=task --scope-id=$TASK_ID` |
 | `task start` instead of `task begin` | Command not found | Use `vybe task begin` |

@@ -214,7 +214,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="insight"><span class="arrow">→</span> Output files linked to tasks. New sessions find what was built immediately — no archaeology.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">complete_task</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;implement_auth&gt; --outcome done --summary "Auth implemented with JWT strategy" --request-id demo_$RANDOM</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task set-status --id &lt;implement_auth&gt; --status completed --request-id demo_$RANDOM</span></div>
 <div class="detail">Task: in_progress → completed</div>
 <div class="insight"><span class="arrow">→</span> Task done. Next resume auto-advances to the next task in the queue.</div></div>
 
@@ -261,7 +261,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">complete_write_tests_task</span><span class="step-pass">✓</span></div>
 <div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task begin --id &lt;write_tests&gt; --request-id demo_$RANDOM</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;write_tests&gt; --outcome done --summary "All tests written and passing" --request-id demo_$RANDOM</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task set-status --id &lt;write_tests&gt; --status completed --request-id demo_$RANDOM</span></div>
 <div class="detail">Write tests: pending → in_progress → completed</div>
 <div class="insight"><span class="arrow">→</span> Completing 'Implement auth' auto-unblocked this dependency task, so the next session can pick it up immediately.</div></div>
 
@@ -282,7 +282,7 @@ main{max-width:800px;margin:0 auto;padding:0 24px 80px}
 <div class="insight"><span class="arrow">→</span> Single-writer claim semantics prevent duplicate work when multiple agents race for the same final task.</div></div>
 
 <div class="step"><div class="step-header"><span class="step-dot">●</span><span class="step-name">complete_final_task</span><span class="step-pass">✓</span></div>
-<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task complete --id &lt;deploy&gt; --outcome done --summary "Deployed to production" --request-id demo_$RANDOM</span></div>
+<div class="cmd"><span class="dollar">$</span> <span class="bin">vybe</span> <span class="args">task set-status --id &lt;deploy&gt; --status completed --request-id demo_$RANDOM</span></div>
 <div class="detail">Deploy: in_progress → completed — all 3 tasks done</div>
 <div class="insight"><span class="arrow">→</span> Final task complete. The project queue is now fully drained across sessions.</div></div>
 

@@ -61,7 +61,7 @@ Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists
 
 **Removed:** v0.8.x simplification
 **Reason:** Hard deletion is destructive and not required for continuity workflows. Agents should keep immutable history and retire work by lifecycle state (`completed`/`blocked`) instead of removing rows.
-**Alternative:** `vybe task complete --outcome done|blocked --summary "..."` or `vybe task set-status ...`.
+**Alternative:** `vybe task set-status --status completed|blocked ...` for loop agents; `vybe task complete --outcome done|blocked --summary "..."` remains optional structured closure.
 
 ### `task remove-dep` (CLI command only)
 
@@ -101,7 +101,7 @@ Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists
 
 ### `task set-status`
 
-**Kept.** The loop command's `markTaskBlocked` calls `set-status` to transition tasks to blocked. `task complete --outcome=blocked` is semantically different (closes with summary). `set-status` is the raw status transition agents need.
+**Kept.** The loop command's `markTaskBlocked` calls `set-status` to transition tasks to blocked. `task complete --outcome=blocked` is semantically different (closes with summary). `set-status` is the canonical autonomous-loop terminal transition agents need.
 
 ### `brief` (removed)
 

@@ -91,8 +91,8 @@ vybe task create --request-id task_1 --title "Ship feature" --desc "Implement X"
 # get current focus + context
 vybe resume --request-id resume_1
 
-# close when done
-vybe task complete --request-id close_1 --id <TASK_ID> --outcome done --summary "Finished"
+# close when done (canonical agent path)
+vybe task set-status --request-id done_1 --id <TASK_ID> --status completed
 ```
 
 If a session crashes, run `vybe resume` and keep going.
