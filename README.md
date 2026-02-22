@@ -10,6 +10,8 @@ AI coding agents lose context when sessions end. Crashes, context resets, and ha
 
 `vybe` is that place.
 
+![vybe demo](demo.gif)
+
 ## Features
 
 **Task lifecycle**
