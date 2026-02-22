@@ -130,41 +130,43 @@ func LoadOrCreateAgentState(db *sql.DB, agentName string) (*models.AgentState, e
 	var state models.AgentState
 
 	err := RetryWithBackoff(func() error {
-		// Concurrency-safe create: two workers may race to create the same agent.
-		// INSERT OR IGNORE ensures only one wins and others fall through to the SELECT.
-		if _, err := db.ExecContext(context.Background(), `
-			INSERT OR IGNORE INTO agent_state (agent_name, last_seen_event_id, version, last_active_at)
-			VALUES (?, 0, 1, ?)
-		`, agentName, time.Now()); err != nil {
-			return fmt.Errorf("failed to ensure agent state: %w", err)
-		}
+		return Transact(db, func(tx *sql.Tx) error {
+			// Concurrency-safe create: two workers may race to create the same agent.
+			// INSERT OR IGNORE ensures only one wins and others fall through to the SELECT.
+			if _, err := tx.ExecContext(context.Background(), `
+				INSERT OR IGNORE INTO agent_state (agent_name, last_seen_event_id, version, last_active_at)
+				VALUES (?, 0, 1, ?)
+			`, agentName, time.Now()); err != nil {
+				return fmt.Errorf("failed to ensure agent state: %w", err)
+			}
 
-		row := db.QueryRowContext(context.Background(), `
-			SELECT agent_name, last_seen_event_id, focus_task_id, focus_project_id, version, last_active_at
-			FROM agent_state
-			WHERE agent_name = ?
-		`, agentName)
+			row := tx.QueryRowContext(context.Background(), `
+				SELECT agent_name, last_seen_event_id, focus_task_id, focus_project_id, version, last_active_at
+				FROM agent_state
+				WHERE agent_name = ?
+			`, agentName)
 
-		var focusTaskID, focusProjectID sql.NullString
-		if err := row.Scan(
-			&state.AgentName,
-			&state.LastSeenEventID,
-			&focusTaskID,
-			&focusProjectID,
-			&state.Version,
-			&state.LastActiveAt,
-		); err != nil {
-			return fmt.Errorf("failed to load agent state: %w", err)
-		}
+			var focusTaskID, focusProjectID sql.NullString
+			if err := row.Scan(
+				&state.AgentName,
+				&state.LastSeenEventID,
+				&focusTaskID,
+				&focusProjectID,
+				&state.Version,
+				&state.LastActiveAt,
+			); err != nil {
+				return fmt.Errorf("failed to load agent state: %w", err)
+			}
 
-		if focusTaskID.Valid {
-			state.FocusTaskID = focusTaskID.String
-		}
-		if focusProjectID.Valid {
-			state.FocusProjectID = focusProjectID.String
-		}
+			if focusTaskID.Valid {
+				state.FocusTaskID = focusTaskID.String
+			}
+			if focusProjectID.Valid {
+				state.FocusProjectID = focusProjectID.String
+			}
 
-		return nil
+			return nil
+		})
 	})
 
 	if err != nil {

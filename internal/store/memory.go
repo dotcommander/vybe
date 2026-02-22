@@ -307,7 +307,7 @@ func DeleteMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, scop
 			return idemResult{}, fmt.Errorf("failed to get rows affected: %w", txErr)
 		}
 		if rowsAffected == 0 {
-			return idemResult{}, errors.New("memory entry not found")
+			return idemResult{EventID: 0}, nil
 		}
 
 		eventID, txErr := InsertEventTx(tx, models.EventKindMemoryDelete, agentName, taskID, fmt.Sprintf("Memory deleted: %s", key), string(metaBytes))

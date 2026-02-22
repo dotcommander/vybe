@@ -406,11 +406,8 @@ Register via 'vybe hook install'.`,
 				_, _ = appendEventWithFocusTask(
 					db, hctx.AgentName, requestID, models.EventKindUserPrompt, hctx.CWD, "", msg, string(metadata),
 				)
-				return nil
-			})
 
-			// Inject task context into model. Richer output for trigger words.
-			_ = withDB(func(db *DB) error {
+				// Inject task context into model. Richer output for trigger words.
 				state, err := store.LoadOrCreateAgentState(db, hctx.AgentName)
 				if err != nil {
 					return err
@@ -472,7 +469,7 @@ func emitRichBrief(db *DB, agentName, focusTaskID, projectID string) error {
 	b.WriteString("== VYBE PROJECT SUMMARY ==\n")
 
 	// List all non-completed tasks for this project
-	tasks, err := store.ListTasks(db, "", projectID, 0)
+	tasks, err := store.ListTasks(db, "", projectID, -1)
 	if err != nil {
 		return err
 	}

@@ -352,6 +352,12 @@ func batchLoadTaskDependencies(db *sql.DB, taskIDs []string) (map[string][]strin
 // SetBlockedReasonTx sets the blocked_reason column for a task.
 // Pass empty string to clear.
 func SetBlockedReasonTx(tx *sql.Tx, taskID, reason string) error {
+	const maxBlockedReasonLen = 256
+	runes := []rune(reason)
+	if len(runes) > maxBlockedReasonLen {
+		reason = string(runes[:maxBlockedReasonLen])
+	}
+
 	var val any
 	if reason != "" {
 		val = reason

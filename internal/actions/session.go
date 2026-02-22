@@ -333,10 +333,11 @@ func sessionRetrospectiveFromDigest(db *sql.DB, requestIDPrefix string, digest *
 
 // truncate returns s capped at maxLen characters.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen]
+	return string(runes[:maxLen])
 }
 
 // AutoSummarizeEventsIdempotent archives old events when active count exceeds threshold,

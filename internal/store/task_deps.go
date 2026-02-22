@@ -19,16 +19,18 @@ func AddTaskDependency(db *sql.DB, taskID, dependsOnTaskID string) error {
 
 // detectCycleTx performs BFS from dependsOnTaskID following task_dependencies edges.
 // If it reaches taskID, adding taskID→dependsOnTaskID would create a cycle.
-// Max depth of 50 to prevent runaway traversals.
+// Max 1000 nodes to prevent runaway traversals.
 func detectCycleTx(tx *sql.Tx, taskID, dependsOnTaskID string) error {
-	const maxDepth = 50
+	const maxNodes = 1000
 
 	visited := map[string]bool{dependsOnTaskID: true}
 	queue := []string{dependsOnTaskID}
+	examined := 0
 
-	for depth := 0; depth < maxDepth && len(queue) > 0; depth++ {
+	for len(queue) > 0 && examined < maxNodes {
 		current := queue[0]
 		queue = queue[1:]
+		examined++
 
 		neighbors, err := queryStringColumn(tx, `
 			SELECT depends_on_task_id

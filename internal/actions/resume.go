@@ -411,8 +411,8 @@ func ResumeWithOptionsIdempotent(db *sql.DB, agentName, requestID string, opts R
 		return nil, err
 	}
 
-	// After transaction, if focus changed due to contention, rebuild brief with authoritative focus.
-	if persisted.FocusTaskID != pkt.focusTaskID {
+	// After transaction, if focus or cursor changed due to contention, rebuild brief with authoritative state.
+	if persisted.FocusTaskID != pkt.focusTaskID || persisted.NewCursor != pkt.newCursor {
 		newBrief, briefErr := store.BuildBrief(db, persisted.FocusTaskID, persisted.FocusProjectID, agentName)
 		if briefErr != nil {
 			slog.Default().Warn("failed to rebuild brief after contention", "error", briefErr)
