@@ -1,4 +1,4 @@
-package commands
+package hookcmd
 
 import (
 	"os"
@@ -20,7 +20,7 @@ func newTargetFlagCmd() *cobra.Command {
 func TestResolveTargetFlags_DefaultsToClaudeOnly(t *testing.T) {
 	cmd := newTargetFlagCmd()
 
-	claude, opencode, err := resolveTargetFlags(cmd)
+	claude, opencode, err := ResolveTargetFlags(cmd)
 	require.NoError(t, err)
 	require.True(t, claude)
 	require.False(t, opencode)
@@ -31,7 +31,7 @@ func TestResolveTargetFlags_ReturnsErrorWhenBothExplicitlyFalse(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("claude", "false"))
 	require.NoError(t, cmd.Flags().Set("opencode", "false"))
 
-	claude, opencode, err := resolveTargetFlags(cmd)
+	claude, opencode, err := ResolveTargetFlags(cmd)
 	require.Error(t, err)
 	require.False(t, claude)
 	require.False(t, opencode)
@@ -42,14 +42,14 @@ func TestResolveTargetFlags_BothTrue(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("claude", "true"))
 	require.NoError(t, cmd.Flags().Set("opencode", "true"))
 
-	claude, opencode, err := resolveTargetFlags(cmd)
+	claude, opencode, err := ResolveTargetFlags(cmd)
 	require.NoError(t, err)
 	require.True(t, claude)
 	require.True(t, opencode)
 }
 
 func TestHasVybeHook(t *testing.T) {
-	require.False(t, hasVybeHook(nil))
+	require.False(t, HasVybeHook(nil))
 
 	entries := []any{
 		map[string]any{
@@ -58,30 +58,30 @@ func TestHasVybeHook(t *testing.T) {
 			},
 		},
 	}
-	require.True(t, hasVybeHook(entries))
+	require.True(t, HasVybeHook(entries))
 
 	// Malformed entries should not panic.
-	require.False(t, hasVybeHook([]any{"not-a-map"}))
-	require.False(t, hasVybeHook([]any{map[string]any{"hooks": "not-a-slice"}}))
+	require.False(t, HasVybeHook([]any{"not-a-map"}))
+	require.False(t, HasVybeHook([]any{map[string]any{"hooks": "not-a-slice"}}))
 }
 
 func TestIsVybeHookCommand(t *testing.T) {
-	require.True(t, isVybeHookCommand("vybe hook session-start"))
-	require.True(t, isVybeHookCommand("/usr/local/bin/vybe hook checkpoint"))
-	require.True(t, isVybeHookCommand(`"/Users/someone/go/bin/vybe" hook task-completed`))
+	require.True(t, IsVybeHookCommand("vybe hook session-start"))
+	require.True(t, IsVybeHookCommand("/usr/local/bin/vybe hook checkpoint"))
+	require.True(t, IsVybeHookCommand(`"/Users/someone/go/bin/vybe" hook task-completed`))
 
-	require.False(t, isVybeHookCommand("echo vybe hook session-start"))
-	require.False(t, isVybeHookCommand("/usr/local/bin/not-vybe hook session-start"))
-	require.False(t, isVybeHookCommand("vybe status"))
-	require.False(t, isVybeHookCommand(""))
-	require.False(t, isVybeHookCommand("vybe hook unknown-subcommand"))
-	require.False(t, isVybeHookCommand("vybe hook retrospective"))
-	require.False(t, isVybeHookCommand("vybe hook retrospective-bg"))
-	require.True(t, isVybeHookCommand("vybe hook session-end"))
-	require.False(t, isVybeHookCommand("vybe hook tool-success"))
-	require.False(t, isVybeHookCommand("vybe hook subagent-stop"))
-	require.False(t, isVybeHookCommand("vybe hook subagent-start"))
-	require.False(t, isVybeHookCommand("vybe hook stop"))
+	require.False(t, IsVybeHookCommand("echo vybe hook session-start"))
+	require.False(t, IsVybeHookCommand("/usr/local/bin/not-vybe hook session-start"))
+	require.False(t, IsVybeHookCommand("vybe status"))
+	require.False(t, IsVybeHookCommand(""))
+	require.False(t, IsVybeHookCommand("vybe hook unknown-subcommand"))
+	require.False(t, IsVybeHookCommand("vybe hook retrospective"))
+	require.False(t, IsVybeHookCommand("vybe hook retrospective-bg"))
+	require.True(t, IsVybeHookCommand("vybe hook session-end"))
+	require.False(t, IsVybeHookCommand("vybe hook tool-success"))
+	require.False(t, IsVybeHookCommand("vybe hook subagent-stop"))
+	require.False(t, IsVybeHookCommand("vybe hook subagent-start"))
+	require.False(t, IsVybeHookCommand("vybe hook stop"))
 }
 
 func TestVybeHookEventNames_ContainsAllEvents(t *testing.T) {
