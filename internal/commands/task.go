@@ -306,8 +306,8 @@ func newTaskAddDepCmd() *cobra.Command {
 func newTaskCompleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "complete",
-		Short: "Structured task closure (non-canonical for autonomous loops)",
-		Long:  "Sets status + emits task_closed event with summary/label metadata in one transaction. Outcome: done|blocked. For autonomous loop agents, prefer task set-status with completed|blocked.",
+		Short: "DEPRECATED: use 'vybe task set-status'",
+		Long:  "DEPRECATED: Use 'vybe task set-status --status completed' instead.\n\nSets status + emits task_closed event with summary/label metadata in one transaction. Outcome: done|blocked. For autonomous loop agents, prefer task set-status with completed|blocked.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			outcome, _ := cmd.Flags().GetString("outcome")

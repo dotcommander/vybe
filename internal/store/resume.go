@@ -53,16 +53,17 @@ type PipelineTask struct {
 
 // BriefPacket contains all context needed for an agent to resume work
 type BriefPacket struct {
-	Task           *models.Task       `json:"task"`
-	Project        *models.Project    `json:"project,omitempty"`
-	RelevantMemory []*models.Memory   `json:"relevant_memory"`
-	RecentEvents   []*models.Event    `json:"recent_events"`
-	Artifacts      []*models.Artifact `json:"artifacts"`
-	PriorReasoning []*models.Event    `json:"prior_reasoning"`
-	ApproxTokens   int                `json:"approx_tokens"`
-	Counts         *TaskStatusCounts  `json:"counts,omitempty"`
-	Pipeline       []PipelineTask     `json:"pipeline,omitempty"`
-	Unlocks        []PipelineTask     `json:"unlocks,omitempty"`
+	BriefVersion     string             `json:"brief_version"`
+	Task             *models.Task       `json:"task"`
+	Project          *models.Project    `json:"project,omitempty"`
+	RelevantMemory   []*models.Memory   `json:"relevant_memory"`
+	RecentEvents     []*models.Event    `json:"recent_events"`
+	Artifacts        []*models.Artifact `json:"artifacts"`
+	PriorReasoning   []*models.Event    `json:"prior_reasoning"`
+	ApproxTokens     int                `json:"approx_tokens"`
+	Counts           *TaskStatusCounts  `json:"counts,omitempty"`
+	Pipeline         []PipelineTask     `json:"pipeline,omitempty"`
+	Unlocks          []PipelineTask     `json:"unlocks,omitempty"`
 }
 
 // FetchEventsSince retrieves events after a cursor position.
@@ -244,6 +245,7 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 //nolint:gocognit,gocyclo,revive // brief assembly fetches task, project, memory, events, artifacts across multiple optional branches
 func BuildBrief(db *sql.DB, focusTaskID, focusProjectID, agentName string) (*BriefPacket, error) {
 	brief := &BriefPacket{
+		BriefVersion:   "v1",
 		RelevantMemory: []*models.Memory{},
 		RecentEvents:   []*models.Event{},
 		Artifacts:      []*models.Artifact{},
