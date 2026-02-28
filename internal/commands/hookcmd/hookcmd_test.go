@@ -1,6 +1,8 @@
 package hookcmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -377,4 +379,133 @@ func TestRegisterOpencodePlugin_PreservesExistingPlugins(t *testing.T) {
 	plugins, ok = settings["plugin"].([]any)
 	require.True(t, ok)
 	require.Len(t, plugins, 2)
+}
+
+func TestInstallCmd_Claude_ProjectScoped(t *testing.T) {
+	// Create a temp dir to act as the project root.
+	dir := t.TempDir()
+
+	// Save and restore working directory.
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	// Create .claude directory (the command will also create it via writeSettings,
+	// but pre-creating ensures the path exists for resolution).
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".claude"), 0o755))
+
+	// Build and execute the install command with --claude --project.
+	cmd := NewInstallCmd()
+	cmd.SetArgs([]string{"--claude", "--project"})
+
+	// Capture stdout (output.PrintSuccess writes to os.Stdout, not cobra writer,
+	// so we only capture it to keep test output clean; we verify via filesystem).
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+
+	err = cmd.Execute()
+	require.NoError(t, err)
+
+	// Verify settings.json was created.
+	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	require.NoError(t, err)
+
+	var settings map[string]any
+	require.NoError(t, json.Unmarshal(data, &settings))
+
+	// Verify hooks section exists.
+	hooksObj, ok := settings["hooks"].(map[string]any)
+	require.True(t, ok, "settings should have hooks key")
+
+	// Verify all expected hook events are present and each has at least one entry
+	// with a hook subcommand. We can't use HasVybeHook here because the test binary
+	// is not named "vybe", so IsVybeHookCommand rejects the generated command.
+	// Instead we verify the structural shape directly.
+	for _, eventName := range vybeHookEventNames() {
+		entries, ok := hooksObj[eventName].([]any)
+		require.True(t, ok, "missing hook event: %s", eventName)
+		require.NotEmpty(t, entries, "hook event %s has no entries", eventName)
+
+		// Each entry must have a "hooks" array with at least one command containing "hook ".
+		found := false
+		for _, entry := range entries {
+			entryMap, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			hooks, ok := entryMap["hooks"].([]any)
+			if !ok {
+				continue
+			}
+			for _, h := range hooks {
+				hMap, ok := h.(map[string]any)
+				if !ok {
+					continue
+				}
+				cmd, _ := hMap["command"].(string)
+				if strings.Contains(cmd, " hook ") {
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		require.True(t, found, "hook event %s missing hook command", eventName)
+	}
+
+	// Verify idempotency: running install again should skip all.
+	cmd2 := NewInstallCmd()
+	cmd2.SetArgs([]string{"--claude", "--project"})
+	var stdout2 bytes.Buffer
+	cmd2.SetOut(&stdout2)
+	require.NoError(t, cmd2.Execute())
+
+	// Re-read settings and confirm structure is still valid.
+	data2, err := os.ReadFile(settingsPath)
+	require.NoError(t, err)
+
+	var settings2 map[string]any
+	require.NoError(t, json.Unmarshal(data2, &settings2))
+
+	hooksObj2, ok := settings2["hooks"].(map[string]any)
+	require.True(t, ok, "settings should still have hooks key after second install")
+	require.Len(t, hooksObj2, len(vybeHookEventNames()), "hook count should be unchanged after second install")
+}
+
+func TestInstallCmd_OpenCode(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	// Create the opencode config dir.
+	ocDir := filepath.Join(dir, "opencode")
+	require.NoError(t, os.MkdirAll(ocDir, 0o755))
+
+	cmd := NewInstallCmd()
+	cmd.SetArgs([]string{"--opencode"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	// Verify plugin file was created.
+	pluginPath := filepath.Join(ocDir, "plugins", opencodeBridgePluginFilename)
+	data, err := os.ReadFile(pluginPath)
+	require.NoError(t, err)
+	require.Equal(t, opencodeBridgePluginSource, string(data))
+
+	// Verify opencode.json has the plugin registered.
+	configPath := filepath.Join(ocDir, "opencode.json")
+	configData, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+
+	var config map[string]any
+	require.NoError(t, json.Unmarshal(configData, &config))
+	plugins, ok := config["plugin"].([]any)
+	require.True(t, ok)
+	require.Contains(t, plugins, opencodePluginEntry)
 }

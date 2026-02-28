@@ -64,22 +64,21 @@ function runVybeBackground(args: string[], env?: Record<string, string>, stdinPa
     if (env) opts.env = { ...process.env, ...env }
     if (typeof stdinPayload === "string") opts.stdin = new TextEncoder().encode(stdinPayload)
     Bun.spawn(opts)
-  } catch (_) {
-    // best-effort — don't block caller
+  } catch (err) {
+    if (!spawnFailureLogged) {
+      spawnFailureLogged = true
+      console.error(`[vybe-bridge] spawn failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 }
 
 function runVybePushBackground(agent: string, requestPrefix: string, payloadObj: any): void {
-  try {
-    runVybeBackground([
-      "push",
-      "--agent", agent,
-      "--request-id", reqID(requestPrefix),
-      "--json", JSON.stringify(payloadObj),
-    ])
-  } catch (_) {
-    // best-effort — don't block caller
-  }
+  runVybeBackground([
+    "push",
+    "--agent", agent,
+    "--request-id", reqID(requestPrefix),
+    "--json", JSON.stringify(payloadObj),
+  ])
 }
 
 function extractUserPrompt(parts: any[]): string {
@@ -160,6 +159,8 @@ function formatAgentProtocol(protocol: any): string {
   return lines.join("\n")
 }
 
+let spawnFailureLogged = false
+
 const MUTATING_TOOLS: Record<string, boolean> = {
   Write: true,
   Edit: true,
@@ -204,7 +205,6 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
 
   const hydrateSessionPrompt = async (sessionID: string, projectDir?: string) => {
     evictLRU(sessionPrompts, 100)
-    evictLRU(sessionProjects, 100)
     const agent = stableAgent(sessionID, projectDir)
     const args = ["resume", "--agent", agent, "--request-id", reqID("oc_session_start")]
     if (projectDir && projectDir.trim() !== "") {
@@ -238,6 +238,8 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
         if (event.type === "session.created") {
           const session = event.properties.info
           if (session.directory && session.directory.trim() !== "") {
+            // Evict before insert — guarantees capacity without relying on async eviction in hydrateSessionPrompt.
+            evictLRU(sessionProjects, 100)
             sessionProjects.set(session.id, session.directory)
           }
           const agent = stableAgent(session.id, session.directory)
