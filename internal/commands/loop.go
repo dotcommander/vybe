@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -125,6 +126,9 @@ type taskResult struct {
 func runLoop(opts runOptions) error {
 	loopStart := time.Now()
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	var (
 		completed        int
 		failed           int
@@ -134,6 +138,12 @@ func runLoop(opts runOptions) error {
 	)
 
 	for completed < opts.maxTasks {
+		if ctx.Err() != nil {
+			slog.Default().Info("shutdown signal received, exiting gracefully",
+				"completed", completed, "failed", failed)
+			break
+		}
+
 		// Resume to get focus task
 		requestID := fmt.Sprintf("run_%d_%d", time.Now().UnixMilli(), totalRun)
 
@@ -181,7 +191,7 @@ func runLoop(opts runOptions) error {
 		}
 
 		// Build the prompt for the agent
-		prompt := buildAgentPrompt(response)
+		prompt := buildAgentPrompt(response, opts.project)
 
 		// Spawn the command
 		start := time.Now()
@@ -252,9 +262,12 @@ func runLoop(opts runOptions) error {
 			break
 		}
 
-		// Cooldown between tasks
+		// Cooldown between tasks (interruptible by shutdown signal)
 		if completed < opts.maxTasks {
-			time.Sleep(opts.cooldown)
+			select {
+			case <-time.After(opts.cooldown):
+			case <-ctx.Done():
+			}
 		}
 	}
 
@@ -385,11 +398,20 @@ func waitForProcessExit(done <-chan error) {
 // It wraps vybe's resume prompt with autonomous-mode rules.
 // The resume prompt already contains VYBE CONTEXT and VYBE COMMANDS sections,
 // so this only adds behavioral instructions — no duplicate commands.
-func buildAgentPrompt(r *actions.ResumeResponse) string {
+func buildAgentPrompt(r *actions.ResumeResponse, projectDir string) string {
 	var b strings.Builder
 
 	// Vybe's resume prompt has: task details, memory, events, and commands
 	b.WriteString(r.Prompt)
+
+	// Inject Claude Code auto memory for project context
+	if projectDir != "" {
+		if autoMem := readAutoMemory(projectDir, maxAutoMemoryChars); autoMem != "" {
+			b.WriteString("\n== PROJECT MEMORY (from Claude Code) ==\n")
+			b.WriteString(autoMem)
+			b.WriteString("\n")
+		}
+	}
 
 	// Autonomous behavior rules — tells the agent HOW to work, not WHAT commands to run
 	b.WriteString("\n== AUTONOMOUS MODE ==\n")
