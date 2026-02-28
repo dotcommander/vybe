@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/store"
 	"github.com/stretchr/testify/require"
@@ -163,4 +164,31 @@ func TestSessionStartCompactSourceField(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "compact", input.Source)
 	require.Equal(t, "/tmp/test", input.CWD)
+}
+
+func TestPrevSessionCacheVariables(t *testing.T) {
+	// Save and restore cache state so this test is order-independent.
+	savedPath := prevSessionCachePath
+	savedMod := prevSessionCacheModTime
+	savedResult := prevSessionCacheResult
+	t.Cleanup(func() {
+		prevSessionCachePath = savedPath
+		prevSessionCacheModTime = savedMod
+		prevSessionCacheResult = savedResult
+	})
+
+	// Reset to known-empty state for this test.
+	prevSessionCachePath = ""
+	prevSessionCacheModTime = time.Time{}
+	prevSessionCacheResult = ""
+
+	// Verify cache variables are accessible and start empty after reset.
+	require.Empty(t, prevSessionCachePath)
+	require.True(t, prevSessionCacheModTime.IsZero())
+	require.Empty(t, prevSessionCacheResult)
+
+	// Verify readPreviousSessionContext returns empty for nonexistent path
+	// (doesn't panic on cache operations).
+	result := readPreviousSessionContext("/nonexistent/path/for/cache/test", "sess_test")
+	require.Empty(t, result)
 }

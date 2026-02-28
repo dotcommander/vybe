@@ -36,6 +36,16 @@ const (
 // hookSeqCounter provides monotonic fallback entropy when crypto/rand fails.
 var hookSeqCounter uint64 //nolint:gochecknoglobals // atomic counter shared across hook invocations; required for fallback entropy
 
+// prevSessionCache caches readPreviousSessionContext results to avoid redundant disk I/O
+// across multiple SessionStart invocations within the same process.
+//
+//nolint:gochecknoglobals // cache shared across hook invocations; same pattern as hookSeqCounter
+var (
+	prevSessionCachePath    string
+	prevSessionCacheModTime time.Time
+	prevSessionCacheResult  string
+)
+
 // NewHookCmd creates the hook parent command.
 func NewHookCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -905,6 +915,11 @@ func readPreviousSessionContext(cwd, currentSessionID string) string {
 		}
 	}
 
+	// Cache hit: same file, same modtime — return cached result.
+	if best.path == prevSessionCachePath && best.modTime.Equal(prevSessionCacheModTime) {
+		return prevSessionCacheResult
+	}
+
 	lines, err := readTailLines(best.path, 50)
 	if err != nil {
 		return ""
@@ -966,10 +981,18 @@ func readPreviousSessionContext(cwd, currentSessionID string) string {
 	}
 
 	result := sb.String()
-	// If nothing was appended beyond the header, return empty.
+	// If nothing was appended beyond the header, cache and return empty.
 	if result == "Previous session context (last session before this one):\n" {
+		prevSessionCachePath = best.path
+		prevSessionCacheModTime = best.modTime
+		prevSessionCacheResult = ""
 		return ""
 	}
+
+	// Cache the result for subsequent calls.
+	prevSessionCachePath = best.path
+	prevSessionCacheModTime = best.modTime
+	prevSessionCacheResult = result
 	return result
 }
 
