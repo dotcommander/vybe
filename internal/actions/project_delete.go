@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -25,7 +26,7 @@ func ProjectDeleteIdempotent(db *sql.DB, agentName, requestID, projectID string)
 		EventID int64 `json:"event_id"`
 	}
 
-	r, err := store.RunIdempotent(db, agentName, requestID, "project.delete", func(tx *sql.Tx) (idemResult, error) {
+	r, err := store.RunIdempotent(context.Background(), db, agentName, requestID, "project.delete", func(tx *sql.Tx) (idemResult, error) {
 		if err := store.DeleteProjectTx(tx, projectID); err != nil {
 			return idemResult{}, err
 		}

@@ -195,7 +195,7 @@ func persistLessons(db *sql.DB, agentName, requestIDPrefix, projectID string, le
 		EventIDs []int64 `json:"event_ids"`
 	}
 
-	r, err := store.RunIdempotent(db, agentName, requestIDPrefix, "lessons.batch_upsert", func(tx *sql.Tx) (batchResult, error) {
+	r, err := store.RunIdempotent(context.Background(), db, agentName, requestIDPrefix, "lessons.batch_upsert", func(tx *sql.Tx) (batchResult, error) {
 		eventIDs := make([]int64, 0, len(prepared))
 		for _, pl := range prepared {
 			eventID, upsertErr := store.UpsertMemoryTx(tx, agentName, pl.key, pl.value, "string", pl.scope, pl.scopeID, nil)

@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -386,6 +387,7 @@ func ResumeWithOptionsIdempotent(db *sql.DB, agentName, requestID string, opts R
 
 	// Wrap only the state update in idempotent transaction
 	persisted, _, err := store.RunIdempotentWithRetry(
+		context.Background(),
 		db,
 		agentName,
 		requestID,

@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -70,7 +71,7 @@ func TaskCreateIdempotent(db *sql.DB, agentName, requestID, title, description, 
 		EventID int64  `json:"event_id"`
 	}
 
-	r, err := store.RunIdempotent(db, agentName, requestID, "task.create", func(tx *sql.Tx) (idemResult, error) {
+	r, err := store.RunIdempotent(context.Background(), db, agentName, requestID, "task.create", func(tx *sql.Tx) (idemResult, error) {
 		createdTask, err := store.CreateTaskTx(tx, title, description, projectID, priority)
 		if err != nil {
 			return idemResult{}, err
@@ -131,6 +132,7 @@ func TaskSetStatusIdempotent(db *sql.DB, agentName, requestID, taskID, status, b
 	}
 
 	r, _, err := store.RunIdempotentWithRetry(
+		context.Background(),
 		db,
 		agentName,
 		requestID,
@@ -255,6 +257,7 @@ func TaskSetPriorityIdempotent(db *sql.DB, agentName, requestID, taskID string, 
 	}
 
 	r, _, err := store.RunIdempotentWithRetry(
+		context.Background(),
 		db,
 		agentName,
 		requestID,
@@ -330,7 +333,7 @@ func mutateTaskDependency(p taskDependencyParams) error {
 		EventID int64 `json:"event_id"`
 	}
 
-	_, err := store.RunIdempotent(p.db, p.agentName, p.requestID, p.idempotencyCmd, func(tx *sql.Tx) (idemResult, error) {
+	_, err := store.RunIdempotent(context.Background(), p.db, p.agentName, p.requestID, p.idempotencyCmd, func(tx *sql.Tx) (idemResult, error) {
 		if err := p.mutate(tx, p.taskID, p.dependsOnTaskID); err != nil {
 			return idemResult{}, err
 		}
@@ -413,7 +416,7 @@ func TaskCloseIdempotent(db *sql.DB, agentName, requestID, taskID, outcome, summ
 	}
 
 	r, _, err := store.RunIdempotentWithRetry(
-		db, agentName, requestID, "task.close",
+		context.Background(), db, agentName, requestID, "task.close",
 		3,
 		func(err error) bool { return errors.Is(err, store.ErrVersionConflict) },
 		func(tx *sql.Tx) (store.CloseTaskResult, error) {

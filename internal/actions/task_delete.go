@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -25,7 +26,7 @@ func TaskDeleteIdempotent(db *sql.DB, agentName, requestID, taskID string) (int6
 		EventID int64 `json:"event_id"`
 	}
 
-	r, err := store.RunIdempotent(db, agentName, requestID, "task.delete", func(tx *sql.Tx) (idemResult, error) {
+	r, err := store.RunIdempotent(context.Background(), db, agentName, requestID, "task.delete", func(tx *sql.Tx) (idemResult, error) {
 		if err := store.DeleteTaskTx(tx, agentName, taskID); err != nil {
 			return idemResult{}, err
 		}

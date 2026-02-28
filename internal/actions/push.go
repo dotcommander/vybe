@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -111,8 +112,20 @@ func PushIdempotent(db *sql.DB, agentName, requestID string, input PushInput) (*
 		return nil, errors.New("push requires at least one operation (event, memories, artifacts, or task_status)")
 	}
 
+	const (
+		maxPushMemories  = 50
+		maxPushArtifacts = 50
+	)
+
+	if len(input.Memories) > maxPushMemories {
+		return nil, fmt.Errorf("push exceeds maximum memories (%d > %d)", len(input.Memories), maxPushMemories)
+	}
+	if len(input.Artifacts) > maxPushArtifacts {
+		return nil, fmt.Errorf("push exceeds maximum artifacts (%d > %d)", len(input.Artifacts), maxPushArtifacts)
+	}
+
 	r, _, err := store.RunIdempotentWithRetry(
-		db, agentName, requestID, "push",
+		context.Background(), db, agentName, requestID, "push",
 		3,
 		func(err error) bool { return errors.Is(err, store.ErrVersionConflict) },
 		func(tx *sql.Tx) (PushResult, error) {

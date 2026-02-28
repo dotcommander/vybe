@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -27,7 +28,7 @@ func ProjectCreateIdempotent(db *sql.DB, agentName, requestID, name, metadata st
 		EventID   int64  `json:"event_id"`
 	}
 
-	r, err := store.RunIdempotent(db, agentName, requestID, "project.create", func(tx *sql.Tx) (idemResult, error) {
+	r, err := store.RunIdempotent(context.Background(), db, agentName, requestID, "project.create", func(tx *sql.Tx) (idemResult, error) {
 		createdProject, err := store.CreateProjectTx(tx, name, metadata)
 		if err != nil {
 			return idemResult{}, err
