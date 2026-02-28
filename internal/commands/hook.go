@@ -102,6 +102,9 @@ func resolveHookContext(cmd *cobra.Command) hookContext {
 	agentName := resolveActorName(cmd, "")
 	if agentName == "" {
 		agentName = defaultAgentName
+		slog.Default().Warn("hook using default agent identity",
+			"agent", agentName,
+			"hint", "set VYBE_AGENT or --agent to avoid cross-session contamination")
 	}
 	cwd := input.CWD
 	if cwd == "" {
@@ -166,10 +169,14 @@ func sanitizeRequestToken(raw string, maxLen int) string {
 }
 
 func truncateString(raw string, max int) (string, bool) {
-	if max <= 0 || len(raw) <= max {
+	if max <= 0 {
 		return raw, false
 	}
-	return raw[:max], true
+	runes := []rune(raw)
+	if len(runes) <= max {
+		return raw, false
+	}
+	return string(runes[:max]), true
 }
 
 // runCheckpoint performs best-effort memory GC and event summarization.
@@ -396,7 +403,7 @@ Register via 'vybe hook install'.`,
 			requestID := hookRequestID("prompt", hctx.AgentName)
 
 			// Hooks must never block Claude Code — errors are swallowed.
-			_ = withDB(func(db *DB) error {
+			withDBSilent(func(db *DB) error {
 				metadata, _ := json.Marshal(map[string]string{
 					"source":        defaultAgentName,
 					"session_id":    hctx.Input.SessionID,
@@ -599,6 +606,7 @@ func newHookCheckpointCmd() *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_ = os.Setenv(disableExternalLLMEnv, "1")
+			slog.Default().Debug("LLM subprocess execution disabled for hook", "env", disableExternalLLMEnv)
 
 			hctx := resolveHookContext(cmd)
 			requestIDPrefix := hookRequestID("checkpoint", hctx.AgentName)
@@ -690,6 +698,7 @@ func newHookSessionEndCmd() *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_ = os.Setenv(disableExternalLLMEnv, "1")
+			slog.Default().Debug("LLM subprocess execution disabled for hook", "env", disableExternalLLMEnv)
 
 			hctx := resolveHookContext(cmd)
 			sessionID := hctx.Input.SessionID
@@ -712,6 +721,58 @@ func newHookSessionEndCmd() *cobra.Command {
 // Example: "/Users/vampire/go/src/vybe" → "-Users-vampire-go-src-vybe"
 func encodeProjectPath(cwd string) string {
 	return strings.ReplaceAll(cwd, "/", "-")
+}
+
+// readTailLines reads the last N lines from a file without loading the entire
+// file into memory. Seeks to the tail region and scans backward for newlines.
+// Falls back to reading the whole file if it's smaller than the tail buffer.
+func readTailLines(path string, maxLines int) ([]string, error) {
+	f, err := os.Open(path) //nolint:gosec // G304: path is constructed from known home dir + encoded cwd
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	// For small files, just read the whole thing.
+	const tailBufSize = 64 * 1024 // 64 KB
+	size := info.Size()
+	if size == 0 {
+		return nil, nil
+	}
+
+	offset := int64(0)
+	readSize := size
+	if size > tailBufSize {
+		offset = size - tailBufSize
+		readSize = tailBufSize
+	}
+
+	buf := make([]byte, readSize)
+	n, err := f.ReadAt(buf, offset)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	buf = buf[:n]
+
+	raw := strings.TrimRight(string(buf), "\n")
+	lines := strings.Split(raw, "\n")
+
+	// If we seeked into the middle of the file, the first "line" is likely
+	// a partial line — discard it.
+	if offset > 0 && len(lines) > 0 {
+		lines = lines[1:]
+	}
+
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+
+	return lines, nil
 }
 
 // readPreviousSessionContext finds the most recent Claude Code session transcript
@@ -770,15 +831,9 @@ func readPreviousSessionContext(cwd, currentSessionID string) string {
 		}
 	}
 
-	data, err := os.ReadFile(best.path) //nolint:gosec // G304: path is constructed from known home dir + encoded cwd
+	lines, err := readTailLines(best.path, 50)
 	if err != nil {
 		return ""
-	}
-
-	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	// Take last 50 lines.
-	if len(lines) > 50 {
-		lines = lines[len(lines)-50:]
 	}
 
 	type contentItem struct {
@@ -821,8 +876,8 @@ func readPreviousSessionContext(cwd, currentSessionID string) string {
 				continue
 			}
 			t := item.Text
-			if len(t) > maxMsgLen {
-				t = t[:maxMsgLen]
+			if runes := []rune(t); len(runes) > maxMsgLen {
+				t = string(runes[:maxMsgLen])
 			}
 			textParts = append(textParts, t)
 		}
@@ -842,4 +897,30 @@ func readPreviousSessionContext(cwd, currentSessionID string) string {
 		return ""
 	}
 	return result
+}
+
+const maxAutoMemoryChars = 2000
+
+func readAutoMemory(cwd string, maxChars int) string {
+	if cwd == "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(home, ".claude", "projects",
+		encodeProjectPath(cwd), "memory", "MEMORY.md")
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path from known home + encoded cwd
+	if err != nil {
+		return ""
+	}
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return ""
+	}
+	if runes := []rune(content); len(runes) > maxChars {
+		content = string(runes[:maxChars])
+	}
+	return content
 }

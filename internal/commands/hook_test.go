@@ -126,3 +126,13 @@ func TestSanitizeRequestToken(t *testing.T) {
 	require.Equal(t, "abc__def_ghi", got)
 	require.Equal(t, "session", sanitizeRequestToken("", 64))
 }
+
+func TestReadAutoMemory_EmptyCWD(t *testing.T) {
+	got := readAutoMemory("", maxAutoMemoryChars)
+	require.Empty(t, got)
+}
+
+func TestReadAutoMemory_NonexistentPath(t *testing.T) {
+	got := readAutoMemory("/nonexistent/path/for/test", maxAutoMemoryChars)
+	require.Empty(t, got)
+}
