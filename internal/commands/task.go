@@ -115,7 +115,8 @@ func newTaskSetStatusCmd() *cobra.Command {
 				eventID int64
 			)
 			if err := withDB(func(db *DB) error {
-				t, eid, err := actions.TaskSetStatusIdempotent(db, agentName, requestID, taskID, status, "")
+				blockedReason, _ := cmd.Flags().GetString("blocked-reason")
+				t, eid, err := actions.TaskSetStatusIdempotent(db, agentName, requestID, taskID, status, blockedReason)
 				if err != nil {
 					return err
 				}
@@ -136,6 +137,7 @@ func newTaskSetStatusCmd() *cobra.Command {
 
 	cmd.Flags().String("id", "", "Task ID (required)")
 	cmd.Flags().String("status", "", "New status (required): pending|in_progress|completed|blocked")
+	cmd.Flags().String("blocked-reason", "", "Reason for blocking (used with --status=blocked)")
 
 	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
 	return cmd
