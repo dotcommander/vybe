@@ -155,3 +155,12 @@ func TestReadAutoMemory_NonexistentPath(t *testing.T) {
 	got := readAutoMemory("/nonexistent/path/for/test", maxAutoMemoryChars)
 	require.Empty(t, got)
 }
+
+func TestSessionStartCompactSourceField(t *testing.T) {
+	// Verify the Source field is correctly parsed from hook input
+	var input hookInput
+	err := json.Unmarshal([]byte(`{"source":"compact","cwd":"/tmp/test","session_id":"sess_123"}`), &input)
+	require.NoError(t, err)
+	require.Equal(t, "compact", input.Source)
+	require.Equal(t, "/tmp/test", input.CWD)
+}

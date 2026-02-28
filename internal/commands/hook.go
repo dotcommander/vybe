@@ -329,6 +329,45 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hctx := resolveHookContext(cmd)
+
+			// On compact, the model already has session context — skip full resume.
+			// Emit a lightweight focus-task reminder so the model doesn't lose
+			// track of what it's working on after context compression.
+			if hctx.Input.Source == "compact" {
+				var reminder string
+				withDBSilent(func(db *DB) error {
+					// Ensure project focus is maintained
+					if hctx.CWD != "" {
+						_, _ = store.EnsureProjectByID(db, hctx.CWD, filepath.Base(hctx.CWD))
+					}
+
+					state, err := store.GetAgentState(db, hctx.AgentName)
+					if err != nil || state == nil || state.FocusTaskID == "" {
+						return nil
+					}
+					task, err := store.GetTask(db, state.FocusTaskID)
+					if err != nil || task == nil {
+						return nil
+					}
+					var b strings.Builder
+					fmt.Fprintf(&b, "Focus task: [%s] %s (status: %s)\n", task.ID, task.Title, task.Status)
+					if task.Description != "" {
+						desc, _ := truncateString(task.Description, 500)
+						fmt.Fprintf(&b, "Description: %s\n", desc)
+					}
+					reminder = b.String()
+					return nil
+				})
+
+				out := hookOutput{
+					HookSpecificOutput: &hookSpecific{
+						HookEventName:     "SessionStart",
+						AdditionalContext: reminder,
+					},
+				}
+				return json.NewEncoder(os.Stdout).Encode(out)
+			}
+
 			requestID := hookRequestID("session", hctx.AgentName)
 
 			var prompt string
