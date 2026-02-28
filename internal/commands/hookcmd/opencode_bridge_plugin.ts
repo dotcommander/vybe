@@ -101,6 +101,33 @@ function truncate(str: string | undefined, max: number): string {
   return chars.slice(0, max).join("")
 }
 
+/** Touch a Map key to mark it as recently used (moves it to end of iteration order). */
+function touchKey<K, V>(map: Map<K, V>, key: K): V | undefined {
+  const val = map.get(key)
+  if (val !== undefined) {
+    map.delete(key)
+    map.set(key, val)
+  }
+  return val
+}
+
+/** Evict the least-recently-used entry if map is at capacity. */
+function evictLRU<K, V>(map: Map<K, V>, cap: number): void {
+  if (map.size < cap) return
+  const oldest = map.keys().next().value
+  if (oldest !== undefined) map.delete(oldest)
+}
+
+/** Evict the least-recently-used timer entry if map is at capacity, clearing the timeout. */
+function evictLRUTimer(map: Map<string, ReturnType<typeof setTimeout>>, cap: number): void {
+  if (map.size < cap) return
+  const oldest = map.keys().next().value
+  if (oldest !== undefined) {
+    clearTimeout(map.get(oldest))
+    map.delete(oldest)
+  }
+}
+
 function formatAgentProtocol(protocol: any): string {
   if (!protocol || typeof protocol !== "object") return ""
 
@@ -157,6 +184,8 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
   const todoTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const todoPending = new Map<string, any[]>()
   let cachedAgentProtocolPrompt = ""
+  let cachedAgentProtocolAt = 0
+  const PROTOCOL_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
   const TODO_DEBOUNCE_MS = 3000
 
   const log = async (level: string, message: string, extra?: Record<string, any>) => {
@@ -170,18 +199,12 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
   }
 
   const agentForSession = (sessionID: string): string => {
-    return stableAgent(sessionID, sessionProjects.get(sessionID))
+    return stableAgent(sessionID, touchKey(sessionProjects, sessionID))
   }
 
   const hydrateSessionPrompt = async (sessionID: string, projectDir?: string) => {
-    if (sessionPrompts.size >= 100) {
-      const oldest = sessionPrompts.keys().next().value
-      if (oldest) sessionPrompts.delete(oldest)
-    }
-    if (sessionProjects.size >= 100) {
-      const oldest = sessionProjects.keys().next().value
-      if (oldest) sessionProjects.delete(oldest)
-    }
+    evictLRU(sessionPrompts, 100)
+    evictLRU(sessionProjects, 100)
     const agent = stableAgent(sessionID, projectDir)
     const args = ["resume", "--agent", agent, "--request-id", reqID("oc_session_start")]
     if (projectDir && projectDir.trim() !== "") {
@@ -196,12 +219,13 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
   }
 
   const hydrateAgentProtocolPrompt = async () => {
-    if (cachedAgentProtocolPrompt !== "") return
+    if (cachedAgentProtocolPrompt !== "" && Date.now() - cachedAgentProtocolAt < PROTOCOL_CACHE_TTL_MS) return
     try {
       const schema = await runVybeJSON(["schema", "commands"])
       const protocolPrompt = formatAgentProtocol(schema?.data?.agent_protocol)
       if (protocolPrompt.trim() !== "") {
         cachedAgentProtocolPrompt = protocolPrompt
+        cachedAgentProtocolAt = Date.now()
       }
     } catch (_) {
       // best-effort only
@@ -224,7 +248,7 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
 
         if (event.type === "session.deleted") {
           const sessionID = event.properties.info.id
-          const projectDir = sessionProjects.get(sessionID)
+          const projectDir = touchKey(sessionProjects, sessionID)
           const agent = agentForSession(sessionID)
 
           // Fire-and-forget SessionEnd hook (checkpoint maintenance only).
@@ -263,17 +287,8 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
         if (event.type === "todo.updated") {
           const sessionID = event.properties.sessionID
           if (!sessionID) return
-          if (todoTimers.size >= 100) {
-            const oldest = todoTimers.keys().next().value
-            if (oldest) {
-              clearTimeout(todoTimers.get(oldest))
-              todoTimers.delete(oldest)
-            }
-          }
-          if (todoPending.size >= 100) {
-            const oldest = todoPending.keys().next().value
-            if (oldest) todoPending.delete(oldest)
-          }
+          evictLRUTimer(todoTimers, 100)
+          evictLRU(todoPending, 100)
           const todos = event.properties.todos || []
           todoPending.set(sessionID, todos)
 
@@ -394,7 +409,7 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
       try {
         const sessionID: string = input.sessionID
         const agent = agentForSession(sessionID)
-        const projectDir = sessionProjects.get(sessionID)
+        const projectDir = touchKey(sessionProjects, sessionID)
 
         // Checkpoint maintenance via unified hook command.
         const payload = JSON.stringify({
@@ -412,17 +427,17 @@ export const VybeBridgePlugin: Plugin = async ({ client }) => {
 
     "experimental.chat.system.transform": async (input, output) => {
       if (!input.sessionID) return
-      let prompt = sessionPrompts.get(input.sessionID)
+      let prompt = touchKey(sessionPrompts, input.sessionID)
       if (!prompt || prompt.trim() === "") {
         try {
-          await hydrateSessionPrompt(input.sessionID, sessionProjects.get(input.sessionID))
+          await hydrateSessionPrompt(input.sessionID, touchKey(sessionProjects, input.sessionID))
         } catch (_) {
           // If immediate hydration fails, skip prompt injection for this turn.
         }
-        prompt = sessionPrompts.get(input.sessionID)
+        prompt = touchKey(sessionPrompts, input.sessionID)
       }
 
-      if (!cachedAgentProtocolPrompt) {
+      if (!cachedAgentProtocolPrompt || Date.now() - cachedAgentProtocolAt >= PROTOCOL_CACHE_TTL_MS) {
         try {
           await hydrateAgentProtocolPrompt()
         } catch (_) {

@@ -86,6 +86,30 @@ function formatAgentProtocol(protocol: any): string {
   return lines.join("\n")
 }
 
+function touchKey<K, V>(map: Map<K, V>, key: K): V | undefined {
+  const val = map.get(key)
+  if (val !== undefined) {
+    map.delete(key)
+    map.set(key, val)
+  }
+  return val
+}
+
+function evictLRU<K, V>(map: Map<K, V>, cap: number): void {
+  if (map.size < cap) return
+  const oldest = map.keys().next().value
+  if (oldest !== undefined) map.delete(oldest)
+}
+
+function evictLRUTimer(map: Map<string, ReturnType<typeof setTimeout>>, cap: number): void {
+  if (map.size < cap) return
+  const oldest = map.keys().next().value
+  if (oldest !== undefined) {
+    clearTimeout(map.get(oldest))
+    map.delete(oldest)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -429,5 +453,110 @@ describe("formatAgentProtocol", () => {
     expect(lines[1]).toStartWith("- Focus task id field:")
     expect(lines[2]).toStartWith("- Terminal status")
     expect(lines[3]).toStartWith("- Allowed terminal statuses:")
+  })
+})
+
+describe("touchKey", () => {
+  test("returns undefined for missing key", () => {
+    const m = new Map<string, number>()
+    expect(touchKey(m, "missing")).toBeUndefined()
+  })
+
+  test("returns value for existing key", () => {
+    const m = new Map([["a", 1], ["b", 2]])
+    expect(touchKey(m, "a")).toBe(1)
+  })
+
+  test("moves accessed key to end of iteration order", () => {
+    const m = new Map([["a", 1], ["b", 2], ["c", 3]])
+    touchKey(m, "a") // move "a" to end
+    const keys = [...m.keys()]
+    expect(keys).toEqual(["b", "c", "a"])
+  })
+
+  test("does not change map size", () => {
+    const m = new Map([["a", 1], ["b", 2]])
+    touchKey(m, "a")
+    expect(m.size).toBe(2)
+  })
+
+  test("preserves value after touch", () => {
+    const m = new Map([["x", 42]])
+    touchKey(m, "x")
+    expect(m.get("x")).toBe(42)
+  })
+
+  test("no-op on missing key does not add it", () => {
+    const m = new Map<string, number>()
+    touchKey(m, "missing")
+    expect(m.size).toBe(0)
+  })
+})
+
+describe("evictLRU", () => {
+  test("no-op when under capacity", () => {
+    const m = new Map([["a", 1], ["b", 2]])
+    evictLRU(m, 5)
+    expect(m.size).toBe(2)
+  })
+
+  test("evicts oldest entry when at capacity", () => {
+    const m = new Map([["a", 1], ["b", 2], ["c", 3]])
+    evictLRU(m, 3)
+    expect(m.has("a")).toBe(false)
+    expect(m.size).toBe(2)
+    expect([...m.keys()]).toEqual(["b", "c"])
+  })
+
+  test("evicts LRU entry (least recently touched)", () => {
+    const m = new Map([["a", 1], ["b", 2], ["c", 3]])
+    touchKey(m, "a") // now order: b, c, a
+    evictLRU(m, 3) // should evict "b" (head)
+    expect(m.has("b")).toBe(false)
+    expect(m.has("a")).toBe(true)
+    expect(m.has("c")).toBe(true)
+  })
+
+  test("evicts from empty map without error", () => {
+    const m = new Map<string, number>()
+    evictLRU(m, 0)
+    expect(m.size).toBe(0)
+  })
+
+  test("capacity of 1 evicts the only entry", () => {
+    const m = new Map([["a", 1]])
+    evictLRU(m, 1)
+    expect(m.size).toBe(0)
+  })
+})
+
+describe("evictLRUTimer", () => {
+  test("no-op when under capacity", () => {
+    const m = new Map<string, ReturnType<typeof setTimeout>>()
+    m.set("a", setTimeout(() => {}, 100000))
+    evictLRUTimer(m, 5)
+    expect(m.size).toBe(1)
+    // cleanup
+    clearTimeout(m.get("a"))
+  })
+
+  test("evicts oldest timer and clears it", async () => {
+    const m = new Map<string, ReturnType<typeof setTimeout>>()
+    let timerACalled = false
+    let timerBCalled = false
+    const timerA = setTimeout(() => { timerACalled = true }, 50)
+    const timerB = setTimeout(() => { timerBCalled = true }, 50)
+    m.set("a", timerA)
+    m.set("b", timerB)
+
+    evictLRUTimer(m, 2) // should evict "a" and clearTimeout on it
+    expect(m.has("a")).toBe(false)
+    expect(m.has("b")).toBe(true)
+
+    // Wait a bit to confirm timerA was cleared (never fires)
+    await new Promise(r => setTimeout(r, 100))
+    expect(timerACalled).toBe(false)
+    // cleanup
+    clearTimeout(m.get("b"))
   })
 })
