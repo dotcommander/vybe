@@ -20,9 +20,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const opencodeBridgePluginFilename = "vybe-bridge.js"
+const opencodeBridgePluginFilename = "opencode-vybe-bridge.ts"
 
-//go:embed opencode_bridge_plugin.js
+//go:embed opencode_bridge_plugin.ts
 var opencodeBridgePluginSource string
 
 const vybeCommandFallback = "vybe"
@@ -49,9 +49,24 @@ func claudeSettingsPath() string {
 	return filepath.Join(home, ".claude", "settings.json")
 }
 
-func opencodePluginPath() string {
+func opencodeConfigDir() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "opencode")
+	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "opencode", "plugins", opencodeBridgePluginFilename)
+	return filepath.Join(home, ".config", "opencode")
+}
+
+func opencodePluginDir() string {
+	return filepath.Join(opencodeConfigDir(), "plugins")
+}
+
+func opencodePluginPath() string {
+	return filepath.Join(opencodePluginDir(), opencodeBridgePluginFilename)
+}
+
+func opencodeConfigPath() string {
+	return filepath.Join(opencodeConfigDir(), "opencode.json")
 }
 
 func projectClaudeSettingsPath() string {
@@ -135,6 +150,14 @@ func buildVybeHooks() map[string]hookEntry {
 			Hooks: []hookHandler{{
 				Type:    "command",
 				Command: buildVybeHookCommand("prompt"),
+				Timeout: 2000,
+			}},
+		},
+		"PostToolUse": {
+			Matcher: "Write|Edit|MultiEdit|Bash|NotebookEdit",
+			Hooks: []hookHandler{{
+				Type:    "command",
+				Command: buildVybeHookCommand("tool-success"),
 				Timeout: 2000,
 			}},
 		},
@@ -258,8 +281,8 @@ func IsVybeHookCommand(command string) bool {
 
 	sub := parts[2]
 	switch sub {
-	case "session-start", "session-end", "prompt", "tool-failure", "checkpoint",
-		"task-completed":
+	case "session-start", "session-end", "prompt", "tool-failure", "tool-success",
+		"checkpoint", "task-completed":
 		return true
 	default:
 		return false
@@ -329,6 +352,73 @@ func upsertVybeHookEntry(existing []any, newEntry map[string]any) ([]any, instal
 	return entries, hookInstalled
 }
 
+const opencodePluginEntry = "./plugins/" + opencodeBridgePluginFilename
+
+// registerOpencodePlugin adds the vybe bridge plugin to opencode.json's plugin array.
+// Returns true if a new entry was added, false if already present.
+func registerOpencodePlugin() (bool, error) {
+	configPath := opencodeConfigPath()
+	settings, err := readSettings(configPath)
+	if err != nil {
+		return false, err
+	}
+
+	plugins, _ := settings["plugin"].([]any)
+	for _, p := range plugins {
+		if s, ok := p.(string); ok && s == opencodePluginEntry {
+			return false, nil // already registered
+		}
+	}
+
+	plugins = append(plugins, opencodePluginEntry)
+	settings["plugin"] = plugins
+
+	if err := writeSettings(configPath, settings); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// unregisterOpencodePlugin removes the vybe bridge plugin from opencode.json's plugin array.
+// Returns true if an entry was removed.
+func unregisterOpencodePlugin() (bool, error) {
+	configPath := opencodeConfigPath()
+	settings, err := readSettings(configPath)
+	if err != nil {
+		return false, err
+	}
+
+	plugins, _ := settings["plugin"].([]any)
+	if len(plugins) == 0 {
+		return false, nil
+	}
+
+	var kept []any
+	removed := false
+	for _, p := range plugins {
+		if s, ok := p.(string); ok && s == opencodePluginEntry {
+			removed = true
+			continue
+		}
+		kept = append(kept, p)
+	}
+
+	if !removed {
+		return false, nil
+	}
+
+	if len(kept) == 0 {
+		delete(settings, "plugin")
+	} else {
+		settings["plugin"] = kept
+	}
+
+	if err := writeSettings(configPath, settings); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // ResolveTargetFlags returns (claude, opencode) based on explicit flag usage.
 // Default: Claude only when no flags specified.
 func ResolveTargetFlags(cmd *cobra.Command) (claude bool, opencode bool, err error) {
@@ -372,8 +462,9 @@ func NewInstallCmd() *cobra.Command {
 				Skipped   []string `json:"skipped"`
 			}
 			type opencodeResult struct {
-				Path   string `json:"path"`
-				Status string `json:"status"`
+				Path       string `json:"path"`
+				Status     string `json:"status"`
+				Registered bool   `json:"registered"`
 			}
 			type result struct {
 				Message  string          `json:"message"`
@@ -436,14 +527,20 @@ func NewInstallCmd() *cobra.Command {
 
 			if installOpenCode {
 				path := opencodePluginPath()
+				force, _ := cmd.Flags().GetBool("force")
 
-				status := "installed"
+				var status string
 				if existing, readErr := os.ReadFile(path); readErr == nil {
-					if string(existing) == opencodeBridgePluginSource {
+					switch {
+					case string(existing) == opencodeBridgePluginSource:
 						status = "skipped"
-					} else {
+					case !force:
+						status = "skipped_conflict"
+					default:
 						status = "updated"
 					}
+				} else {
+					status = "installed"
 				}
 
 				if status == "installed" || status == "updated" {
@@ -455,9 +552,20 @@ func NewInstallCmd() *cobra.Command {
 					}
 				}
 
+				// Auto-register plugin in opencode.json
+				registered := false
+				if status != "skipped_conflict" {
+					reg, regErr := registerOpencodePlugin()
+					if regErr != nil {
+						slog.Default().Warn("hook install: register opencode plugin failed", "error", regErr)
+					} else {
+						registered = reg
+					}
+				}
+
 				ensureHookAgentStateBestEffort("opencode-agent")
 
-				resp.OpenCode = &opencodeResult{Path: path, Status: status}
+				resp.OpenCode = &opencodeResult{Path: path, Status: status, Registered: registered}
 			}
 
 			var parts []string
@@ -478,6 +586,8 @@ func NewInstallCmd() *cobra.Command {
 					parts = append(parts, "OpenCode bridge plugin installed")
 				case "updated":
 					parts = append(parts, "OpenCode bridge plugin updated")
+				case "skipped_conflict":
+					parts = append(parts, "OpenCode bridge plugin conflict — use --force to overwrite")
 				default:
 					parts = append(parts, "OpenCode bridge plugin already installed")
 				}
@@ -493,6 +603,7 @@ func NewInstallCmd() *cobra.Command {
 	cmd.Flags().Bool("claude", false, "Install Claude Code hooks")
 	cmd.Flags().Bool("opencode", false, "Install OpenCode bridge plugin")
 	cmd.Flags().Bool("project", false, "Install Claude hooks in ./.claude/settings.json")
+	cmd.Flags().Bool("force", false, "Overwrite conflicting OpenCode plugin file")
 
 	return cmd
 }
@@ -606,6 +717,14 @@ func NewUninstallCmd() *cobra.Command {
 					}
 					removed = true
 				}
+
+				// Also remove from opencode.json
+				unregistered, unregErr := unregisterOpencodePlugin()
+				if unregErr != nil {
+					slog.Default().Warn("hook uninstall: unregister opencode plugin failed", "error", unregErr)
+				}
+				_ = unregistered
+
 				resp.OpenCode = &opencodeResult{Path: path, Removed: removed}
 			}
 

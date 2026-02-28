@@ -53,6 +53,7 @@ func NewHookCmd() *cobra.Command {
 		newHookSessionStartCmd(),
 		newHookPromptCmd(),
 		newHookToolFailureCmd(),
+		newHookToolSuccessCmd(),
 		newHookCheckpointCmd(),
 		newHookTaskCompletedCmd(),
 		newHookSessionEndCmd(),
@@ -592,6 +593,40 @@ func newHookToolFailureCmd() *cobra.Command {
 			}); err != nil {
 				slog.Default().Error("tool-failure hook failed", "error", err, "tool_name", hctx.Input.ToolName)
 			}
+
+			return nil
+		},
+	}
+}
+
+func newHookToolSuccessCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "tool-success",
+		Short:         "PostToolUse hook — logs mutating tool successes to vybe",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hctx := resolveHookContext(cmd)
+
+			// Only log events for mutating tools.
+			switch hctx.Input.ToolName {
+			case "Write", "Edit", "MultiEdit", "Bash", "NotebookEdit":
+				// mutating — continue
+			default:
+				return nil
+			}
+
+			requestID := hookRequestID("tool_success", hctx.AgentName)
+			msg := fmt.Sprintf("%s succeeded", hctx.Input.ToolName)
+			metadata := buildToolMetadata(hctx.Input)
+
+			// Fire-and-forget — hooks must never block Claude Code.
+			withDBSilent(func(db *DB) error {
+				_, err := appendEventWithFocusTask(
+					db, hctx.AgentName, requestID, "tool_success", hctx.CWD, "", msg, metadata,
+				)
+				return err
+			})
 
 			return nil
 		},

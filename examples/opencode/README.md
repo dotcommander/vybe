@@ -12,15 +12,24 @@ agents can resume exactly where they left off across OpenCode sessions.
 
 ## Install
 
-Register the plugin in your OpenCode config by pointing to the plugin file:
-
-```json
-{
-  "plugins": ["path/to/examples/opencode/opencode-vybe-plugin.ts"]
-}
+```bash
+vybe hook install --opencode
 ```
 
-Or symlink it into your OpenCode plugins directory and reference it by name.
+This writes the bridge plugin to `~/.config/opencode/plugins/opencode-vybe-bridge.ts`
+and registers it in `~/.config/opencode/opencode.json`.
+
+To update an existing customized plugin file:
+
+```bash
+vybe hook install --opencode --force
+```
+
+## Uninstall
+
+```bash
+vybe hook uninstall --opencode
+```
 
 ## Configuration
 

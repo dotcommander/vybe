@@ -78,7 +78,7 @@ func TestIsVybeHookCommand(t *testing.T) {
 	require.False(t, IsVybeHookCommand("vybe hook retrospective"))
 	require.False(t, IsVybeHookCommand("vybe hook retrospective-bg"))
 	require.True(t, IsVybeHookCommand("vybe hook session-end"))
-	require.False(t, IsVybeHookCommand("vybe hook tool-success"))
+	require.True(t, IsVybeHookCommand("vybe hook tool-success"))
 	require.False(t, IsVybeHookCommand("vybe hook subagent-stop"))
 	require.False(t, IsVybeHookCommand("vybe hook subagent-start"))
 	require.False(t, IsVybeHookCommand("vybe hook stop"))
@@ -89,6 +89,7 @@ func TestVybeHookEventNames_ContainsAllEvents(t *testing.T) {
 	expected := []string{
 		"SessionStart",
 		"UserPromptSubmit",
+		"PostToolUse",
 		"PostToolUseFailure",
 		"PreCompact",
 		"SessionEnd",
@@ -288,4 +289,92 @@ func TestOpenCodeBridgePlugin_UsesSessionEndHookFlow(t *testing.T) {
 
 	// Ensure direct retrospective invocation is not present as an argv token sequence.
 	require.False(t, strings.Contains(opencodeBridgePluginSource, "runVybeBackground([\"hook\", \"retrospective\""))
+}
+
+func TestRegisterOpencodePlugin(t *testing.T) {
+	dir := t.TempDir()
+
+	// Override opencodeConfigDir by setting XDG_CONFIG_HOME
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	// Create the opencode config dir
+	ocDir := filepath.Join(dir, "opencode")
+	require.NoError(t, os.MkdirAll(ocDir, 0o755))
+
+	// First registration should add the entry
+	added, err := registerOpencodePlugin()
+	require.NoError(t, err)
+	require.True(t, added)
+
+	// Verify opencode.json was created with the plugin entry
+	configPath := filepath.Join(ocDir, "opencode.json")
+	settings, err := readSettings(configPath)
+	require.NoError(t, err)
+	plugins, ok := settings["plugin"].([]any)
+	require.True(t, ok)
+	require.Len(t, plugins, 1)
+	require.Equal(t, "./plugins/"+opencodeBridgePluginFilename, plugins[0])
+
+	// Second registration should be a no-op
+	added, err = registerOpencodePlugin()
+	require.NoError(t, err)
+	require.False(t, added)
+
+	// Unregister should remove the entry
+	removed, err := unregisterOpencodePlugin()
+	require.NoError(t, err)
+	require.True(t, removed)
+
+	// Verify the plugin key was cleaned up
+	settings, err = readSettings(configPath)
+	require.NoError(t, err)
+	_, hasPlugin := settings["plugin"]
+	require.False(t, hasPlugin)
+
+	// Second unregister should be a no-op
+	removed, err = unregisterOpencodePlugin()
+	require.NoError(t, err)
+	require.False(t, removed)
+}
+
+func TestRegisterOpencodePlugin_PreservesExistingPlugins(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	ocDir := filepath.Join(dir, "opencode")
+	require.NoError(t, os.MkdirAll(ocDir, 0o755))
+
+	// Write a config with existing plugins
+	configPath := filepath.Join(ocDir, "opencode.json")
+	existing := map[string]any{
+		"plugin": []any{"./plugins/blog.ts", "./plugins/safety.ts"},
+		"provider": map[string]any{"name": "anthropic"},
+	}
+	require.NoError(t, writeSettings(configPath, existing))
+
+	// Registration should append, not replace
+	added, err := registerOpencodePlugin()
+	require.NoError(t, err)
+	require.True(t, added)
+
+	settings, err := readSettings(configPath)
+	require.NoError(t, err)
+	plugins, ok := settings["plugin"].([]any)
+	require.True(t, ok)
+	require.Len(t, plugins, 3)
+
+	// Other config keys should be preserved
+	_, hasProvider := settings["provider"]
+	require.True(t, hasProvider)
+
+	// Unregister should only remove vybe, keep others
+	removed, err := unregisterOpencodePlugin()
+	require.NoError(t, err)
+	require.True(t, removed)
+
+	settings, err = readSettings(configPath)
+	require.NoError(t, err)
+	plugins, ok = settings["plugin"].([]any)
+	require.True(t, ok)
+	require.Len(t, plugins, 2)
 }

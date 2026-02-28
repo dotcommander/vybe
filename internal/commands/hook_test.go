@@ -127,6 +127,25 @@ func TestSanitizeRequestToken(t *testing.T) {
 	require.Equal(t, "session", sanitizeRequestToken("", 64))
 }
 
+func TestBuildToolSuccessMetadata(t *testing.T) {
+	input := hookInput{
+		SessionID:     "test-session",
+		HookEventName: "PostToolUse",
+		ToolName:      "Write",
+		ToolInput:     json.RawMessage(`{"file_path":"/tmp/test.go","content":"package main"}`),
+		ToolResponse:  json.RawMessage(`{}`),
+	}
+
+	meta := buildToolMetadata(input)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(meta), &parsed))
+	require.Equal(t, "claude", parsed["source"])
+	require.Equal(t, "Write", parsed["tool_name"])
+	require.Equal(t, "PostToolUse", parsed["hook_event"])
+	require.LessOrEqual(t, len(meta), store.MaxEventMetadataLength)
+}
+
 func TestReadAutoMemory_EmptyCWD(t *testing.T) {
 	got := readAutoMemory("", maxAutoMemoryChars)
 	require.Empty(t, got)
