@@ -260,10 +260,12 @@ func getVybeVersion() string {
 	}
 
 	var v struct {
-		Version string `json:"version"`
+		Data struct {
+			Version string `json:"version"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(out, &v); err != nil {
 		return "unknown"
 	}
-	return v.Version
+	return v.Data.Version
 }
