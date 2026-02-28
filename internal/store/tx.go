@@ -33,9 +33,9 @@ func queryStringColumn(q Querier, query string, args ...any) ([]string, error) {
 }
 
 // Transact runs fn in a transaction wrapped with RetryWithBackoff.
-func Transact(db *sql.DB, fn func(tx *sql.Tx) error) error {
-	return RetryWithBackoff(func() error {
-		tx, err := db.BeginTx(context.Background(), nil)
+func Transact(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
+	return RetryWithBackoff(ctx, func() error {
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}

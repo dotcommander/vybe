@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ import (
 // RetryWithBackoff wraps an operation with exponential backoff retry logic.
 // Retries on transient SQLite errors (SQLITE_BUSY, "database is locked").
 // Does not retry on version conflicts or constraint violations.
-func RetryWithBackoff(operation func() error) error {
+func RetryWithBackoff(ctx context.Context, operation func() error) error {
 	b := backoff.NewExponentialBackOff()
 	b.InitialInterval = 50 * time.Millisecond
 	b.MaxInterval = 2 * time.Second
@@ -21,6 +22,10 @@ func RetryWithBackoff(operation func() error) error {
 	b.RandomizationFactor = 0.1
 
 	return backoff.Retry(func() error {
+		if err := ctx.Err(); err != nil {
+			return backoff.Permanent(err)
+		}
+
 		err := operation()
 		if err == nil {
 			return nil
@@ -33,7 +38,7 @@ func RetryWithBackoff(operation func() error) error {
 
 		// Non-retryable error: stop immediately
 		return backoff.Permanent(err)
-	}, b)
+	}, backoff.WithContext(b, ctx))
 }
 
 // isRetryableError determines if an error should be retried.
@@ -82,10 +87,18 @@ func isRetryableError(err error) bool {
 	return false
 }
 
-// IsVersionConflict checks if an error is a version conflict
+// IsVersionConflict checks if an error is a version conflict.
+// Uses typed error matching first, sentinel second, string fallback third.
 func IsVersionConflict(err error) bool {
 	if err == nil {
 		return false
+	}
+	var vce *VersionConflictError
+	if errors.As(err, &vce) {
+		return true
+	}
+	if errors.Is(err, ErrVersionConflict) {
+		return true
 	}
 	return strings.Contains(err.Error(), "version conflict")
 }

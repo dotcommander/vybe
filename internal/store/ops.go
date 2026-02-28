@@ -19,11 +19,12 @@ type attemptResult[T any] struct {
 // attemptIdempotent executes a single idempotent operation attempt.
 // Returns done=true for non-retryable errors or success, done=false for retryable errors.
 func attemptIdempotent[T any](
+	ctx context.Context,
 	db *sql.DB,
 	agentName, requestID, command string,
 	operation func(tx *sql.Tx) (T, error),
 ) attemptResult[T] {
-	tx, err := db.BeginTx(context.Background(), nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return attemptResult[T]{err: fmt.Errorf("failed to begin transaction: %w", err), done: true}
 	}
@@ -74,8 +75,8 @@ func attemptIdempotent[T any](
 // It wraps retry, transaction lifecycle, idempotency begin/replay, completion, and commit.
 // The operation callback must perform only transactional work (DB reads/writes via tx).
 // Non-transactional side effects (HTTP, file I/O) will re-execute on retry.
-func RunIdempotent[T any](db *sql.DB, agentName, requestID, command string, operation func(tx *sql.Tx) (T, error)) (T, error) {
-	out, _, err := RunIdempotentWithRetry(db, agentName, requestID, command, 1, nil, operation)
+func RunIdempotent[T any](ctx context.Context, db *sql.DB, agentName, requestID, command string, operation func(tx *sql.Tx) (T, error)) (T, error) {
+	out, _, err := RunIdempotentWithRetry(ctx, db, agentName, requestID, command, 1, nil, operation)
 	return out, err
 }
 
@@ -84,6 +85,7 @@ func RunIdempotent[T any](db *sql.DB, agentName, requestID, command string, oper
 //
 //nolint:revive // argument-limit: generics + idempotency params + retry config all required together
 func RunIdempotentWithRetry[T any](
+	ctx context.Context,
 	db *sql.DB,
 	agentName, requestID, command string,
 	maxAttempts int,
@@ -95,7 +97,7 @@ func RunIdempotentWithRetry[T any](
 	}
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		r := attemptIdempotent(db, agentName, requestID, command, operation)
+		r := attemptIdempotent(ctx, db, agentName, requestID, command, operation)
 		if r.done {
 			return r.result, r.replayed, r.err
 		}
