@@ -4,11 +4,11 @@ Architectural decisions and rationale for vybe's command surface.
 
 For the current keep-vs-optional command matrix and pruning workflow, see `minimal-surface.md`.
 
-## Guiding Principle
+## Guiding principle
 
 Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists because a human might want it but no agent needs it, it doesn't belong in the CLI.
 
-## Removed Commands
+## Removed commands
 
 ### `memory query` (pattern search)
 
@@ -93,7 +93,13 @@ Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists
 **Removed:** v0.x cleanup
 **Reason:** Single canonical flag (`--agent`) keeps schemas and tool calls deterministic.
 
-## Kept (Investigated but Retained)
+### `brief` command (removed)
+
+**Removed:** v0.x simplification — merged into `resume`.
+**Reason:** `vybe resume --peek` provides an idempotent read (brief without cursor advancement). Separate `brief` command is redundant.
+**Alternative:** `vybe resume --peek`
+
+## Kept (investigated but retained)
 
 ### `task set-priority`
 
@@ -103,21 +109,11 @@ Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists
 
 **Kept.** The loop command's `markTaskBlocked` calls `set-status` to transition tasks to blocked. `task complete --outcome=blocked` is semantically different (closes with summary). `set-status` is the canonical autonomous-loop terminal transition agents need.
 
-### `brief` (removed)
-
-**Removed:** v0.x simplification — merged into `resume`.
-**Reason:** `vybe resume --peek` provides an idempotent read (brief without cursor advancement). Separate `brief` command is redundant.
-**Alternative:** `vybe resume --peek`
-
 ### `loop`
 
 **Kept.** The autonomous driver is core product functionality. It spawns external agents, manages the task queue, and handles circuit-breaking. Not experimental.
 
-### `task set-priority`
-
-**Kept.** Focus algorithm Rule 4 uses `priority DESC` ordering. Agents genuinely use this.
-
-## Command Surface Guardrails (Do Not Regress)
+## Command surface guardrails (do not regress)
 
 These guardrails are for LLM/agent callers. They are not style preferences.
 Breaking them increases tool-call error rates and retry noise in autonomous workflows.
@@ -170,7 +166,7 @@ Breaking them increases tool-call error rates and retry noise in autonomous work
 
 **Guardrail:** Every required flag must be validated, and tests should fail if required semantics diverge from behavior.
 
-## Design Principles (Standing)
+## Design principles (standing)
 
 - **Resume is the entry point.** Agents call `resume` to get their focus task, context, and commands. Everything else is secondary.
 - **Idempotency everywhere.** Every mutation accepts `--request-id`. Agents retry freely.

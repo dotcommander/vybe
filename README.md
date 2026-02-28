@@ -120,7 +120,7 @@ See [`docs/`](docs/) for full documentation.
 | [`docs/operator-guide.md`](docs/operator-guide.md) | Install/bootstrap plus operational loop recipes |
 | [`docs/agent-contract.md`](docs/agent-contract.md) | Canonical machine I/O and integration contract |
 | [`docs/contributor-guide.md`](docs/contributor-guide.md) | Contributor workflow for safe code changes |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why command-surface choices exist and what must not regress |
+| [`docs/decisions.md`](docs/decisions.md) | Why command-surface choices exist and what must not regress |
 
 ## Uninstall
 

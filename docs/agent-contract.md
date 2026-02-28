@@ -146,4 +146,4 @@ Examples:
 
 - `operator-guide.md` for runnable operator loops and recipes
 - `contributor-guide.md` for command-surface change process
-- `DECISIONS.md` for anti-regression guardrails
+- `decisions.md` for anti-regression guardrails

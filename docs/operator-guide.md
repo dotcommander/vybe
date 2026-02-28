@@ -140,4 +140,4 @@ Pass condition: `status --check` reports `query_ok=true`, and `resume` returns a
 
 - `agent-contract.md` for integration contracts and retry behavior
 - `contributor-guide.md` for safe code changes
-- `DECISIONS.md` for command-surface guardrails
+- `decisions.md` for command-surface guardrails

@@ -5,7 +5,7 @@ Purpose: make safe code changes without breaking autonomous agent workflows.
 ## Before editing
 
 1. Find the existing command -> action -> store path.
-2. Read `DECISIONS.md` guardrails before command-surface changes.
+2. Read `decisions.md` guardrails before command-surface changes.
 3. Keep diffs small and behavior-preserving unless intentionally changing contract.
 
 ## Architecture route
@@ -37,7 +37,7 @@ When commands/flags/subcommands change:
 1. Update docs and examples in the same change set.
 2. Verify command surface with `vybe schema commands`.
 3. Add or update tests for changed behavior.
-4. Update `DECISIONS.md` when introducing or modifying guardrails.
+4. Update `decisions.md` when introducing or modifying guardrails.
 
 ## Verification
 
@@ -58,4 +58,4 @@ Pass condition: all commands succeed with no new warnings/failures, and schema o
 
 - `operator-guide.md` for runtime/operator expectations
 - `agent-contract.md` for integration and machine I/O contract
-- `DECISIONS.md` for command-surface guardrails and rationale
+- `decisions.md` for command-surface guardrails and rationale
