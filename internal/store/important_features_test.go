@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -67,7 +68,7 @@ func TestAgentStateIdempotentAndCursorHelpers(t *testing.T) {
 
 	require.NoError(t, UpdateAgentStateAtomicWithProject(db, "agent-a", 42, task.ID, project.ID))
 
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		cf, txErr := LoadAgentCursorAndFocusTx(tx, "agent-a")
 		require.NoError(t, txErr)
 		require.Equal(t, int64(42), cf.Cursor)
@@ -95,7 +96,7 @@ func TestEventIdempotentVariantsWithProjectAndMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert event with project.
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		id, insertErr := InsertEventWithProjectTx(tx, "user_prompt", "agent-a", project.ID, "", "hello", `{"project":"`+project.ID+`"}`)
 		require.NoError(t, insertErr)
 		require.Greater(t, id, int64(0))
@@ -151,7 +152,7 @@ func TestTaskTxHelpers_GetTaskTxAndUpdateWithEvent(t *testing.T) {
 	task, err := CreateTask(db, "tx task", "", "", 0)
 	require.NoError(t, err)
 
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		fetched, getErr := getTaskTx(tx, task.ID)
 		require.NoError(t, getErr)
 		require.Equal(t, task.ID, fetched.ID)

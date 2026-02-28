@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -71,7 +72,7 @@ func TestRunIdempotent_ReplaySkipsOperation(t *testing.T) {
 	requestID := "req_run_idem"
 	command := "unit.run_idempotent"
 
-	first, err := RunIdempotent(db, agent, requestID, command, func(tx *sql.Tx) (result, error) {
+	first, err := RunIdempotent(context.Background(), db, agent, requestID, command, func(tx *sql.Tx) (result, error) {
 		projectID := generateProjectID()
 		_, execErr := tx.Exec(`
 			INSERT INTO projects (id, name, metadata, created_at)
@@ -85,7 +86,7 @@ func TestRunIdempotent_ReplaySkipsOperation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, first.ProjectID)
 
-	second, err := RunIdempotent(db, agent, requestID, command, func(tx *sql.Tx) (result, error) {
+	second, err := RunIdempotent(context.Background(), db, agent, requestID, command, func(tx *sql.Tx) (result, error) {
 		t.Fatalf("operation should not run on replay")
 		return result{}, nil
 	})

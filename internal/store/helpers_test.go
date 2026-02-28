@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -20,7 +21,7 @@ func newBlockedReasonFailure(reason string) models.BlockedReason {
 func appendEvent(t *testing.T, db *sql.DB, kind, agentName, taskID, message string) int64 {
 	t.Helper()
 	var id int64
-	if err := Transact(db, func(tx *sql.Tx) error {
+	if err := Transact(context.Background(), db, func(tx *sql.Tx) error {
 		var txErr error
 		id, txErr = InsertEventTx(tx, kind, agentName, taskID, message, "")
 		return txErr
@@ -34,7 +35,7 @@ func appendEvent(t *testing.T, db *sql.DB, kind, agentName, taskID, message stri
 func appendEventWithMetadata(t *testing.T, db *sql.DB, kind, agentName, taskID, message, metadata string) int64 {
 	t.Helper()
 	var id int64
-	if err := Transact(db, func(tx *sql.Tx) error {
+	if err := Transact(context.Background(), db, func(tx *sql.Tx) error {
 		var txErr error
 		id, txErr = InsertEventTx(tx, kind, agentName, taskID, message, metadata)
 		return txErr

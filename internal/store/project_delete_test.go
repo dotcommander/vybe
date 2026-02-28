@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -15,7 +16,7 @@ func TestDeleteProject(t *testing.T) {
 	project, err := CreateProject(db, "Delete me", "")
 	require.NoError(t, err)
 
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return DeleteProjectTx(tx, project.ID)
 	})
 	require.NoError(t, err)
@@ -47,7 +48,7 @@ func TestDeleteProject_ClearsReferences(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete the project
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return DeleteProjectTx(tx, project.ID)
 	})
 	require.NoError(t, err)

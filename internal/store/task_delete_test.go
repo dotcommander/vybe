@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -16,7 +17,7 @@ func TestDeleteTask(t *testing.T) {
 	task, err := CreateTask(db, "Delete me", "", "", 0)
 	require.NoError(t, err)
 
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return DeleteTaskTx(tx, "agent1", task.ID)
 	})
 	require.NoError(t, err)
@@ -31,7 +32,7 @@ func TestDeleteTask_NotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := Transact(db, func(tx *sql.Tx) error {
+	err := Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return DeleteTaskTx(tx, "agent1", "nonexistent")
 	})
 	assert.Error(t, err)
@@ -53,7 +54,7 @@ func TestDeleteTask_CascadesDeps(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete task1 — CASCADE should remove the dependency row
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return DeleteTaskTx(tx, "agent1", task1.ID)
 	})
 	require.NoError(t, err)
@@ -90,7 +91,7 @@ func TestDeleteTask_UnblocksOrphanedDependents(t *testing.T) {
 	assert.Equal(t, models.TaskStatusBlocked, dep.Status)
 
 	// Delete blocker
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return DeleteTaskTx(tx, "agent1", blocker.ID)
 	})
 	require.NoError(t, err)
@@ -122,7 +123,7 @@ func TestDeleteTask_PartialUnblock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete blocker1 — dependent still has blocker2
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return DeleteTaskTx(tx, "agent1", blocker1.ID)
 	})
 	require.NoError(t, err)
@@ -152,7 +153,7 @@ func TestDeleteTask_DoesNotUnblockFailureBlocked(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete blocker — dependent should NOT be unblocked because it's failure-blocked
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return DeleteTaskTx(tx, "agent1", blocker.ID)
 	})
 	require.NoError(t, err)

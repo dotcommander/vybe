@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -102,7 +103,7 @@ func TestHasUnresolvedDependencies(t *testing.T) {
 
 	// task2 should have unresolved dependencies (task1 is pending)
 	var hasUnresolved bool
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		var txErr error
 		hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, task2.ID)
 		return txErr
@@ -115,7 +116,7 @@ func TestHasUnresolvedDependencies(t *testing.T) {
 	require.NoError(t, err)
 
 	// task2 should no longer have unresolved dependencies
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		var txErr error
 		hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, task2.ID)
 		return txErr
@@ -148,7 +149,7 @@ func TestUnblockDependents(t *testing.T) {
 	require.NoError(t, err)
 
 	// Unblock dependents
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := UnblockDependentsTx(tx, task1.ID)
 		return txErr
 	})
@@ -189,7 +190,7 @@ func TestUnblockDependents_MultipleBlockers(t *testing.T) {
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
 	require.NoError(t, err)
 
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := UnblockDependentsTx(tx, task1.ID)
 		return txErr
 	})
@@ -204,7 +205,7 @@ func TestUnblockDependents_MultipleBlockers(t *testing.T) {
 	err = UpdateTaskStatus(db, task2.ID, "completed", task2.Version)
 	require.NoError(t, err)
 
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := UnblockDependentsTx(tx, task2.ID)
 		return txErr
 	})
@@ -246,7 +247,7 @@ func TestDetermineFocusTask_SkipsBlockedDeps(t *testing.T) {
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
 	require.NoError(t, err)
 
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := UnblockDependentsTx(tx, task1.ID)
 		return txErr
 	})
@@ -609,7 +610,7 @@ func TestUnblockDependents_ClearsBlockedReason(t *testing.T) {
 	// Complete task1 and unblock
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
 	require.NoError(t, err)
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := UnblockDependentsTx(tx, task1.ID)
 		return txErr
 	})
@@ -634,7 +635,7 @@ func TestBlockedReason_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set blocked_reason via Tx helper
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return SetBlockedReasonTx(tx, task.ID, "failure:timed out")
 	})
 	require.NoError(t, err)
@@ -646,7 +647,7 @@ func TestBlockedReason_RoundTrip(t *testing.T) {
 	assert.Equal(t, newBlockedReasonFailure("timed out"), fetched.BlockedReason)
 
 	// Clear it
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return SetBlockedReasonTx(tx, task.ID, "")
 	})
 	require.NoError(t, err)

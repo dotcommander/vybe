@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"testing"
@@ -23,7 +24,7 @@ func TestCloseTaskTx_Done(t *testing.T) {
 	require.NoError(t, err)
 
 	var result *CloseTaskResult
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, Transact(context.Background(), db, func(tx *sql.Tx) error {
 		r, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "completed", Summary: "All done",
@@ -64,7 +65,7 @@ func TestCloseTaskTx_DoneUnblocksDependents(t *testing.T) {
 	_, _, err = StartTaskAndFocus(db, "agent1", blocker.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: blocker.ID,
 			Status: "completed", Summary: "Done blocking",
@@ -90,7 +91,7 @@ func TestCloseTaskTx_Blocked(t *testing.T) {
 	require.NoError(t, err)
 
 	var result *CloseTaskResult
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, Transact(context.Background(), db, func(tx *sql.Tx) error {
 		r, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "blocked", Summary: "Waiting on external API",
@@ -124,7 +125,7 @@ func TestCloseTaskTx_BlockedClearsStaleReason(t *testing.T) {
 	_, _, err = StartTaskAndFocus(db, "agent1", task.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "blocked", Summary: "First block",
@@ -142,7 +143,7 @@ func TestCloseTaskTx_BlockedClearsStaleReason(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second: close as blocked WITHOUT a reason — stale value must be cleared.
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "blocked", Summary: "Second block, no reason",
@@ -168,7 +169,7 @@ func TestCloseTaskTx_EventMetadataShape(t *testing.T) {
 	require.NoError(t, err)
 
 	var result *CloseTaskResult
-	require.NoError(t, Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, Transact(context.Background(), db, func(tx *sql.Tx) error {
 		r, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "completed", Summary: "Feature shipped",
@@ -203,7 +204,7 @@ func TestCloseTaskTx_InvalidStatus(t *testing.T) {
 	task, err := CreateTask(db, "invalid", "", "", 0)
 	require.NoError(t, err)
 
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := CloseTaskTx(tx, CloseTaskParams{
 			AgentName: "agent1", TaskID: task.ID,
 			Status: "pending", Summary: "nope",

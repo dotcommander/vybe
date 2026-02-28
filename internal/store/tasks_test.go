@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"regexp"
 	"testing"
@@ -268,7 +269,7 @@ func TestUpdateTaskPriorityWithEventTx(t *testing.T) {
 
 	// Update priority inside transaction
 	var eventID int64
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		eid, txErr := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 5, task.Version)
 		if txErr != nil {
 			return txErr
@@ -306,14 +307,14 @@ func TestUpdateTaskPriorityWithEventTx_VersionConflict(t *testing.T) {
 	require.NoError(t, err)
 
 	// First update succeeds
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 5, task.Version)
 		return txErr
 	})
 	require.NoError(t, err)
 
 	// Second update with stale version fails
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, txErr := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 10, task.Version)
 		return txErr
 	})
