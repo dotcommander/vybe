@@ -337,6 +337,17 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 3. Log progress events as you work
 4. Set status to completed when done — next resume auto-advances to next task
 
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `VYBE_DB_PATH` | `~/.config/vybe/vybe.db` | Override database file location |
+| `VYBE_AGENT` | (none) | Default agent identity for commands |
+| `VYBE_REQUEST_ID` | (none) | Default idempotency key for mutations |
+| `VYBE_BUSY_TIMEOUT_MS` | `5000` | SQLite busy_timeout override (ms) |
+| `VYBE_DISABLE_EXTERNAL_LLM` | unset | Blocks LLM CLI subprocess execution in hooks |
+| `VYBE_PRETTY_JSON` | unset | Human-readable JSON output formatting |
+
 ## Contributor Notes
 
 - DB path precedence: `--db-path` > `VYBE_DB_PATH` > `config.yaml: db_path` > `~/.config/vybe/vybe.db`
