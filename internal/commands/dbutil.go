@@ -54,6 +54,20 @@ func withDB(fn func(db *DB) error) error {
 	return nil
 }
 
+// withDBSilent opens the database and runs fn, logging errors to slog only.
+// Used in hook handlers where stdout must never be corrupted with error JSON.
+func withDBSilent(fn func(db *DB) error) {
+	db, closeDB, err := openDB()
+	if err != nil {
+		slog.Default().Warn("hook db open failed", "error", err)
+		return
+	}
+	defer closeDB()
+	if err := fn(db); err != nil {
+		slog.Default().Warn("hook db operation failed", "error", err)
+	}
+}
+
 func cmdErr(err error) error {
 	if err == nil {
 		return nil
