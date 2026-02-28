@@ -58,7 +58,7 @@ func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 	var agActive7d int
 	var taskTotal, taskUnknown int
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		return db.QueryRowContext(context.Background(), `
 			SELECT
 				COALESCE((SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) FROM tasks), 0),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -73,6 +74,9 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	if v := os.Getenv("VYBE_BUSY_TIMEOUT_MS"); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
 			busyTimeout = parsed
+		} else {
+			slog.Default().Warn("invalid VYBE_BUSY_TIMEOUT_MS, using default",
+				"value", v, "default_ms", defaultBusyTimeoutMS, "error", err)
 		}
 	}
 
@@ -104,7 +108,7 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	}
 
 	for _, pragma := range pragmas {
-		if err := RetryWithBackoff(func() error {
+		if err := RetryWithBackoff(context.Background(), func() error {
 			_, err := db.ExecContext(context.Background(), pragma)
 			return err
 		}); err != nil {

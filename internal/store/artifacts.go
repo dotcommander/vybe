@@ -45,7 +45,7 @@ func AddArtifact(db *sql.DB, agentName, taskID, filePath, contentType string) (*
 		artifact *models.Artifact
 	)
 
-	err := Transact(db, func(tx *sql.Tx) error {
+	err := Transact(context.Background(), db, func(tx *sql.Tx) error {
 		projectID, err := resolveTaskProjectIDTx(tx, taskID)
 		if err != nil {
 			return err
@@ -145,7 +145,7 @@ func AddArtifactIdempotent(db *sql.DB, agentName, requestID, taskID, filePath, c
 		EventID    int64  `json:"event_id"`
 	}
 
-	r, err := RunIdempotent(db, agentName, requestID, "artifact.add", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "artifact.add", func(tx *sql.Tx) (idemResult, error) {
 		artifactID, eventID, err := AddArtifactTx(tx, agentName, taskID, filePath, contentType)
 		if err != nil {
 			return idemResult{}, err
@@ -168,7 +168,7 @@ func AddArtifactIdempotent(db *sql.DB, agentName, requestID, taskID, filePath, c
 func GetArtifact(db *sql.DB, id string) (*models.Artifact, error) {
 	var a models.Artifact
 	var ct sql.NullString
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		return db.QueryRowContext(context.Background(), `
 			SELECT id, task_id, event_id, file_path, content_type, created_at
 			FROM artifacts
@@ -200,7 +200,7 @@ func ListArtifactsByTask(db *sql.DB, taskID string, limit int) ([]*models.Artifa
 	}
 
 	var out []*models.Artifact
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		rows, err := db.QueryContext(context.Background(), `
 			SELECT id, task_id, event_id, file_path, content_type, created_at
 			FROM artifacts

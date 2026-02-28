@@ -12,7 +12,7 @@ import (
 // AddTaskDependency adds a dependency relationship between two tasks.
 // If the dependency is unresolved (not completed), sets the task to "blocked".
 func AddTaskDependency(db *sql.DB, taskID, dependsOnTaskID string) error {
-	return Transact(db, func(tx *sql.Tx) error {
+	return Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return AddTaskDependencyTx(tx, taskID, dependsOnTaskID)
 	})
 }
@@ -143,7 +143,7 @@ func blockTaskForDependencyTx(tx *sql.Tx, taskID string) error {
 
 // RemoveTaskDependency removes a dependency relationship between two tasks.
 func RemoveTaskDependency(db *sql.DB, taskID, dependsOnTaskID string) error {
-	return Transact(db, func(tx *sql.Tx) error {
+	return Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return RemoveTaskDependencyTx(tx, taskID, dependsOnTaskID)
 	})
 }
@@ -221,7 +221,7 @@ func unblockTaskIfResolvedTx(tx *sql.Tx, taskID string) error {
 func queryDependencyIDs(db *sql.DB, query, errMsg string, args ...any) ([]string, error) {
 	var ids []string
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("%s: %w", errMsg, err)

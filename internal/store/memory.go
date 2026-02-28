@@ -27,7 +27,7 @@ func SetMemory(db *sql.DB, key, value, valueType, scope, scopeID string, expires
 	if err := validateScope(scope, scopeID); err != nil {
 		return err
 	}
-	return RetryWithBackoff(func() error {
+	return RetryWithBackoff(context.Background(), func() error {
 		_, err := db.ExecContext(context.Background(), `
 			INSERT INTO memory (key, value, value_type, scope, scope_id, expires_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -100,7 +100,7 @@ func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, valu
 	type idemResult struct {
 		EventID int64 `json:"event_id"`
 	}
-	r, err := RunIdempotent(db, agentName, requestID, "memory.upsert", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "memory.upsert", func(tx *sql.Tx) (idemResult, error) {
 		eid, txErr := UpsertMemoryTx(tx, agentName, key, value, valueType, scope, scopeID, expiresAt)
 		if txErr != nil {
 			return idemResult{}, txErr
@@ -125,7 +125,7 @@ func GCMemoryWithEventIdempotent(db *sql.DB, agentName, requestID string, limit 
 		Deleted int   `json:"deleted"`
 	}
 
-	r, err := RunIdempotent(db, agentName, requestID, "memory.gc", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "memory.gc", func(tx *sql.Tx) (idemResult, error) {
 		result, err := tx.ExecContext(context.Background(), `
 			DELETE FROM memory WHERE id IN (
 				SELECT id FROM memory WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP LIMIT ?
@@ -156,7 +156,7 @@ func GetMemory(db *sql.DB, key, scope, scopeID string) (*models.Memory, error) {
 		return nil, err
 	}
 	var mem models.Memory
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		return db.QueryRowContext(context.Background(), `
 			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at
 			FROM memory
@@ -182,7 +182,7 @@ func ListMemory(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
 		return nil, err
 	}
 	var memories []*models.Memory
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		rows, err := db.QueryContext(context.Background(), `
 			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at
 			FROM memory
@@ -237,7 +237,7 @@ func DeleteMemoryWithEvent(db *sql.DB, agentName, key, scope, scopeID string) (i
 	}
 
 	var eventID int64
-	err = Transact(db, func(tx *sql.Tx) error {
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		result, txErr := tx.ExecContext(context.Background(), `DELETE FROM memory WHERE key = ? AND scope = ? AND scope_id = ?`, key, scope, scopeID)
 		if txErr != nil {
 			return fmt.Errorf("failed to delete memory: %w", txErr)
@@ -296,7 +296,7 @@ func DeleteMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, scop
 	type idemResult struct {
 		EventID int64 `json:"event_id"`
 	}
-	r, err := RunIdempotent(db, agentName, requestID, "memory.delete", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "memory.delete", func(tx *sql.Tx) (idemResult, error) {
 		result, txErr := tx.ExecContext(context.Background(), `DELETE FROM memory WHERE key = ? AND scope = ? AND scope_id = ?`, key, scope, scopeID)
 		if txErr != nil {
 			return idemResult{}, fmt.Errorf("failed to delete memory: %w", txErr)

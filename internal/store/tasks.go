@@ -16,7 +16,7 @@ import (
 func CreateTask(db *sql.DB, title, description, projectID string, priority int) (*models.Task, error) {
 	var task *models.Task
 
-	err := Transact(db, func(tx *sql.Tx) error {
+	err := Transact(context.Background(), db, func(tx *sql.Tx) error {
 		createdTask, err := CreateTaskTx(tx, title, description, projectID, priority)
 		if err != nil {
 			return err
@@ -87,9 +87,11 @@ func GetTaskVersionTx(tx *sql.Tx, taskID string) (int, error) {
 func UpdateTaskStatusWithEventTx(tx *sql.Tx, agentName, taskID, status string, version int) (int64, error) {
 	result, err := tx.ExecContext(context.Background(), `
 		UPDATE tasks
-		SET status = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
+		SET status = ?,
+		    blocked_reason = CASE WHEN ? = 'blocked' THEN blocked_reason ELSE NULL END,
+		    version = version + 1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND version = ?
-	`, status, taskID, version)
+	`, status, status, taskID, version)
 	if err != nil {
 		return 0, fmt.Errorf("failed to update task: %w", err)
 	}
@@ -113,7 +115,7 @@ func UpdateTaskStatusWithEventTx(tx *sql.Tx, agentName, taskID, status string, v
 // UpdateTaskStatus updates a task's status using optimistic concurrency control.
 // Returns ErrVersionConflict if the version has changed since read.
 func UpdateTaskStatus(db *sql.DB, taskID, status string, version int) error {
-	return RetryWithBackoff(func() error {
+	return RetryWithBackoff(context.Background(), func() error {
 		result, err := db.ExecContext(context.Background(), `
 			UPDATE tasks
 			SET status = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP

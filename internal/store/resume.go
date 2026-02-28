@@ -78,7 +78,7 @@ func FetchEventsSince(db *sql.DB, cursorID int64, limit int, projectID string) (
 
 	var events []*models.Event
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		query := `
 			SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 			FROM events
@@ -126,7 +126,7 @@ func keepCurrentFocus(db *sql.DB, currentFocusID string) bool {
 	// Rule 1.5: keep dependency-blocked focus only if still has unresolved deps.
 	if task.Status == statusBlocked && !task.BlockedReason.IsFailure() {
 		var hasUnresolved bool
-		depErr := Transact(db, func(tx *sql.Tx) error {
+		depErr := Transact(context.Background(), db, func(tx *sql.Tx) error {
 			var txErr error
 			hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, currentFocusID)
 			return txErr
@@ -149,7 +149,7 @@ func pickAssignedTask(db *sql.DB, taskID, agentName, projectID string) string {
 		return ""
 	}
 	var hasUnresolved bool
-	if depErr := Transact(db, func(tx *sql.Tx) error {
+	if depErr := Transact(context.Background(), db, func(tx *sql.Tx) error {
 		var txErr error
 		hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, taskID)
 		return txErr
@@ -196,7 +196,7 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 	// When projectID is set, only select tasks in that project.
 	// Exclude tasks with unresolved dependencies.
 	var taskID string
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		if projectID != "" {
 			err := db.QueryRowContext(context.Background(), `
 				SELECT id FROM tasks
@@ -342,7 +342,7 @@ func FetchRecentUserPrompts(db *sql.DB, projectDir string, limit int) ([]*models
 
 	var events []*models.Event
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		var query string
 		var args []any
 
@@ -391,7 +391,7 @@ func FetchPriorReasoning(db *sql.DB, projectID string, limit int) ([]*models.Eve
 
 	var events []*models.Event
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		var query string
 		var args []any
 
@@ -442,7 +442,7 @@ func FetchSessionEvents(db *sql.DB, sinceID int64, projectID string, limit int) 
 
 	var events []*models.Event
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		query := `
 			SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 			FROM events
@@ -478,7 +478,7 @@ func FetchSessionEvents(db *sql.DB, sinceID int64, projectID string, limit int) 
 func GetTaskStatusCounts(db *sql.DB, projectID string) (*TaskStatusCounts, error) {
 	counts := &TaskStatusCounts{}
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		var query string
 		var args []any
 
@@ -527,7 +527,7 @@ func FetchPipelineTasks(db *sql.DB, excludeTaskID, agentName, projectID string, 
 
 	var tasks []PipelineTask
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		query := `
 			SELECT id, title, priority FROM tasks
 			WHERE status = 'pending'
@@ -574,7 +574,7 @@ func FetchPipelineTasks(db *sql.DB, excludeTaskID, agentName, projectID string, 
 func FetchUnlockedByCompletion(db *sql.DB, focusTaskID string) ([]PipelineTask, error) {
 	var tasks []PipelineTask
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		query := `
 			SELECT t.id, t.title, t.priority
 			FROM task_dependencies td
@@ -632,7 +632,7 @@ func estimateApproxTokensFromEventMessages(events []*models.Event) int {
 func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory, error) {
 	var memories []*models.Memory
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		var query string
 		var args []any
 
@@ -698,7 +698,7 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 func fetchRecentEvents(db *sql.DB, taskID string) ([]*models.Event, error) {
 	var events []*models.Event
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		query := `
 			SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 			FROM events
@@ -727,12 +727,13 @@ func fetchRecentEvents(db *sql.DB, taskID string) ([]*models.Event, error) {
 func fetchArtifacts(db *sql.DB, taskID string) ([]*models.Artifact, error) {
 	var artifacts []*models.Artifact
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		query := `
 			SELECT id, task_id, event_id, file_path, content_type, created_at
 			FROM artifacts
 			WHERE task_id = ?
 			ORDER BY created_at DESC
+			LIMIT 100
 		`
 		rows, err := db.QueryContext(context.Background(), query, taskID)
 		if err != nil {
@@ -848,7 +849,7 @@ func UpdateAgentStateAtomicWithProjectTx(tx *sql.Tx, agentName string, newCursor
 
 // UpdateAgentStateAtomic atomically updates cursor and focus task.
 func UpdateAgentStateAtomic(db *sql.DB, agentName string, newCursor int64, focusTaskID string) error {
-	return Transact(db, func(tx *sql.Tx) error {
+	return Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return applyAgentStateAtomicTx(tx, agentName, newCursor, focusTaskID, nil)
 	})
 }
@@ -856,7 +857,7 @@ func UpdateAgentStateAtomic(db *sql.DB, agentName string, newCursor int64, focus
 // UpdateAgentStateAtomicWithProject atomically updates cursor, focus task, and project focus.
 // Passing an empty projectID clears focus_project_id.
 func UpdateAgentStateAtomicWithProject(db *sql.DB, agentName string, newCursor int64, focusTaskID, projectID string) error {
-	return Transact(db, func(tx *sql.Tx) error {
+	return Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return applyAgentStateAtomicTx(tx, agentName, newCursor, focusTaskID, &projectID)
 	})
 }

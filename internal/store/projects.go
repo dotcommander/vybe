@@ -18,7 +18,7 @@ func generateProjectID() string {
 func CreateProject(db *sql.DB, name, metadata string) (*models.Project, error) {
 	var project *models.Project
 
-	err := Transact(db, func(tx *sql.Tx) error {
+	err := Transact(context.Background(), db, func(tx *sql.Tx) error {
 		createdProject, err := CreateProjectTx(tx, name, metadata)
 		if err != nil {
 			return err
@@ -86,7 +86,7 @@ func EnsureProjectByID(db *sql.DB, id, name string) (*models.Project, error) {
 	}
 
 	var project models.Project
-	err := Transact(db, func(tx *sql.Tx) error {
+	err := Transact(context.Background(), db, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(context.Background(), `
 			INSERT OR IGNORE INTO projects (id, name, created_at)
 			VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -117,7 +117,7 @@ func GetProject(db *sql.DB, projectID string) (*models.Project, error) {
 	var project models.Project
 	var metadata sql.NullString
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		return db.QueryRowContext(context.Background(), `
 			SELECT id, name, metadata, created_at
 			FROM projects WHERE id = ?
@@ -142,7 +142,7 @@ func GetProject(db *sql.DB, projectID string) (*models.Project, error) {
 func ListProjects(db *sql.DB) ([]*models.Project, error) {
 	var projects []*models.Project
 
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		rows, err := db.QueryContext(context.Background(), `
 			SELECT id, name, metadata, created_at
 			FROM projects

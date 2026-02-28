@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // DeleteTaskTx deletes a task by ID inside an existing transaction.
@@ -49,22 +50,32 @@ func DeleteTaskTx(tx *sql.Tx, agentName, taskID string) error {
 		return fmt.Errorf("task not found: %s", taskID)
 	}
 
-	// After CASCADE removed the dep rows, check each previously-blocked
-	// dependent. If it has no remaining unresolved deps, transition to pending.
-	for _, depID := range blockedDeps {
-		has, err := HasUnresolvedDependenciesTx(tx, depID)
-		if err != nil {
-			return fmt.Errorf("check unresolved deps for %s: %w", depID, err)
+	// After CASCADE removed the dep rows for the deleted task, unblock
+	// dependents that have no remaining unresolved deps. Set-based to avoid N+1.
+	if len(blockedDeps) > 0 {
+		// Build placeholders for the IN clause
+		placeholders := make([]string, len(blockedDeps))
+		args := make([]any, len(blockedDeps))
+		for i, id := range blockedDeps {
+			placeholders[i] = "?"
+			args[i] = id
 		}
-		if !has {
-			_, err = tx.ExecContext(context.Background(), `
-				UPDATE tasks
-				SET status = 'pending', blocked_reason = NULL, version = version + 1
-				WHERE id = ? AND status = 'blocked'`,
-				depID)
-			if err != nil {
-				return fmt.Errorf("unblock dependent %s: %w", depID, err)
-			}
+
+		query := fmt.Sprintf(`
+			UPDATE tasks
+			SET status = 'pending', blocked_reason = NULL, version = version + 1
+			WHERE id IN (%s)
+			  AND status = 'blocked'
+			  AND NOT EXISTS (
+				  SELECT 1 FROM task_dependencies td2
+				  JOIN tasks dep ON dep.id = td2.depends_on_task_id
+				  WHERE td2.task_id = tasks.id
+					AND dep.status != 'completed'
+			  )`, strings.Join(placeholders, ","))
+
+		_, err = tx.ExecContext(context.Background(), query, args...)
+		if err != nil {
+			return fmt.Errorf("unblock dependents: %w", err)
 		}
 	}
 

@@ -122,7 +122,7 @@ func StartTaskAndFocus(db *sql.DB, agentName, taskID string) (statusEventID int6
 	var statusEvent int64
 	var focusEvent int64
 
-	runErr = Transact(db, func(tx *sql.Tx) error {
+	runErr = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		se, fe, txErr := startTaskAndFocusTx(tx, agentName, taskID)
 		if txErr != nil {
 			return txErr
@@ -153,7 +153,7 @@ func StartTaskAndFocusIdempotent(db *sql.DB, agentName, requestID, taskID string
 		FocusEventID  int64 `json:"focus_event_id"`
 	}
 
-	r, err := RunIdempotent(db, agentName, requestID, "task.start", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "task.start", func(tx *sql.Tx) (idemResult, error) {
 		statusEventID, focusEventID, txErr := startTaskAndFocusTx(tx, agentName, taskID)
 		if txErr != nil {
 			return idemResult{}, txErr

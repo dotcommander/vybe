@@ -111,7 +111,7 @@ func runFocusEventIdempotent(db *sql.DB, agentName, requestID, command string, s
 		EventID int64 `json:"event_id"`
 	}
 
-	r, err := RunIdempotent(db, agentName, requestID, command, func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, command, func(tx *sql.Tx) (idemResult, error) {
 		eventID, setErr := setFocus(tx)
 		if setErr != nil {
 			return idemResult{}, setErr
@@ -129,8 +129,8 @@ func runFocusEventIdempotent(db *sql.DB, agentName, requestID, command string, s
 func LoadOrCreateAgentState(db *sql.DB, agentName string) (*models.AgentState, error) {
 	var state models.AgentState
 
-	err := RetryWithBackoff(func() error {
-		return Transact(db, func(tx *sql.Tx) error {
+	err := RetryWithBackoff(context.Background(), func() error {
+		return Transact(context.Background(), db, func(tx *sql.Tx) error {
 			// Concurrency-safe create: two workers may race to create the same agent.
 			// INSERT OR IGNORE ensures only one wins and others fall through to the SELECT.
 			if _, err := tx.ExecContext(context.Background(), `
@@ -186,7 +186,7 @@ func LoadOrCreateAgentStateIdempotent(db *sql.DB, agentName, requestID string) (
 		return nil, errors.New("request id is required")
 	}
 
-	s, err := RunIdempotent(db, agentName, requestID, "agent.init", func(tx *sql.Tx) (models.AgentState, error) {
+	s, err := RunIdempotent(context.Background(), db, agentName, requestID, "agent.init", func(tx *sql.Tx) (models.AgentState, error) {
 		if _, err := tx.ExecContext(context.Background(), `
 			INSERT OR IGNORE INTO agent_state (agent_name, last_seen_event_id, version, last_active_at)
 			VALUES (?, 0, 1, ?)
@@ -207,7 +207,7 @@ func LoadOrCreateAgentStateIdempotent(db *sql.DB, agentName, requestID string) (
 // The cursor will only move forward, never backward.
 // Updates last_active_at timestamp and uses optimistic concurrency via version column.
 func AdvanceAgentCursor(db *sql.DB, agentName string, newCursor int64) error {
-	return Transact(db, func(tx *sql.Tx) error {
+	return Transact(context.Background(), db, func(tx *sql.Tx) error {
 		// Load current state for version check
 		var currentVersion int
 		var currentCursor int64

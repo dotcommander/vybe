@@ -31,10 +31,6 @@ const (
 
 // ValidateEventPayload enforces event payload constraints for durability and safety.
 func ValidateEventPayload(kind, agentName, message, metadata string) error {
-	kind = strings.TrimSpace(kind)
-	agentName = strings.TrimSpace(agentName)
-	message = strings.TrimSpace(message)
-
 	if kind == "" {
 		return errors.New("event kind is required")
 	}
@@ -67,6 +63,10 @@ func ValidateEventPayload(kind, agentName, message, metadata string) error {
 
 //nolint:revive // argument-limit: event params (kind, agent, task, msg, metadata) are all required
 func insertEventRowTx(tx *sql.Tx, kind, agentName, taskID, message, metadata string) (int64, error) {
+	kind = strings.TrimSpace(kind)
+	agentName = strings.TrimSpace(agentName)
+	message = strings.TrimSpace(message)
+
 	if err := ValidateEventPayload(kind, agentName, message, metadata); err != nil {
 		return 0, err
 	}
@@ -187,7 +187,7 @@ func AppendEventWithProjectAndMetadataIdempotent(db *sql.DB, agentName, requestI
 	type idemResult struct {
 		EventID int64 `json:"event_id"`
 	}
-	r, err := RunIdempotent(db, agentName, requestID, "events.append_with_project", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "events.append_with_project", func(tx *sql.Tx) (idemResult, error) {
 		eventID, err := InsertEventWithProjectTx(tx, kind, agentName, projectID, taskID, message, metadata)
 		if err != nil {
 			return idemResult{}, err
@@ -211,7 +211,7 @@ func AppendEventIdempotent(db *sql.DB, agentName, requestID, kind, taskID, messa
 	type idemResult struct {
 		EventID int64 `json:"event_id"`
 	}
-	r, err := RunIdempotent(db, agentName, requestID, "events.append", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "events.append", func(tx *sql.Tx) (idemResult, error) {
 		eventID, err := insertEventRowTx(tx, kind, agentName, taskID, message, "")
 		if err != nil {
 			return idemResult{}, err
@@ -234,7 +234,7 @@ func AppendEventWithMetadataIdempotent(db *sql.DB, agentName, requestID, kind, t
 	type idemResult struct {
 		EventID int64 `json:"event_id"`
 	}
-	r, err := RunIdempotent(db, agentName, requestID, "events.append_with_metadata", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "events.append_with_metadata", func(tx *sql.Tx) (idemResult, error) {
 		eventID, err := insertEventRowTx(tx, kind, agentName, taskID, message, metadata)
 		if err != nil {
 			return idemResult{}, err
@@ -275,7 +275,7 @@ func ArchiveEventsRangeWithSummaryIdempotent(db *sql.DB, agentName, requestID, p
 		ArchivedCount  int64 `json:"archived_count"`
 	}
 
-	r, err := RunIdempotent(db, agentName, requestID, "events.summarize", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "events.summarize", func(tx *sql.Tx) (idemResult, error) {
 		updateSQL := `
 			UPDATE events
 			SET archived_at = CURRENT_TIMESTAMP
@@ -327,7 +327,7 @@ func ArchiveEventsRangeWithSummaryIdempotent(db *sql.DB, agentName, requestID, p
 // optionally filtered by project.
 func CountActiveEvents(db *sql.DB, projectID string) (int64, error) {
 	var count int64
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		query := `SELECT COUNT(*) FROM events WHERE archived_at IS NULL`
 		args := []any{}
 		if projectID != "" {
@@ -349,7 +349,7 @@ func FindArchiveWindow(db *sql.DB, projectID string, keepRecent int) (fromID, to
 	if keepRecent < 0 {
 		keepRecent = 0
 	}
-	err = RetryWithBackoff(func() error {
+	err = RetryWithBackoff(context.Background(), func() error {
 		query := `
 			SELECT MIN(id), MAX(id) FROM (
 				SELECT id FROM events
@@ -415,7 +415,7 @@ func PruneArchivedEventsIdempotent(db *sql.DB, agentName, requestID, projectID s
 		Deleted int64 `json:"deleted"`
 	}
 
-	r, err := RunIdempotent(db, agentName, requestID, "events.prune_archived", func(tx *sql.Tx) (idemResult, error) {
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "events.prune_archived", func(tx *sql.Tx) (idemResult, error) {
 		query := `
 			DELETE FROM events
 			WHERE id IN (

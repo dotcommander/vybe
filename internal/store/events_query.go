@@ -75,7 +75,7 @@ func ListEvents(db *sql.DB, p ListEventsParams) ([]*models.Event, error) {
 	args = append(args, p.Limit)
 
 	var out []*models.Event
-	err := RetryWithBackoff(func() error {
+	err := RetryWithBackoff(context.Background(), func() error {
 		rows, err := db.QueryContext(context.Background(), query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to list events: %w", err)
