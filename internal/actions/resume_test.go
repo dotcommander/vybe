@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"testing"
@@ -50,13 +51,13 @@ func TestResume_WithEvents(t *testing.T) {
 	}
 
 	// Create some events
-	if err = store.Transact(db, func(tx *sql.Tx) error {
+	if err = store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", "")
 		return e
 	}); err != nil {
 		t.Fatalf("Failed to append event: %v", err)
 	}
-	if err = store.Transact(db, func(tx *sql.Tx) error {
+	if err = store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 2", "")
 		return e
 	}); err != nil {
@@ -120,7 +121,7 @@ func TestResume_CursorAdvancement(t *testing.T) {
 	defer cleanup()
 
 	// Create events
-	if err := store.Transact(db, func(tx *sql.Tx) error {
+	if err := store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", "")
 		return e
 	}); err != nil {
@@ -142,7 +143,7 @@ func TestResume_CursorAdvancement(t *testing.T) {
 	}
 
 	// Create another event
-	if err = store.Transact(db, func(tx *sql.Tx) error {
+	if err = store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 2", "")
 		return e
 	}); err != nil {
@@ -292,7 +293,7 @@ func TestBrief_DoesNotAdvanceCursor(t *testing.T) {
 		t.Fatalf("Failed to create agent state: %v", err)
 	}
 
-	if err = store.Transact(db, func(tx *sql.Tx) error {
+	if err = store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "test.event", "agent1", "", "Event 1", "")
 		return e
 	}); err != nil {
@@ -326,7 +327,7 @@ func TestBuildPrompt_IncludesPriorReasoning(t *testing.T) {
 	}
 
 	// Insert reasoning events
-	if err = store.Transact(db, func(tx *sql.Tx) error {
+	if err = store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "reasoning", "agent1", "", "intent summary", `{"intent":"build auth","approach":"jwt tokens"}`)
 		return e
 	}); err != nil {

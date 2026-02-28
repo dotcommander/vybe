@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestResumeInterruptionScenario(t *testing.T) {
 	}
 
 	// Log some work
-	if err = store.Transact(db, func(tx *sql.Tx) error {
+	if err = store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "progress", agentName, task1.ID, "Made progress on task 1", "")
 		return e
 	}); err != nil {
@@ -232,7 +233,7 @@ func TestMonotonicCursorAdvancement(t *testing.T) {
 
 	// Create events
 	for i := 0; i < 5; i++ {
-		if err := store.Transact(db, func(tx *sql.Tx) error {
+		if err := store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 			_, e := store.InsertEventTx(tx, "test.event", agentName, "", "Event", "")
 			return e
 		}); err != nil {
@@ -274,7 +275,7 @@ func TestMonotonicCursorAdvancement(t *testing.T) {
 
 	// Add more events
 	for i := 0; i < 3; i++ {
-		if appendErr := store.Transact(db, func(tx *sql.Tx) error {
+		if appendErr := store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 			_, e := store.InsertEventTx(tx, "test.event", agentName, "", "New Event", "")
 			return e
 		}); appendErr != nil {

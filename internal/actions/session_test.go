@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"testing"
@@ -29,15 +30,15 @@ func TestSessionDigest_WithEvents(t *testing.T) {
 	_, err := store.LoadOrCreateAgentState(db, "test-agent")
 	require.NoError(t, err)
 
-	require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "user_prompt", "test-agent", "", "what is this?", "")
 		return e
 	}))
-	require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "progress", "test-agent", "", "working on it", "")
 		return e
 	}))
-	require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "tool_failure", "test-agent", "", "bash failed", "")
 		return e
 	}))
@@ -55,15 +56,15 @@ func TestSessionDigest_CountsByKind(t *testing.T) {
 	_, err := store.LoadOrCreateAgentState(db, "test-agent")
 	require.NoError(t, err)
 
-	require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "user_prompt", "test-agent", "", "prompt 1", "")
 		return e
 	}))
-	require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "user_prompt", "test-agent", "", "prompt 2", "")
 		return e
 	}))
-	require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "progress", "test-agent", "", "step done", "")
 		return e
 	}))
@@ -85,7 +86,7 @@ func TestSessionRetrospective_SkipsWhenCLIUnavailable(t *testing.T) {
 
 	// Insert enough events to pass the minimum threshold
 	for range 5 {
-		require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+		require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 			_, e := store.InsertEventTx(tx, "user_prompt", "opencode-test", "", "prompt", "")
 			return e
 		}))
@@ -108,7 +109,7 @@ func TestSessionRetrospective_SkipsWhenFewEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	// Only 1 event — below minimum of 2
-	require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+	require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 		_, e := store.InsertEventTx(tx, "user_prompt", "test-agent", "", "prompt 1", "")
 		return e
 	}))
@@ -128,7 +129,7 @@ func TestAutoSummarizeEventsIdempotent(t *testing.T) {
 
 	// Below threshold — no-op
 	for range 5 {
-		require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+		require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 			_, e := store.InsertEventTx(tx, "note", "test-agent", "", "event", "")
 			return e
 		}))
@@ -148,7 +149,7 @@ func TestAutoPruneArchivedEventsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	for range 3 {
-		require.NoError(t, store.Transact(db, func(tx *sql.Tx) error {
+		require.NoError(t, store.Transact(context.Background(), db, func(tx *sql.Tx) error {
 			_, e := store.InsertEventTx(tx, "note", "test-agent", "", "event", "")
 			return e
 		}))
