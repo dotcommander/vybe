@@ -1,66 +1,30 @@
 # vybe
 
-Durable continuity for AI coding agents.
-
-`vybe` gives autonomous agents crash-safe task tracking, append-only event logs, scoped memory, deterministic resume, and artifact linking — all backed by a single SQLite file. Agents pick up exactly where they left off across sessions without human intervention.
+Persistent memory for AI coding agents.
 
 ## The Problem
 
-AI coding agents lose context when sessions end. Crashes, context resets, and handoffs between agents mean work gets repeated, forgotten, or abandoned. There is no standard place to store what an agent was doing, what it learned, or what it produced.
+Your agent is halfway through a refactor — six files changed, two to go — and the session dies. Context window limit, crash, timeout, whatever.
 
-`vybe` is that place.
+Next session starts cold. The agent re-reads files it already understood, re-plans work it already decided on, and redoes changes it already made.
+
+**Agents have no memory that survives a session boundary.** There's nowhere to store what they were doing, what they learned, or what they produced.
+
+`vybe` is that storage layer — a single SQLite file that survives crashes and restores context on restart.
 
 ![vybe demo](demo.gif)
 
-## Features
+## What It Does
 
-**Task lifecycle**
-- Create, begin, complete, and block tasks with priority and dependencies
-- Dependency-aware progression via deterministic resume focus selection
-- Valid statuses: `pending`, `in_progress`, `completed`, `blocked`
+On session start, `vybe resume` returns everything the agent needs — its current task, saved memory, recent activity, and linked files.
 
-**Event log**
-- Append-only structured log of all agent activity
-- Query via `events list`, summarize, and ingest from external sources
+Between sessions, vybe stores:
+- **Tasks** with status, priority, and dependency tracking
+- **Events** as an append-only log of everything the agent did
+- **Memory** as key-value pairs scoped to global, project, task, or agent — with expiration
+- **Artifacts** linking files and outputs to the work that produced them
 
-**Scoped memory**
-- Key-value store scoped to global / project / task / agent
-- TTL and GC support
-- PreCompact runs checkpoint maintenance (event + memory hygiene)
-
-**Deterministic resume**
-- 5-rule focus selection algorithm — no ambiguity on restart
-- Brief packets deliver task + memory + events + artifacts in one JSON call
-- Cursor-based delta tracking per agent
-
-**Idempotent mutations**
-- Every mutating command accepts `--request-id`
-- Duplicate requests replay the original result safely
-- Safe for retries and at-least-once agent execution
-
-**Multi-agent coordination**
-- Per-agent state, focus tracking, and heartbeats
-- Optimistic concurrency on task and agent state rows
-- Retry-safe idempotent mutations for concurrent workers
-
-**Hook integration**
-- One-command install for Claude Code and OpenCode
-- Hooks cover: SessionStart, UserPromptSubmit, PostToolUseFailure, TaskCompleted, PreCompact, SessionEnd
-- Bidirectional context injection — resume data flows into each new session
-
-**Internal maintenance**
-- Checkpoint/session-end run event summarization and archived-event pruning automatically
-- Maintenance policy is configurable in `config.yaml` (`events_retention_days`, `events_prune_batch`, `events_summarize_threshold`, `events_summarize_keep_recent`)
-- `vybe status --check` verifies DB connectivity
-
-**SQLite-backed**
-- WAL mode, single file, no server required
-- Busy-timeout and retry logic built in
-- Schema introspection via `vybe schema commands`
-
-**Project scoping**
-- Group tasks and memory under named projects
-- Focus project filters memory and task selection
+Sending the same command twice is safe — duplicates are detected and ignored. Multiple agents share the same database without stepping on each other.
 
 ## Quick Start
 
@@ -68,15 +32,12 @@ AI coding agents lose context when sessions end. Crashes, context resets, and ha
 # 1) install
 go install github.com/dotcommander/vybe/cmd/vybe@latest
 
-# 2) connect your assistant
+# 2) connect your assistant (hooks handle agent identity automatically)
 vybe hook install            # Claude Code
 # OR
 vybe hook install --opencode # OpenCode
 
-# 3) set agent name
-export VYBE_AGENT=worker1
-
-# 4) verify
+# 3) verify
 vybe status --check
 ```
 
@@ -91,11 +52,28 @@ vybe task create --request-id task_1 --title "Ship feature" --desc "Implement X"
 # get current focus + context
 vybe resume --request-id resume_1
 
-# close when done (canonical agent path)
+# close when done (task ID is returned by create)
 vybe task set-status --request-id done_1 --id <TASK_ID> --status completed
 ```
 
 If a session crashes, run `vybe resume` and keep going.
+
+## Capabilities
+
+| Capability | What it does |
+|------------|-------------|
+| **Task lifecycle** | Create, begin, complete, and block tasks with priority and dependencies |
+| **Event log** | Append-only log of agent activity — what happened, in order |
+| **Scoped memory** | Key-value pairs stored per-project, per-task, or globally — with expiration |
+| **Resume** | Restores the agent's full working context from a single command |
+| **Safe retries** | Every write accepts a `--request-id`; sending it twice won't create duplicates |
+| **Multi-agent** | Multiple agents share the same database safely |
+| **Hook integration** | One-command install for Claude Code and OpenCode |
+| **Project scoping** | Group tasks and memory under named projects |
+| **Maintenance** | Automatic cleanup of old events — configurable in `config.yaml` |
+| **SQLite** | Single file, no server, handles concurrent access out of the box |
+
+See [`docs/`](docs/) for internals: focus selection algorithm, concurrency model, idempotency protocol, event archiving.
 
 ## Architecture
 
@@ -106,7 +84,7 @@ internal/commands/     # CLI layer — parse flags, call actions
   ↓
 internal/actions/      # Business logic — orchestrate store calls
   ↓
-internal/store/        # SQLite persistence — transactions, retry, CAS
+internal/store/        # SQLite persistence — transactions, retry, conflict resolution
 ```
 
 **Commands:** `artifacts`, `events`, `hook`, `loop`, `memory`, `push`, `resume`, `schema`, `status`, `task`, `upgrade`
