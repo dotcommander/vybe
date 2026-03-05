@@ -51,6 +51,12 @@ type PipelineTask struct {
 	Priority int    `json:"priority"`
 }
 
+// FocusResult holds the outcome of DetermineFocusTask, including which rule fired.
+type FocusResult struct {
+	TaskID string
+	Rule   string // human-readable explanation of which rule fired
+}
+
 // BriefPacket contains all context needed for an agent to resume work
 type BriefPacket struct {
 	BriefVersion     string             `json:"brief_version"`
@@ -110,18 +116,19 @@ func FetchEventsSince(db *sql.DB, cursorID int64, limit int, projectID string) (
 }
 
 // keepCurrentFocus evaluates Rules 1 and 1.5 for DetermineFocusTask.
-// Returns true if the current focus should be kept, false to fall through to lower rules.
+// Returns (true, ruleDescription) if the current focus should be kept,
+// (false, "") to fall through to lower rules.
 // Any lookup error is treated as "task gone" and returns false.
-func keepCurrentFocus(db *sql.DB, currentFocusID string) bool {
+func keepCurrentFocus(db *sql.DB, currentFocusID string) (bool, string) {
 	if currentFocusID == "" {
-		return false
+		return false, ""
 	}
 	task, err := GetTask(db, currentFocusID)
 	if err != nil {
-		return false // Task gone; fall through
+		return false, "" // Task gone; fall through
 	}
 	if task.Status == statusInProgress {
-		return true
+		return true, fmt.Sprintf("rule1: kept in_progress focus on %s", currentFocusID)
 	}
 	// Rule 1.5: keep dependency-blocked focus only if still has unresolved deps.
 	if task.Status == statusBlocked && !task.BlockedReason.IsFailure() {
@@ -132,10 +139,10 @@ func keepCurrentFocus(db *sql.DB, currentFocusID string) bool {
 			return txErr
 		})
 		if depErr == nil && hasUnresolved {
-			return true
+			return true, fmt.Sprintf("rule1.5: kept dependency-blocked focus on %s", currentFocusID)
 		}
 	}
-	return false
+	return false, ""
 }
 
 // pickAssignedTask evaluates a candidate task from a task_assigned event for Rule 2.
@@ -167,10 +174,10 @@ func pickAssignedTask(db *sql.DB, taskID, agentName, projectID string) string {
 // When projectID is non-empty, Rule 4 is strict and only considers pending tasks in that project.
 //
 //nolint:gocognit,gocyclo // five-rule deterministic focus algorithm; each rule is a distinct priority level and cannot be split without losing the priority ordering
-func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*models.Event, projectID string) (string, error) {
+func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*models.Event, projectID string) (FocusResult, error) {
 	// Rule 1 + 1.5: Keep in_progress focus; keep dependency-blocked focus if still blocked.
-	if keepCurrentFocus(db, currentFocusID) {
-		return currentFocusID, nil
+	if keep, rule := keepCurrentFocus(db, currentFocusID); keep {
+		return FocusResult{TaskID: currentFocusID, Rule: rule}, nil
 	}
 
 	// Rule 2: Check deltas for explicit task assignment events
@@ -179,7 +186,10 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 			continue
 		}
 		if taskID := pickAssignedTask(db, event.TaskID, agentName, projectID); taskID != "" {
-			return taskID, nil
+			return FocusResult{
+				TaskID: taskID,
+				Rule:   fmt.Sprintf("rule2: assigned via task_assigned event for %s", taskID),
+			}, nil
 		}
 	}
 
@@ -187,7 +197,10 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 	if currentFocusID != "" {
 		task, err := GetTask(db, currentFocusID)
 		if err == nil && task.Status == "pending" {
-			return currentFocusID, nil
+			return FocusResult{
+				TaskID: currentFocusID,
+				Rule:   fmt.Sprintf("rule3: resumed previously-blocked focus on %s", currentFocusID),
+			}, nil
 		}
 	}
 
@@ -233,11 +246,17 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 	})
 
 	if err != nil {
-		return "", fmt.Errorf("failed to select focus task: %w", err)
+		return FocusResult{}, fmt.Errorf("failed to select focus task: %w", err)
 	}
 
-	// Rule 5: Return empty if no work available
-	return taskID, nil
+	// Rule 4 found a task, or Rule 5: no work available
+	if taskID != "" {
+		return FocusResult{
+			TaskID: taskID,
+			Rule:   fmt.Sprintf("rule4: selected highest-priority pending task %s", taskID),
+		}, nil
+	}
+	return FocusResult{TaskID: "", Rule: "rule5: no pending tasks available"}, nil
 }
 
 // BuildBrief constructs a brief packet for a focus task and optional project.

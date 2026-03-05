@@ -26,6 +26,7 @@ type ResumeResponse struct {
 	Deltas         []*models.Event    `json:"deltas"`
 	FocusTaskID    string             `json:"focus_task_id"`
 	FocusProjectID string             `json:"focus_project_id,omitempty"`
+	FocusRule      string             `json:"focus_rule,omitempty"`
 	Brief          *store.BriefPacket `json:"brief"`
 	Prompt         string             `json:"prompt"`
 }
@@ -43,6 +44,7 @@ type resumePacket struct {
 	oldFocusID     string
 	focusProjectID string
 	focusTaskID    string
+	focusRule      string
 	deltas         []*models.Event
 	brief          *store.BriefPacket
 	recentPrompts  []*models.Event
@@ -89,10 +91,12 @@ func computeResumePacket(db *sql.DB, agentName string, opts ResumeOptions) (*res
 	}
 
 	// Step 3: Determine focus task
-	focusTaskID, err := store.DetermineFocusTask(db, agentName, oldFocusID, deltas, focusProjectID)
+	focusResult, err := store.DetermineFocusTask(db, agentName, oldFocusID, deltas, focusProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine focus task: %w", err)
 	}
+	focusTaskID := focusResult.TaskID
+	focusRule := focusResult.Rule
 
 	// Step 4: Build brief packet
 	brief, err := store.BuildBrief(db, focusTaskID, focusProjectID, agentName)
@@ -109,6 +113,7 @@ func computeResumePacket(db *sql.DB, agentName string, opts ResumeOptions) (*res
 		oldFocusID:     oldFocusID,
 		focusProjectID: focusProjectID,
 		focusTaskID:    focusTaskID,
+		focusRule:      focusRule,
 		deltas:         deltas,
 		brief:          brief,
 		recentPrompts:  recentPrompts,
@@ -124,6 +129,7 @@ func buildResumeResponse(agentName string, pkt *resumePacket) *ResumeResponse {
 		Deltas:         pkt.deltas,
 		FocusTaskID:    pkt.focusTaskID,
 		FocusProjectID: pkt.focusProjectID,
+		FocusRule:      pkt.focusRule,
 		Brief:          pkt.brief,
 		Prompt:         buildPrompt(agentName, pkt.brief, pkt.recentPrompts),
 	}

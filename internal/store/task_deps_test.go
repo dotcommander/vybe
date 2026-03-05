@@ -239,9 +239,9 @@ func TestDetermineFocusTask_SkipsBlockedDeps(t *testing.T) {
 	require.NoError(t, err)
 
 	// DetermineFocusTask should skip task2 (blocked) and select task1
-	focusID, err := DetermineFocusTask(db, agentName, "", nil, "")
+	result, err := DetermineFocusTask(db, agentName, "", nil, "")
 	require.NoError(t, err)
-	assert.Equal(t, task1.ID, focusID, "Should select task1 (dependency) not task2 (blocked)")
+	assert.Equal(t, task1.ID, result.TaskID, "Should select task1 (dependency) not task2 (blocked)")
 
 	// Complete task1
 	err = UpdateTaskStatus(db, task1.ID, "completed", task1.Version)
@@ -254,9 +254,9 @@ func TestDetermineFocusTask_SkipsBlockedDeps(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now task2 should be selected (highest priority, no longer blocked)
-	focusID, err = DetermineFocusTask(db, agentName, "", nil, "")
+	result, err = DetermineFocusTask(db, agentName, "", nil, "")
 	require.NoError(t, err)
-	assert.Equal(t, task2.ID, focusID, "Should select task2 (highest priority, unblocked)")
+	assert.Equal(t, task2.ID, result.TaskID, "Should select task2 (highest priority, unblocked)")
 
 	// Complete task2 (get fresh version after unblock)
 	task2, err = GetTask(db, task2.ID)
@@ -265,9 +265,9 @@ func TestDetermineFocusTask_SkipsBlockedDeps(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now task3 should be selected
-	focusID, err = DetermineFocusTask(db, agentName, "", nil, "")
+	result, err = DetermineFocusTask(db, agentName, "", nil, "")
 	require.NoError(t, err)
-	assert.Equal(t, task3.ID, focusID, "Should select task3 (only pending task left)")
+	assert.Equal(t, task3.ID, result.TaskID, "Should select task3 (only pending task left)")
 }
 
 func TestRemoveTaskDependency(t *testing.T) {

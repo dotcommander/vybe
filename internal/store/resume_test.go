@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -85,13 +86,16 @@ func TestDetermineFocusTask_KeepInProgress(t *testing.T) {
 	}
 
 	// Determine focus (should keep in_progress task)
-	focusID, err := DetermineFocusTask(db, "agent1", task.ID, []*models.Event{}, "")
+	result, err := DetermineFocusTask(db, "agent1", task.ID, []*models.Event{}, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
 
-	if focusID != task.ID {
-		t.Errorf("Expected focus to remain on in_progress task %s, got %s", task.ID, focusID)
+	if result.TaskID != task.ID {
+		t.Errorf("Expected focus to remain on in_progress task %s, got %s", task.ID, result.TaskID)
+	}
+	if !strings.Contains(result.Rule, "rule1") {
+		t.Errorf("Expected rule1 in Rule, got %q", result.Rule)
 	}
 }
 
@@ -111,9 +115,9 @@ func TestDetermineFocusTask_FailureBlockedSkips(t *testing.T) {
 	require.NoError(t, err)
 
 	// Determine focus: should skip failure-blocked and pick pending task
-	focusID, err := DetermineFocusTask(db, "agent1", blockedTask.ID, []*models.Event{}, "")
+	result, err := DetermineFocusTask(db, "agent1", blockedTask.ID, []*models.Event{}, "")
 	require.NoError(t, err)
-	require.Equal(t, pendingTask.ID, focusID, "Should skip failure-blocked focus and pick pending task")
+	require.Equal(t, pendingTask.ID, result.TaskID, "Should skip failure-blocked focus and pick pending task")
 }
 
 func TestDetermineFocusTask_DependencyBlockedKeeps(t *testing.T) {
@@ -137,9 +141,9 @@ func TestDetermineFocusTask_DependencyBlockedKeeps(t *testing.T) {
 	require.Equal(t, models.TaskStatusBlocked, refreshed.Status)
 
 	// Determine focus: should KEEP dependency-blocked focus
-	focusID, err := DetermineFocusTask(db, "agent1", blockedTask.ID, []*models.Event{}, "")
+	result, err := DetermineFocusTask(db, "agent1", blockedTask.ID, []*models.Event{}, "")
 	require.NoError(t, err)
-	require.Equal(t, blockedTask.ID, focusID, "Should keep dependency-blocked focus")
+	require.Equal(t, blockedTask.ID, result.TaskID, "Should keep dependency-blocked focus")
 }
 
 func TestDetermineFocusTask_TaskAssigned_SkipsInProgressByOther(t *testing.T) {
@@ -159,9 +163,9 @@ func TestDetermineFocusTask_TaskAssigned_SkipsInProgressByOther(t *testing.T) {
 	deltas := []*models.Event{{Kind: "task_assigned", TaskID: task.ID}}
 
 	// agent1 should skip the in_progress task (not pending) and fall through to Rule 4
-	focusID, err := DetermineFocusTask(db, "agent1", "", deltas, "")
+	result, err := DetermineFocusTask(db, "agent1", "", deltas, "")
 	require.NoError(t, err)
-	require.Equal(t, fallback.ID, focusID, "Should skip non-pending task")
+	require.Equal(t, fallback.ID, result.TaskID, "Should skip non-pending task")
 }
 
 func TestDetermineFocusTask_TaskAssignedEvent(t *testing.T) {
@@ -188,13 +192,13 @@ func TestDetermineFocusTask_TaskAssignedEvent(t *testing.T) {
 	}
 
 	// Determine focus (should select task2 from assignment event)
-	focusID, err := DetermineFocusTask(db, "agent1", task1.ID, deltas, "")
+	result, err := DetermineFocusTask(db, "agent1", task1.ID, deltas, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
 
-	if focusID != task2.ID {
-		t.Errorf("Expected focus on assigned task %s, got %s", task2.ID, focusID)
+	if result.TaskID != task2.ID {
+		t.Errorf("Expected focus on assigned task %s, got %s", task2.ID, result.TaskID)
 	}
 }
 
@@ -214,13 +218,16 @@ func TestDetermineFocusTask_OldestPending(t *testing.T) {
 	}
 
 	// Determine focus with no current focus (should select oldest pending)
-	focusID, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
+	result, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
 
-	if focusID != task1.ID {
-		t.Errorf("Expected focus on oldest task %s, got %s", task1.ID, focusID)
+	if result.TaskID != task1.ID {
+		t.Errorf("Expected focus on oldest task %s, got %s", task1.ID, result.TaskID)
+	}
+	if !strings.Contains(result.Rule, "rule4") {
+		t.Errorf("Expected rule4 in Rule, got %q", result.Rule)
 	}
 }
 
@@ -229,13 +236,16 @@ func TestDetermineFocusTask_NoWorkAvailable(t *testing.T) {
 	defer cleanup()
 
 	// Determine focus with no tasks
-	focusID, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
+	result, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
 
-	if focusID != "" {
-		t.Errorf("Expected empty focus (no work), got %s", focusID)
+	if result.TaskID != "" {
+		t.Errorf("Expected empty focus (no work), got %s", result.TaskID)
+	}
+	if !strings.Contains(result.Rule, "rule5") {
+		t.Errorf("Expected rule5 in Rule, got %q", result.Rule)
 	}
 }
 
@@ -464,24 +474,24 @@ func TestDetermineFocusTask_Determinism(t *testing.T) {
 	_, _ = CreateTask(db, "Task 3", "Third", "", 0)
 
 	// Run determination multiple times with same state
-	focusID1, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
+	result1, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
 
-	focusID2, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
+	result2, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
 
 	// Should always return the same result (deterministic)
-	if focusID1 != focusID2 {
-		t.Errorf("DetermineFocusTask not deterministic: got %s then %s", focusID1, focusID2)
+	if result1.TaskID != result2.TaskID {
+		t.Errorf("DetermineFocusTask not deterministic: got %s then %s", result1.TaskID, result2.TaskID)
 	}
 
 	// Should be the oldest task
-	if focusID1 != task1.ID {
-		t.Errorf("Expected oldest task %s, got %s", task1.ID, focusID1)
+	if result1.TaskID != task1.ID {
+		t.Errorf("Expected oldest task %s, got %s", task1.ID, result1.TaskID)
 	}
 }
 
@@ -630,12 +640,12 @@ func TestDetermineFocusTask_ProjectScoped(t *testing.T) {
 	}
 
 	// With project filter, should prefer project task
-	focusID, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "proj_x")
+	result, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "proj_x")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
-	if focusID != projTask.ID {
-		t.Errorf("Expected focus on project task %s, got %s", projTask.ID, focusID)
+	if result.TaskID != projTask.ID {
+		t.Errorf("Expected focus on project task %s, got %s", projTask.ID, result.TaskID)
 	}
 
 	// If no pending task exists in the active project, do not fall back to global.
@@ -644,12 +654,12 @@ func TestDetermineFocusTask_ProjectScoped(t *testing.T) {
 		t.Fatalf("Failed to complete project task: %v", err)
 	}
 
-	focusID, err = DetermineFocusTask(db, "agent1", "", []*models.Event{}, "proj_x")
+	result, err = DetermineFocusTask(db, "agent1", "", []*models.Event{}, "proj_x")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed on strict project scope: %v", err)
 	}
-	if focusID != "" {
-		t.Errorf("Expected no focus task outside project scope, got %s", focusID)
+	if result.TaskID != "" {
+		t.Errorf("Expected no focus task outside project scope, got %s", result.TaskID)
 	}
 }
 
@@ -711,13 +721,13 @@ func TestDetermineFocusTask_PriorityOrdering(t *testing.T) {
 	}
 
 	// Rule 4: Should select highest priority task
-	focusID, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
+	result, err := DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
 
-	if focusID != highTask.ID {
-		t.Errorf("Expected focus on high priority task %s, got %s", highTask.ID, focusID)
+	if result.TaskID != highTask.ID {
+		t.Errorf("Expected focus on high priority task %s, got %s", highTask.ID, result.TaskID)
 	}
 
 	// Mark high priority as completed
@@ -727,7 +737,7 @@ func TestDetermineFocusTask_PriorityOrdering(t *testing.T) {
 	}
 
 	// Should now select normal priority (5)
-	focusID, err = DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
+	result, err = DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
@@ -739,7 +749,7 @@ func TestDetermineFocusTask_PriorityOrdering(t *testing.T) {
 	}
 
 	// Mark normal priority as completed
-	normalTask, err := GetTask(db, focusID)
+	normalTask, err := GetTask(db, result.TaskID)
 	if err != nil {
 		t.Fatalf("Failed to get normal task: %v", err)
 	}
@@ -749,13 +759,13 @@ func TestDetermineFocusTask_PriorityOrdering(t *testing.T) {
 	}
 
 	// Now with two tasks at priority 0, should select oldest (lowTask created first)
-	focusID, err = DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
+	result, err = DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
 
-	if focusID != lowTask.ID {
-		t.Errorf("Expected focus on oldest low priority task %s, got %s", lowTask.ID, focusID)
+	if result.TaskID != lowTask.ID {
+		t.Errorf("Expected focus on oldest low priority task %s, got %s", lowTask.ID, result.TaskID)
 	}
 
 	// Mark oldest low priority as completed
@@ -765,13 +775,13 @@ func TestDetermineFocusTask_PriorityOrdering(t *testing.T) {
 	}
 
 	// Should now select the newer low priority task
-	focusID, err = DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
+	result, err = DetermineFocusTask(db, "agent1", "", []*models.Event{}, "")
 	if err != nil {
 		t.Fatalf("DetermineFocusTask failed: %v", err)
 	}
 
-	if focusID != lowTask2.ID {
-		t.Errorf("Expected focus on newer low priority task %s, got %s", lowTask2.ID, focusID)
+	if result.TaskID != lowTask2.ID {
+		t.Errorf("Expected focus on newer low priority task %s, got %s", lowTask2.ID, result.TaskID)
 	}
 }
 
