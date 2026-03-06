@@ -13,6 +13,7 @@ const (
 	EventKindAgentFocus            = "agent_focus"
 	EventKindAgentProjectFocus     = "agent_project_focus"
 	EventKindMemoryUpserted        = "memory_upserted"
+	EventKindMemoryConflict        = "memory_conflict"
 	EventKindMemoryDelete          = "memory_delete"
 	EventKindMemoryGC              = "memory_gc"
 	EventKindEventsSummary         = "events_summary"

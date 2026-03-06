@@ -36,6 +36,7 @@ func SetMemory(db *sql.DB, key, value, valueType, scope, scopeID string, expires
 				value_type = excluded.value_type,
 				expires_at = excluded.expires_at,
 				updated_at = CURRENT_TIMESTAMP
+				-- access_count and last_accessed_at intentionally preserved on conflict
 		`, key, value, valueType, scope, scopeID, expiresAt)
 		if err != nil {
 			return fmt.Errorf("failed to set memory: %w", err)
@@ -64,6 +65,27 @@ func UpsertMemoryTx(tx *sql.Tx, agentName, key, value, valueType, scope, scopeID
 	taskID := ""
 	if scope == string(models.MemoryScopeTask) {
 		taskID = scopeID
+	}
+
+	// Check for value conflict before upsert
+	var oldValue sql.NullString
+	_ = tx.QueryRowContext(context.Background(),
+		`SELECT value FROM memory WHERE scope = ? AND scope_id = ? AND key = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
+		scope, scopeID, key,
+	).Scan(&oldValue)
+
+	if oldValue.Valid && oldValue.String != value {
+		// Emit conflict event — best effort, don't fail the upsert
+		oldVal := truncateRunes(oldValue.String, 512)
+		newVal := truncateRunes(value, 512)
+		conflictMeta, _ := json.Marshal(map[string]string{
+			"key":       key,
+			"scope":     scope,
+			"scope_id":  scopeID,
+			"old_value": oldVal,
+			"new_value": newVal,
+		})
+		_, _ = InsertEventTx(tx, models.EventKindMemoryConflict, agentName, taskID, fmt.Sprintf("Memory conflict: %s", key), string(conflictMeta))
 	}
 
 	_, err := tx.ExecContext(context.Background(), `
@@ -158,13 +180,13 @@ func GetMemory(db *sql.DB, key, scope, scopeID string) (*models.Memory, error) {
 	var mem models.Memory
 	err := RetryWithBackoff(context.Background(), func() error {
 		return db.QueryRowContext(context.Background(), `
-			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at
+			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at
 			FROM memory
 			WHERE key = ? AND scope = ? AND scope_id = ?
 			AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 		`, key, scope, scopeID).Scan(
 			&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID,
-			&mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt,
+			&mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.AccessCount, &mem.LastAccessedAt,
 		)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -184,7 +206,7 @@ func ListMemory(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
 	var memories []*models.Memory
 	err := RetryWithBackoff(context.Background(), func() error {
 		rows, err := db.QueryContext(context.Background(), `
-			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at
+			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at
 			FROM memory
 			WHERE scope = ? AND scope_id = ?
 			AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
@@ -197,7 +219,7 @@ func ListMemory(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
 		memories = make([]*models.Memory, 0)
 		for rows.Next() {
 			var mem models.Memory
-			if err := rows.Scan(&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID, &mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt); err != nil {
+			if err := rows.Scan(&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID, &mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.AccessCount, &mem.LastAccessedAt); err != nil {
 				return fmt.Errorf("failed to scan memory: %w", err)
 			}
 			memories = append(memories, &mem)
@@ -375,6 +397,15 @@ func validateValueType(valueType string) error {
 		return fmt.Errorf("invalid value_type: %q (must be one of: string, number, boolean, json, array)", valueType)
 	}
 	return nil
+}
+
+// truncateRunes truncates s to at most maxRunes runes, appending "…" if truncated.
+func truncateRunes(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "…"
 }
 
 // validateScope ensures scope and scope_id are valid.

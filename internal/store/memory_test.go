@@ -509,3 +509,45 @@ func TestMemoryEventMetadata_MarshalProducesValidJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestUpsertMemoryTx_EmitsConflictEvent(t *testing.T) {
+	db, cleanup := setupMemoryTestDB(t)
+	defer cleanup()
+
+	// First insert — no conflict
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_1", "key1", "value_old", "string", "global", "", nil)
+	require.NoError(t, err)
+
+	// Overwrite with different value — should emit memory_conflict
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_2", "key1", "value_new", "string", "global", "", nil)
+	require.NoError(t, err)
+
+	// Check that a memory_conflict event was emitted
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM events WHERE kind = 'memory_conflict'`).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "expected exactly one memory_conflict event")
+
+	var message, metadata string
+	err = db.QueryRow(`SELECT message, metadata FROM events WHERE kind = 'memory_conflict'`).Scan(&message, &metadata)
+	require.NoError(t, err)
+	assert.Contains(t, message, "key1")
+	assert.Contains(t, metadata, "value_old")
+	assert.Contains(t, metadata, "value_new")
+}
+
+func TestUpsertMemoryTx_NoConflictOnSameValue(t *testing.T) {
+	db, cleanup := setupMemoryTestDB(t)
+	defer cleanup()
+
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_1", "key1", "same_value", "string", "global", "", nil)
+	require.NoError(t, err)
+
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_2", "key1", "same_value", "string", "global", "", nil)
+	require.NoError(t, err)
+
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM events WHERE kind = 'memory_conflict'`).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "no conflict event expected when value is unchanged")
+}

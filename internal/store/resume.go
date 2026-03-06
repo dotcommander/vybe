@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/dotcommander/vybe/internal/models"
 )
@@ -645,19 +646,23 @@ func estimateApproxTokensFromEventMessages(events []*models.Event) int {
 	return (totalChars + 3) / 4
 }
 
-// fetchRelevantMemory retrieves memory relevant to a task and/or project.
+// fetchRelevantMemory retrieves memory relevant to a task and/or project, ranked by ACT-R score.
 // When projectID is non-empty, only project-scoped memory for that project is included.
 // When projectID is empty, all project-scoped memory is included.
+// After fetching, access_count and last_accessed_at are updated best-effort.
 func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory, error) {
 	var memories []*models.Memory
+	var ids []int64
 
 	err := RetryWithBackoff(context.Background(), func() error {
 		var query string
 		var args []any
 
+		relevanceExpr := `(1.0 + access_count) / (1.0 + MAX(julianday('now') - julianday(COALESCE(last_accessed_at, updated_at)), 0.0)) AS relevance`
+
 		if projectID != "" {
 			query = `
-				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at
+				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, ` + relevanceExpr + `
 				FROM memory
 				WHERE (
 					scope = 'global'
@@ -665,13 +670,13 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 					OR (scope = 'project' AND scope_id = ?)
 				)
 				AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-				ORDER BY updated_at DESC
+				ORDER BY relevance DESC
 				LIMIT 50
 			`
 			args = []any{taskID, projectID}
 		} else {
 			query = `
-				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at
+				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, ` + relevanceExpr + `
 				FROM memory
 				WHERE (
 					scope = 'global'
@@ -679,7 +684,7 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 					OR scope = 'project'
 				)
 				AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-				ORDER BY updated_at DESC
+				ORDER BY relevance DESC
 				LIMIT 50
 			`
 			args = []any{taskID}
@@ -691,16 +696,19 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 		}
 		defer func() { _ = rows.Close() }()
 
-		memories = make([]*models.Memory, 0)
+		memories = make([]*models.Memory, 0, 50)
+		ids = make([]int64, 0, 50)
 		for rows.Next() {
 			var mem models.Memory
 			if err := rows.Scan(
 				&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID,
-				&mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt,
+				&mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.AccessCount, &mem.LastAccessedAt,
+				&mem.Relevance,
 			); err != nil {
 				return fmt.Errorf("failed to scan memory: %w", err)
 			}
 			memories = append(memories, &mem)
+			ids = append(ids, mem.ID)
 		}
 
 		return rows.Err()
@@ -708,6 +716,18 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Best-effort: bump access_count and last_accessed_at for all returned rows.
+	if len(ids) > 0 {
+		placeholders := strings.Repeat("?,", len(ids))
+		placeholders = placeholders[:len(placeholders)-1]
+		updateQuery := fmt.Sprintf(`UPDATE memory SET access_count = access_count + 1, last_accessed_at = CURRENT_TIMESTAMP WHERE id IN (%s)`, placeholders)
+		args := make([]any, len(ids))
+		for i, id := range ids {
+			args[i] = id
+		}
+		_, _ = db.ExecContext(context.Background(), updateQuery, args...)
 	}
 
 	return memories, nil

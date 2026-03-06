@@ -134,9 +134,12 @@ type Memory struct {
 	ValueType string      `json:"value_type"`
 	Scope     MemoryScope `json:"scope"`
 	ScopeID   string      `json:"scope_id"`
-	ExpiresAt *time.Time  `json:"expires_at,omitempty"`
-	UpdatedAt time.Time   `json:"updated_at"`
-	CreatedAt time.Time   `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+	AccessCount int `json:"access_count"`
+	LastAccessedAt *time.Time `json:"last_accessed_at,omitempty"`
+	Relevance float64 `json:"relevance,omitempty"`
 }
 
 // IsExpired returns true if the memory has an expiration time and it has passed.

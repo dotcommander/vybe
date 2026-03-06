@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1083,4 +1084,56 @@ func TestBuildBrief_PopulatesDiscoveryContext(t *testing.T) {
 	// Unlocks
 	require.Len(t, brief.Unlocks, 1)
 	require.Equal(t, waiting.ID, brief.Unlocks[0].ID)
+}
+
+func TestFetchRelevantMemory_ACTRScoring(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	require.NoError(t, SetMemory(db, "rarely_used", "val1", "string", "global", "", nil))
+	require.NoError(t, SetMemory(db, "frequently_used", "val2", "string", "global", "", nil))
+
+	// Simulate high access for frequently_used
+	_, err := db.Exec(`UPDATE memory SET access_count = 10, last_accessed_at = CURRENT_TIMESTAMP WHERE key = 'frequently_used'`)
+	require.NoError(t, err)
+
+	memories, err := fetchRelevantMemory(db, "", "")
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(memories), 2)
+
+	var freqIdx, rareIdx int
+	for i, m := range memories {
+		switch m.Key {
+		case "frequently_used":
+			freqIdx = i
+		case "rarely_used":
+			rareIdx = i
+		}
+	}
+	assert.Less(t, freqIdx, rareIdx, "frequently_used should rank higher than rarely_used")
+
+	// Verify relevance is populated
+	for _, m := range memories {
+		if m.Key == "frequently_used" {
+			assert.Greater(t, m.Relevance, 0.0, "relevance should be positive")
+		}
+	}
+}
+
+func TestFetchRelevantMemory_AccessCountIncrement(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	require.NoError(t, SetMemory(db, "counter_test", "val", "string", "global", "", nil))
+
+	// Fetch twice
+	_, err := fetchRelevantMemory(db, "", "")
+	require.NoError(t, err)
+	_, err = fetchRelevantMemory(db, "", "")
+	require.NoError(t, err)
+
+	mem, err := GetMemory(db, "counter_test", "global", "")
+	require.NoError(t, err)
+	assert.Equal(t, 2, mem.AccessCount, "access_count should be 2 after two fetches")
+	assert.NotNil(t, mem.LastAccessedAt, "last_accessed_at should be set")
 }
