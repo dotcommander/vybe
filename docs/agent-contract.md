@@ -60,7 +60,7 @@ Primary subcommands:
 - `hook install|uninstall`
 - `memory set|get|list|delete|gc`
 - `schema commands`
-- `task create|begin|get|list|set-status|set-priority|complete|add-dep`
+- `task create|begin|get|list|set-status|set-priority|add-dep`
 
 ## Canonical flag semantics
 
@@ -85,7 +85,6 @@ For autonomous loops, use one terminal path: `task set-status --status completed
 - create: `vybe task create ...`
 - claim/start: `vybe task begin ...` or `vybe resume ...` (deterministic focus)
 - terminal status (canonical agent path): `vybe task set-status --id ... --status completed|blocked`
-- structured closure (optional, non-canonical for autonomous loops): `vybe task complete --outcome done|blocked --summary "..."`
 - task read: `vybe task get --id ...`
 - queue read: `vybe task list --project-id ...`
 

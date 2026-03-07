@@ -25,11 +25,6 @@ const (
 	TaskStatusBlocked    TaskStatus = "blocked"
 )
 
-// IsTerminal returns true if the task is in a completed state.
-func (s TaskStatus) IsTerminal() bool {
-	return s == TaskStatusCompleted
-}
-
 // IsPending returns true if the task is pending execution.
 func (s TaskStatus) IsPending() bool {
 	return s == TaskStatusPending

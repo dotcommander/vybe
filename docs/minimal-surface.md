@@ -15,7 +15,7 @@ If not, it is optional and a pruning candidate.
 | Surface | Why it is core |
 | --- | --- |
 | `resume` (`--peek`, non-`--peek`, `--focus`, `--project-dir`) | Entry point for deterministic focus + brief packet + cursor semantics |
-| `task create|begin|complete|get|list` | Minimal queue lifecycle and task state reads |
+| `task create|begin|set-status|get|list` | Minimal queue lifecycle and task state reads; `set-status` is the canonical closure path |
 | `task add-dep` | Needed for dependency-aware focus selection in real workflows |
 | `push` | Atomic write path for event + memory + artifacts + task status |
 | `events list` | Readable append-only history for recovery and debugging |
@@ -30,7 +30,6 @@ If not, it is optional and a pruning candidate.
 | Surface | Why it stays for now |
 | --- | --- |
 | `memory delete|gc` | Prevent stale/expired memory from degrading continuity quality |
-| `task set-status` | Raw state correction and loop/circuit-breaker interoperability |
 
 ### Optional (integration and convenience)
 
@@ -60,7 +59,7 @@ Ship a change only if all remain true:
 
 - New session resumes deterministically with correct focus task.
 - Replay of same request ID does not duplicate side effects.
-- Task lifecycle works end-to-end (`create → begin → complete`).
+- Task lifecycle works end-to-end (`create → begin → set-status`).
 - Cross-session memory and artifact reads still work.
 - Machine caller can discover valid flags via `schema commands`.
 

@@ -25,7 +25,6 @@ func NewTaskCmd() *cobra.Command {
 	cmd.AddCommand(newTaskGetCmd())
 	cmd.AddCommand(newTaskListCmd())
 	cmd.AddCommand(newTaskAddDepCmd())
-	cmd.AddCommand(newTaskCompleteCmd())
 	cmd.AddCommand(newTaskSetPriorityCmd())
 
 	namespaceIndex(cmd)
@@ -303,63 +302,6 @@ func newTaskAddDepCmd() *cobra.Command {
 		"Dependency added: %s depends on %s",
 		actions.TaskAddDependencyIdempotent,
 	)
-}
-
-func newTaskCompleteCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "complete",
-		Short: "DEPRECATED: use 'vybe task set-status'",
-		Long:  "DEPRECATED: Use 'vybe task set-status --status completed' instead.\n\nSets status + emits task_closed event with summary/label metadata in one transaction. Outcome: done|blocked. For autonomous loop agents, prefer task set-status with completed|blocked.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			taskID, _ := cmd.Flags().GetString("id")
-			outcome, _ := cmd.Flags().GetString("outcome")
-			summary, _ := cmd.Flags().GetString("summary")
-			label, _ := cmd.Flags().GetString("label")
-			blockedReason, _ := cmd.Flags().GetString("blocked-reason")
-
-			if taskID == "" {
-				return cmdErr(errors.New("--id is required"))
-			}
-			if outcome == "" {
-				return cmdErr(errors.New("--outcome is required (done|blocked)"))
-			}
-			if summary == "" {
-				return cmdErr(errors.New("--summary is required"))
-			}
-
-			agentName, err := requireActorName(cmd, "")
-			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
-			}
-
-			var result *actions.TaskCloseResult
-			if err := withDB(func(db *DB) error {
-				r, closeErr := actions.TaskCloseIdempotent(db, agentName, requestID, taskID, outcome, summary, label, blockedReason)
-				if closeErr != nil {
-					return closeErr
-				}
-				result = r
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			return output.PrintSuccess(result)
-		},
-	}
-
-	cmd.Flags().String("id", "", "Task ID (required)")
-	cmd.Flags().String("outcome", "", "Close outcome: done|blocked (required)")
-	cmd.Flags().String("summary", "", "Closure summary (required)")
-	cmd.Flags().String("label", "", "Optional label stored in event metadata")
-	cmd.Flags().String("blocked-reason", "", "Reason for blocking (only used with --outcome=blocked)")
-
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
-	return cmd
 }
 
 func newTaskSetPriorityCmd() *cobra.Command {

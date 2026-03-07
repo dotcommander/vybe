@@ -24,8 +24,8 @@ func ProjectCreateIdempotent(db *sql.DB, agentName, requestID, name, metadata st
 	}
 
 	type idemResult struct {
-		ProjectID string `json:"project_id"`
-		EventID   int64  `json:"event_id"`
+		Project models.Project `json:"project"`
+		EventID int64          `json:"event_id"`
 	}
 
 	r, err := store.RunIdempotent(context.Background(), db, agentName, requestID, "project.create", func(tx *sql.Tx) (idemResult, error) {
@@ -39,18 +39,14 @@ func ProjectCreateIdempotent(db *sql.DB, agentName, requestID, name, metadata st
 			return idemResult{}, fmt.Errorf("failed to append event: %w", err)
 		}
 
-		return idemResult{ProjectID: createdProject.ID, EventID: eventID}, nil
+		return idemResult{Project: *createdProject, EventID: eventID}, nil
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create project: %w", err)
 	}
 
-	project, err := store.GetProject(db, r.ProjectID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to fetch created project: %w", err)
-	}
-
-	return project, r.EventID, nil
+	project := r.Project
+	return &project, r.EventID, nil
 }
 
 // ProjectFocusIdempotent sets the agent's focus project once per (agent_name, request_id).

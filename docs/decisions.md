@@ -61,7 +61,7 @@ Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists
 
 **Removed:** v0.8.x simplification
 **Reason:** Hard deletion is destructive and not required for continuity workflows. Agents should keep immutable history and retire work by lifecycle state (`completed`/`blocked`) instead of removing rows.
-**Alternative:** `vybe task set-status --status completed|blocked ...` for loop agents; `vybe task complete --outcome done|blocked --summary "..."` remains optional structured closure.
+**Alternative:** `vybe task set-status --status completed|blocked ...` for all closure. `vybe task complete` has been removed; use `vybe task set-status --status completed|blocked` instead.
 
 ### `task remove-dep` (CLI command only)
 
@@ -107,7 +107,7 @@ Vybe is continuity infrastructure for autonomous LLM agents. If a feature exists
 
 ### `task set-status`
 
-**Kept.** The loop command's `markTaskBlocked` calls `set-status` to transition tasks to blocked. `task complete --outcome=blocked` is semantically different (closes with summary). `set-status` is the canonical autonomous-loop terminal transition agents need.
+**Kept.** The loop command's `markTaskBlocked` calls `set-status` to transition tasks to blocked. `set-status` is the canonical autonomous-loop terminal transition agents need for all closure, including completed and blocked states.
 
 ### `loop`
 
@@ -165,6 +165,25 @@ Breaking them increases tool-call error rates and retry noise in autonomous work
 **Why not rely on label-only required markers:** Label-only requirements drift from behavior and train agents into invalid call patterns.
 
 **Guardrail:** Every required flag must be validated, and tests should fail if required semantics diverge from behavior.
+
+## Investigated and confirmed correct
+
+### `SetMaxOpenConns(1)` (`internal/store/db.go`)
+
+**Concern:** Single connection becomes a throughput bottleneck as multi-agent concurrency increases.
+
+**Verdict:** Correct as-is. The concern assumes a server model (long-running process, N goroutines sharing a pool). Vybe is a CLI tool — each invocation is a separate OS process with its own `*sql.DB`. `SetMaxOpenConns(1)` constrains connections within a single process, not across the database file.
+
+**Why increasing it would be harmful:**
+
+- **SQLite is single-writer regardless.** WAL allows concurrent readers + one writer at the DB engine level. Extra connections in one process just compete with each other for the write lock — more contention, not more throughput.
+- **Pragma drift.** SQLite pragmas are per-connection. With one connection, pragmas set at startup apply everywhere. With N connections, new pool connections start with defaults (no WAL, no foreign keys, no busy_timeout) unless a `ConnInitHook` re-applies them.
+- **Nested cursor safety.** Single connection surfaces deadlocks immediately when code issues `db.Query*` while a parent `rows` cursor is open. Multiple connections mask this as a silent correctness bug (second query runs on a different connection with different transaction scope).
+- **No concurrent read paths.** Within a single CLI invocation, commands run sequentially — there are no goroutines competing for read connections.
+
+**What handles multi-agent concurrency instead:** Cross-process contention is managed by WAL mode + `busy_timeout` (5s) + `_txlock=immediate` + `RetryWithBackoff` (exponential 50ms→2s, 10s ceiling). These operate at the SQLite engine level across all processes.
+
+**When this would change:** Only if vybe transitions from CLI to a long-running daemon with concurrent request handlers — which would require broader architectural changes beyond connection pooling.
 
 ## Design principles (standing)
 

@@ -67,8 +67,8 @@ func TaskCreateIdempotent(db *sql.DB, agentName, requestID, title, description, 
 	}
 
 	type idemResult struct {
-		TaskID  string `json:"task_id"`
-		EventID int64  `json:"event_id"`
+		Task    models.Task `json:"task"`
+		EventID int64       `json:"event_id"`
 	}
 
 	r, err := store.RunIdempotent(context.Background(), db, agentName, requestID, "task.create", func(tx *sql.Tx) (idemResult, error) {
@@ -82,18 +82,14 @@ func TaskCreateIdempotent(db *sql.DB, agentName, requestID, title, description, 
 			return idemResult{}, fmt.Errorf("failed to append event: %w", err)
 		}
 
-		return idemResult{TaskID: createdTask.ID, EventID: eventID}, nil
+		return idemResult{Task: *createdTask, EventID: eventID}, nil
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create task: %w", err)
 	}
 
-	task, err := store.GetTask(db, r.TaskID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to fetch created task: %w", err)
-	}
-
-	return task, r.EventID, nil
+	task := r.Task
+	return &task, r.EventID, nil
 }
 
 // TaskSetStatusIdempotent updates task status once per (agent_name, request_id).

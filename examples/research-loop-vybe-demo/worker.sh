@@ -62,13 +62,12 @@ vybe push \
   --json "{\"task_id\":\"$TASK_ID\",\"artifacts\":[{\"file_path\":\"$ARTIFACT_PATH\"}]}" >/dev/null
 
 if [[ "$TITLE" == *"BLOCKED_DEMO"* ]]; then
-  vybe task complete \
+  vybe task set-status \
     --agent "$VYBE_AGENT" \
-    --request-id "$(rid status_block)" \
+    --request-id "$(rid status_blocked)" \
     --id "$TASK_ID" \
-    --outcome blocked \
-    --blocked-reason "Source type not available in demo mode" \
-    --summary "Blocked: requires unavailable source" >/dev/null
+    --status blocked \
+    --blocked-reason "Source type not available in demo mode" >/dev/null
 
   exit 0
 fi
@@ -78,9 +77,8 @@ vybe push \
   --request-id "$(rid log_done)" \
   --json "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"research_finished\",\"message\":\"Completed mock research pass and attached artifact\"}}" >/dev/null
 
-vybe task complete \
+vybe task set-status \
   --agent "$VYBE_AGENT" \
   --request-id "$(rid status_done)" \
   --id "$TASK_ID" \
-  --outcome done \
-  --summary "Mock research pass completed" >/dev/null
+  --status completed >/dev/null

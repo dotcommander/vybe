@@ -12,7 +12,7 @@ func TestNewTaskCmd_HasExpectedSubcommands(t *testing.T) {
 	require.Equal(t, "task", cmd.Use)
 	require.Equal(t, "Manage tasks", cmd.Short)
 
-	for _, name := range []string{"create", "begin", "set-status", "get", "list", "add-dep", "complete", "set-priority"} {
+	for _, name := range []string{"create", "begin", "set-status", "get", "list", "add-dep", "set-priority"} {
 		sub, _, err := cmd.Find([]string{name})
 		require.NoError(t, err)
 		require.NotNil(t, sub)
