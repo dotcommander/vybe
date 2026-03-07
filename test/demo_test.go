@@ -479,16 +479,15 @@ func TestDemoAgentSession(t *testing.T) {
 		t.Run("complete_task", func(t *testing.T) {
 			t.Logf("Completing task %s ('Implement auth') — outcome=done, summary captures what was built", authTaskID)
 			t.Log("Task completion triggers focus auto-advance on next resume. The queue moves forward.")
-			out := h.vybe("task", "complete",
+			out := h.vybe("task", "set-status",
 				"--id", authTaskID,
-				"--outcome", "done",
-				"--summary", "Auth implemented with JWT strategy",
+				"--status", "completed",
 				"--request-id", rid("p2s15", 1),
 			)
 			m := requireSuccess(t, out)
 			status := getStr(m, "data", "task", "status")
 			require.Equal(t, "completed", status)
-			t.Logf("Task %s status: in_progress → %s (summary: 'Auth implemented with JWT strategy')", authTaskID, status)
+			t.Logf("Task %s status: in_progress → %s", authTaskID, status)
 		})
 
 		// TaskCompleted hook
@@ -620,16 +619,15 @@ func TestDemoAgentSession(t *testing.T) {
 			t.Log("Progress logged: 'Deployment pipeline configured'")
 
 			// Complete deploy task
-			doneOut := h.vybe("task", "complete",
+			doneOut := h.vybe("task", "set-status",
 				"--id", deployTaskID,
-				"--outcome", "done",
-				"--summary", "Deployed to production",
+				"--status", "completed",
 				"--request-id", rid("p4s21", 3),
 			)
 			m := requireSuccess(t, doneOut)
 			status := getStr(m, "data", "task", "status")
 			require.Equal(t, "completed", status)
-			t.Logf("Task %s ('Deploy'): in_progress → %s (summary: 'Deployed to production')", deployTaskID, status)
+			t.Logf("Task %s ('Deploy'): in_progress → %s", deployTaskID, status)
 		})
 
 		// Run resume directly — "Write tests" should now be focus after dependency auto-unblock
@@ -681,10 +679,9 @@ func TestDemoAgentSession(t *testing.T) {
 			requireSuccess(t, beginOut)
 			t.Logf("Task %s ('Write tests'): pending → in_progress", testsTaskID)
 
-			doneOut := h.vybe("task", "complete",
+			doneOut := h.vybe("task", "set-status",
 				"--id", testsTaskID,
-				"--outcome", "done",
-				"--summary", "All tests written and passing",
+				"--status", "completed",
 				"--request-id", rid("p5s25", 2),
 			)
 			m := requireSuccess(t, doneOut)

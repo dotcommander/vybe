@@ -162,11 +162,11 @@ func BuildActs() []Act {
 			Number: 10,
 			Name:   "Multi-Agent Coordination",
 			Narration: []string{
-				"Coordinate concurrent workers with atomic task acquisition.",
-				"task begin uses CAS semantics so one worker wins each claim race.",
+				"Claim a task atomically using task begin.",
+				"CAS semantics on the version column prevent duplicate claims.",
 			},
 			Steps: []Step{
-				{Name: "atomic_claim", Fn: stepAtomicClaim, Insight: "Status change uses compare-and-swap on the version column. Two agents racing — only one succeeds."},
+				{Name: "atomic_claim", Fn: stepAtomicClaim, Insight: "Status change uses compare-and-swap on the version column. Concurrent agents with the same version — only one succeeds."},
 			},
 		},
 		{

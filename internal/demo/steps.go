@@ -8,6 +8,24 @@ import (
 	"strings"
 )
 
+// jsonMap safely extracts a map[string]any from an any value.
+func jsonMap(v any, path string) (map[string]any, error) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("expected object at %s, got %T", path, v)
+	}
+	return m, nil
+}
+
+// jsonSlice safely extracts a []any from an any value.
+func jsonSlice(v any, path string) ([]any, error) {
+	s, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("expected array at %s, got %T", path, v)
+	}
+	return s, nil
+}
+
 // Act I: Building The World
 
 func stepUpgradeDatabase(r *Runner, ctx *DemoContext) error {
@@ -60,14 +78,26 @@ func stepCreateTaskGraph(r *Runner, ctx *DemoContext) error {
 	if err := r.mustSuccess(tm, traw); err != nil {
 		return err
 	}
-	tasksList, ok := tm["data"].(map[string]any)["tasks"].([]any)
-	if !ok || len(tasksList) != 3 {
+	data, err := jsonMap(tm["data"], "data")
+	if err != nil {
+		return fmt.Errorf("task list: %w", err)
+	}
+	tasksList, err := jsonSlice(data["tasks"], "data.tasks")
+	if err != nil || len(tasksList) != 3 {
 		return fmt.Errorf("expected 3 tasks, got data: %s", traw)
 	}
 	tasksByTitle := make(map[string]string)
-	for _, raw := range tasksList {
-		task := raw.(map[string]any)
-		tasksByTitle[task["title"].(string)] = task["id"].(string)
+	for _, item := range tasksList {
+		task, err := jsonMap(item, "data.tasks[]")
+		if err != nil {
+			return err
+		}
+		title, _ := task["title"].(string)
+		id, _ := task["id"].(string)
+		if title == "" || id == "" {
+			return fmt.Errorf("task missing title or id: %v", task)
+		}
+		tasksByTitle[title] = id
 	}
 	ctx.AuthTaskID = tasksByTitle["Implement auth"]
 	ctx.TestsTaskID = tasksByTitle["Write tests"]
@@ -173,7 +203,10 @@ func stepResume(r *Runner, ctx *DemoContext) error {
 	if !ok {
 		return fmt.Errorf("no focus task in brief: %s", raw)
 	}
-	focusTaskID := focusTask["id"].(string)
+	focusTaskID, ok := focusTask["id"].(string)
+	if !ok || focusTaskID == "" {
+		return fmt.Errorf("focus task missing id: %s", raw)
+	}
 	if focusTaskID != ctx.AuthTaskID {
 		return fmt.Errorf("expected focus task %s (Implement auth), got %s", ctx.AuthTaskID, focusTaskID)
 	}
@@ -183,7 +216,9 @@ func stepResume(r *Runner, ctx *DemoContext) error {
 
 func stepPromptLogging(r *Runner, ctx *DemoContext) error {
 	stdin := hookStdin("UserPromptSubmit", ctx.SessionID, ctx.ProjectID, "", "Implement the auth system", "")
-	_, _, _ = r.vybeWithStdin(stdin, "hook", "prompt")
+	if _, _, err := r.vybeWithStdin(stdin, "hook", "prompt"); err != nil {
+		return fmt.Errorf("hook prompt failed: %w", err)
+	}
 
 	m, raw, err := r.vybe("events", "list", "--kind", "user_prompt", "--limit", "5", "--all")
 	if err != nil {
@@ -222,7 +257,9 @@ func stepClaimFocusTask(r *Runner, ctx *DemoContext) error {
 func stepToolFailureTracking(r *Runner, ctx *DemoContext) error {
 	stdin := hookStdinWithToolInput("PostToolUseFailure", ctx.SessionID, ctx.ProjectID, "Bash",
 		map[string]any{"command": "go test ./..."})
-	_, _, _ = r.vybeWithStdin(stdin, "hook", "tool-failure")
+	if _, _, err := r.vybeWithStdin(stdin, "hook", "tool-failure"); err != nil {
+		return fmt.Errorf("hook tool-failure failed: %w", err)
+	}
 
 	m, raw, err := r.vybe("events", "list", "--kind", "tool_failure", "--limit", "5", "--all")
 	if err != nil {
@@ -322,10 +359,9 @@ func stepLinkArtifact(r *Runner, ctx *DemoContext) error {
 }
 
 func stepCompleteTask(r *Runner, ctx *DemoContext) error {
-	m, raw, err := r.vybe("task", "complete",
+	m, raw, err := r.vybe("task", "set-status",
 		"--id", ctx.AuthTaskID,
-		"--outcome", "done",
-		"--summary", "Auth implemented with JWT strategy",
+		"--status", "completed",
 		"--request-id", rid("p2s15", 1),
 	)
 	if err != nil {
@@ -458,10 +494,9 @@ func stepCompleteWriteTestsTask(r *Runner, ctx *DemoContext) error {
 	}
 	r.printDetail("Write tests: pending → in_progress")
 
-	dm, draw, err := r.vybe("task", "complete",
+	dm, draw, err := r.vybe("task", "set-status",
 		"--id", ctx.TestsTaskID,
-		"--outcome", "done",
-		"--summary", "All tests written and passing",
+		"--status", "completed",
 		"--request-id", rid("p4s21", 2),
 	)
 	if err != nil {
@@ -492,7 +527,14 @@ func stepResumeWithRemainingTask(r *Runner, ctx *DemoContext) error {
 	}
 	task := brief["task"]
 	if task != nil {
-		taskID := task.(map[string]any)["id"].(string)
+		taskMap, err := jsonMap(task, "brief.task")
+		if err != nil {
+			return err
+		}
+		taskID, ok := taskMap["id"].(string)
+		if !ok || taskID == "" {
+			return fmt.Errorf("focus task missing id: %s", raw)
+		}
 		if taskID != ctx.DeployTaskID {
 			return fmt.Errorf("expected Deploy task %s, got %s", ctx.DeployTaskID, taskID)
 		}
@@ -525,10 +567,9 @@ func stepClaimFinalTask(r *Runner, ctx *DemoContext) error {
 }
 
 func stepCompleteFinalTask(r *Runner, ctx *DemoContext) error {
-	dm, draw, err := r.vybe("task", "complete",
+	dm, draw, err := r.vybe("task", "set-status",
 		"--id", ctx.DeployTaskID,
-		"--outcome", "done",
-		"--summary", "Deployed to production",
+		"--status", "completed",
 		"--request-id", rid("p5s24", 1),
 	)
 	if err != nil {
@@ -598,8 +639,11 @@ func stepQueryEventStream(r *Runner, ctx *DemoContext) error {
 		return fmt.Errorf("events list should not be empty: %s", raw)
 	}
 	kinds := make(map[string]bool)
-	for _, raw := range events {
-		e := raw.(map[string]any)
+	for _, item := range events {
+		e, err := jsonMap(item, "events[]")
+		if err != nil {
+			return err
+		}
 		if k, ok := e["kind"].(string); ok {
 			kinds[k] = true
 		}
@@ -683,7 +727,11 @@ func stepHealthCheck(r *Runner, ctx *DemoContext) error {
 	if err := r.mustSuccess(m, raw); err != nil {
 		return err
 	}
-	queryOK := m["data"].(map[string]any)["query_ok"]
+	data, err := jsonMap(m["data"], "data")
+	if err != nil {
+		return fmt.Errorf("health check: %w", err)
+	}
+	queryOK := data["query_ok"]
 	if queryOK != true {
 		return fmt.Errorf("status check should report query_ok=true: %s", raw)
 	}
@@ -804,7 +852,11 @@ func stepTTLExpiryAndGC(r *Runner, ctx *DemoContext) error {
 	if value != "expires_in_24h" {
 		return fmt.Errorf("expected expires_in_24h, got %q", value)
 	}
-	expiresAt := gm["data"].(map[string]any)["expires_at"]
+	gmData, err := jsonMap(gm["data"], "data")
+	if err != nil {
+		return fmt.Errorf("TTL memory: %w", err)
+	}
+	expiresAt := gmData["expires_at"]
 	if expiresAt == nil {
 		return fmt.Errorf("expires_at should be set for TTL memory: %s", graw)
 	}
@@ -848,7 +900,11 @@ func stepStructuredMetadata(r *Runner, ctx *DemoContext) error {
 	if err := r.mustSuccess(m, raw); err != nil {
 		return err
 	}
-	eventID := m["data"].(map[string]any)["event_id"]
+	pushData, err := jsonMap(m["data"], "data")
+	if err != nil {
+		return fmt.Errorf("push: %w", err)
+	}
+	eventID := pushData["event_id"]
 	if eventID == nil {
 		return fmt.Errorf("event_id should be set: %s", raw)
 	}
@@ -1009,12 +1065,14 @@ func stepStatusTransitions(r *Runner, ctx *DemoContext) error {
 // Act XII: Knowledge Management
 
 func stepExplicitDeletion(r *Runner, ctx *DemoContext) error {
-	_, _, _ = r.vybe("memory", "set",
+	if _, _, err := r.vybe("memory", "set",
 		"--key", "delete_me",
 		"--value", "temporary",
 		"--scope", "global",
 		"--request-id", rid("p12s50", 1),
-	)
+	); err != nil {
+		return fmt.Errorf("memory set for deletion test: %w", err)
+	}
 
 	gm, graw, err := r.vybe("memory", "get", "--key", "delete_me", "--scope", "global")
 	if err != nil {
@@ -1146,10 +1204,12 @@ func stepCompressHistory(r *Runner, ctx *DemoContext) error {
 	for i := range 2 {
 		pushJSON := fmt.Sprintf(`{"task_id":%q,"event":{"kind":"progress","message":"pre-summary event %d"}}`,
 			ctx.AuthTaskID, i)
-		_, _, _ = r.vybe("push",
+		if _, _, err := r.vybe("push",
 			"--json", pushJSON,
 			"--request-id", rid("p14s54", i),
-		)
+		); err != nil {
+			return fmt.Errorf("push pre-summary event %d: %w", i, err)
+		}
 	}
 
 	// Verify events exist for auth task
@@ -1216,7 +1276,10 @@ func stepArtifactGetByID(r *Runner, ctx *DemoContext) error {
 	if !ok || len(artifacts) == 0 {
 		return fmt.Errorf("artifacts should exist for auth task: %s", lraw)
 	}
-	artifact := artifacts[0].(map[string]any)
+	artifact, err := jsonMap(artifacts[0], "artifacts[0]")
+	if err != nil {
+		return err
+	}
 	artID, _ := artifact["id"].(string)
 	artFilePath, _ := artifact["file_path"].(string)
 	artTaskID, _ := artifact["task_id"].(string)
@@ -1366,7 +1429,10 @@ func stepLoopDryRun(r *Runner, ctx *DemoContext) error {
 	if !ok || len(results) != 1 {
 		return fmt.Errorf("should have exactly 1 result, got %v", data["results"])
 	}
-	r0 := results[0].(map[string]any)
+	r0, err := jsonMap(results[0], "results[0]")
+	if err != nil {
+		return err
+	}
 	if r0["status"] != "dry_run" {
 		return fmt.Errorf("result status should be dry_run, got %v", r0["status"])
 	}
@@ -1424,7 +1490,10 @@ func stepLoopCircuitBreaker(r *Runner, ctx *DemoContext) error {
 	if !ok || len(results) == 0 {
 		return fmt.Errorf("should have at least 1 result: %s", raw)
 	}
-	r0 := results[0].(map[string]any)
+	r0, err := jsonMap(results[0], "results[0]")
+	if err != nil {
+		return err
+	}
 	if r0["status"] != "blocked" {
 		return fmt.Errorf("task should be marked blocked after command exits without completing, got %v", r0["status"])
 	}

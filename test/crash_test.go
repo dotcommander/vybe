@@ -389,10 +389,9 @@ func TestCrashRecovery_OOM(t *testing.T) {
 
 		// Step 19: Complete task A
 		t.Run("step19_complete_task_a", func(t *testing.T) {
-			out := h.vybe("task", "complete",
+			out := h.vybe("task", "set-status",
 				"--id", taskAID,
-				"--outcome", "done",
-				"--summary", "Task A completed after crash recovery",
+				"--status", "completed",
 				"--request-id", crashRID("p4s19", 1),
 			)
 			m := requireSuccess(t, out)
@@ -536,10 +535,9 @@ func TestCrashRecovery_OOM(t *testing.T) {
 
 		// Step 29: Complete task D
 		t.Run("step29_complete_task_d", func(t *testing.T) {
-			out := h.vybe("task", "complete",
+			out := h.vybe("task", "set-status",
 				"--id", taskDID,
-				"--outcome", "done",
-				"--summary", "Task D completed after rapid crash cycles",
+				"--status", "completed",
 				"--request-id", crashRID("p5s29", 1),
 			)
 			m := requireSuccess(t, out)

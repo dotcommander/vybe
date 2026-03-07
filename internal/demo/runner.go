@@ -161,9 +161,12 @@ func (r *Runner) vybe(args ...string) (map[string]any, string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	_ = cmd.Run()
+	cmdErr := cmd.Run()
 	raw := strings.TrimSpace(stdout.String())
 	if raw == "" {
+		if cmdErr != nil {
+			return nil, "", fmt.Errorf("command failed: %w (stderr: %s)", cmdErr, stderr.String())
+		}
 		return nil, raw, nil
 	}
 	m, err := parseLastJSON(raw)
@@ -182,9 +185,12 @@ func (r *Runner) vybeWithStdin(stdin string, args ...string) (map[string]any, st
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	_ = cmd.Run()
+	cmdErr := cmd.Run()
 	raw := strings.TrimSpace(stdout.String())
 	if raw == "" {
+		if cmdErr != nil {
+			return nil, "", fmt.Errorf("command failed: %w (stderr: %s)", cmdErr, stderr.String())
+		}
 		return nil, raw, nil
 	}
 	m, err := parseLastJSON(raw)
@@ -195,14 +201,18 @@ func (r *Runner) vybeWithStdin(stdin string, args ...string) (map[string]any, st
 }
 
 // vybeRaw runs vybe with only --db-path (no --agent).
-func (r *Runner) vybeRaw(args ...string) string {
+func (r *Runner) vybeRaw(args ...string) (string, error) {
 	fullArgs := append([]string{"--db-path", r.dbPath}, args...)
 	r.printCommand(args)
 	cmd := exec.Command(r.binPath, fullArgs...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	_ = cmd.Run()
-	return strings.TrimSpace(stdout.String())
+	cmdErr := cmd.Run()
+	raw := strings.TrimSpace(stdout.String())
+	if raw == "" && cmdErr != nil {
+		return "", fmt.Errorf("command failed: %w", cmdErr)
+	}
+	return raw, nil
 }
 
 // vybeWithDir runs vybe with a custom working directory.
@@ -214,9 +224,12 @@ func (r *Runner) vybeWithDir(dir string, args ...string) (map[string]any, string
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	_ = cmd.Run()
+	cmdErr := cmd.Run()
 	raw := strings.TrimSpace(stdout.String())
 	if raw == "" {
+		if cmdErr != nil {
+			return nil, "", fmt.Errorf("command failed: %w (stderr: %s)", cmdErr, stderr.String())
+		}
 		return nil, raw, nil
 	}
 	m, err := parseLastJSON(raw)
