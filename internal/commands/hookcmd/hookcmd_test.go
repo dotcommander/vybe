@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -71,6 +72,7 @@ func TestIsVybeHookCommand(t *testing.T) {
 	require.True(t, IsVybeHookCommand("vybe hook session-start"))
 	require.True(t, IsVybeHookCommand("/usr/local/bin/vybe hook checkpoint"))
 	require.True(t, IsVybeHookCommand(`"/Users/someone/go/bin/vybe" hook task-completed`))
+	require.True(t, IsVybeHookCommand(`"/Users/my user/go/bin/vybe" hook session-start`))
 
 	require.False(t, IsVybeHookCommand("echo vybe hook session-start"))
 	require.False(t, IsVybeHookCommand("/usr/local/bin/not-vybe hook session-start"))
@@ -80,7 +82,7 @@ func TestIsVybeHookCommand(t *testing.T) {
 	require.False(t, IsVybeHookCommand("vybe hook retrospective"))
 	require.False(t, IsVybeHookCommand("vybe hook retrospective-bg"))
 	require.True(t, IsVybeHookCommand("vybe hook session-end"))
-	require.True(t, IsVybeHookCommand("vybe hook tool-success"))
+	require.False(t, IsVybeHookCommand("vybe hook tool-success"))
 	require.False(t, IsVybeHookCommand("vybe hook subagent-stop"))
 	require.False(t, IsVybeHookCommand("vybe hook subagent-start"))
 	require.False(t, IsVybeHookCommand("vybe hook stop"))
@@ -91,7 +93,6 @@ func TestVybeHookEventNames_ContainsAllEvents(t *testing.T) {
 	expected := []string{
 		"SessionStart",
 		"UserPromptSubmit",
-		"PostToolUse",
 		"PostToolUseFailure",
 		"PreCompact",
 		"SessionEnd",
@@ -508,4 +509,164 @@ func TestInstallCmd_OpenCode(t *testing.T) {
 	plugins, ok := config["plugin"].([]any)
 	require.True(t, ok)
 	require.Contains(t, plugins, opencodePluginEntry)
+}
+
+func TestAtomicWriteFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	// Write initial content.
+	content := []byte(`{"version": 1}` + "\n")
+	require.NoError(t, atomicWriteFile(path, content, 0o600))
+
+	// Verify content.
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, content, got)
+
+	// Verify permissions.
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	// Overwrite with new content.
+	content2 := []byte(`{"version": 2, "extra": "data"}` + "\n")
+	require.NoError(t, atomicWriteFile(path, content2, 0o600))
+
+	got2, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, content2, got2)
+
+	// No temp files should remain.
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		require.False(t, strings.HasSuffix(e.Name(), ".tmp"),
+			"temp file left behind: %s", e.Name())
+	}
+}
+
+func TestWithLockedSettings_SerializesConcurrentMutations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	// Initialize with counter=0.
+	initial := map[string]any{"counter": float64(0)}
+	data, err := json.MarshalIndent(initial, "", "  ")
+	require.NoError(t, err)
+	data = append(data, '\n')
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	errs := make(chan error, goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			err := withLockedSettings(path, func(settings map[string]any) error {
+				counter, _ := settings["counter"].(float64)
+				settings["counter"] = counter + 1
+				return nil
+			})
+			if err != nil {
+				errs <- err
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("withLockedSettings error: %v", err)
+	}
+
+	// Verify final counter equals goroutines (no lost updates).
+	final, err := readSettings(path)
+	require.NoError(t, err)
+	counter, ok := final["counter"].(float64)
+	require.True(t, ok, "counter should be a number")
+	require.Equal(t, float64(goroutines), counter,
+		"expected %d increments, got %v -- lost updates detected", goroutines, counter)
+}
+
+func TestUninstallOpenCode_SkipsModifiedPluginWithoutForce(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	ocDir := filepath.Join(dir, "opencode")
+	pluginDir := filepath.Join(ocDir, "plugins")
+	require.NoError(t, os.MkdirAll(pluginDir, 0o755))
+
+	path := filepath.Join(pluginDir, opencodeBridgePluginFilename)
+
+	// Write user-customized content that differs from embedded source.
+	customContent := "// user-customized plugin\nconsole.log('my stuff');\n"
+	require.NoError(t, os.WriteFile(path, []byte(customContent), 0o600))
+
+	// Uninstall without --force should NOT delete the file.
+	cmd := NewUninstallCmd()
+	cmd.SetArgs([]string{"--opencode"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	require.NoError(t, cmd.Execute())
+
+	// File should still exist with user content.
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, customContent, string(after))
+}
+
+func TestUninstallOpenCode_RemovesMatchingPlugin(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	ocDir := filepath.Join(dir, "opencode")
+	pluginDir := filepath.Join(ocDir, "plugins")
+	require.NoError(t, os.MkdirAll(pluginDir, 0o755))
+
+	path := filepath.Join(pluginDir, opencodeBridgePluginFilename)
+
+	// Write the exact embedded source — vybe owns this file.
+	require.NoError(t, os.WriteFile(path, []byte(opencodeBridgePluginSource), 0o600))
+
+	// Uninstall should delete since content matches.
+	cmd := NewUninstallCmd()
+	cmd.SetArgs([]string{"--opencode"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	require.NoError(t, cmd.Execute())
+
+	// File should be gone.
+	_, err := os.Stat(path)
+	require.True(t, os.IsNotExist(err), "plugin file should have been removed")
+}
+
+func TestUninstallOpenCode_ForcedRemovesModifiedPlugin(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	ocDir := filepath.Join(dir, "opencode")
+	pluginDir := filepath.Join(ocDir, "plugins")
+	require.NoError(t, os.MkdirAll(pluginDir, 0o755))
+
+	path := filepath.Join(pluginDir, opencodeBridgePluginFilename)
+
+	// Write user-customized content.
+	customContent := "// user-customized plugin\nconsole.log('my stuff');\n"
+	require.NoError(t, os.WriteFile(path, []byte(customContent), 0o600))
+
+	// Uninstall with --force should delete even modified file.
+	cmd := NewUninstallCmd()
+	cmd.SetArgs([]string{"--opencode", "--force"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	require.NoError(t, cmd.Execute())
+
+	// File should be gone.
+	_, err := os.Stat(path)
+	require.True(t, os.IsNotExist(err), "plugin file should have been removed with --force")
 }

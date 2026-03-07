@@ -13,11 +13,22 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 // Copied pure function implementations (no imports from plugin file)
 // ---------------------------------------------------------------------------
 
+function hashPath(path: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < path.length; i++) {
+    h ^= path.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(16).padStart(8, "0")
+}
+
 function projectKey(projectDir?: string): string {
   if (!projectDir || projectDir.trim() === "") return ""
   const base = projectDir.split(/[\\/]/).filter(Boolean).pop() ?? ""
   if (base === "") return ""
-  return base.replace(/[^A-Za-z0-9_-]/g, "-").toLowerCase()
+  const slug = base.replace(/[^A-Za-z0-9_-]/g, "-").toLowerCase()
+  const hash = hashPath(projectDir).slice(0, 6)
+  return `${slug}-${hash}`
 }
 
 function stableAgent(sessionID?: string, projectDir?: string): string {
@@ -114,6 +125,24 @@ function evictLRUTimer(map: Map<string, ReturnType<typeof setTimeout>>, cap: num
 // Tests
 // ---------------------------------------------------------------------------
 
+describe("hashPath", () => {
+  test("returns 8-char hex string", () => {
+    expect(hashPath("/some/path")).toMatch(/^[0-9a-f]{8}$/)
+  })
+
+  test("different paths produce different hashes", () => {
+    expect(hashPath("/home/alice/work/api")).not.toBe(hashPath("/home/bob/personal/api"))
+  })
+
+  test("same path always produces same hash", () => {
+    expect(hashPath("/foo/bar")).toBe(hashPath("/foo/bar"))
+  })
+
+  test("empty string produces a valid hash", () => {
+    expect(hashPath("")).toMatch(/^[0-9a-f]{8}$/)
+  })
+})
+
 describe("projectKey", () => {
   test("returns empty for undefined", () => {
     expect(projectKey(undefined)).toBe("")
@@ -127,28 +156,54 @@ describe("projectKey", () => {
     expect(projectKey("   ")).toBe("")
   })
 
-  test("extracts basename from Unix path", () => {
-    expect(projectKey("/Users/vampire/go/src/vybe")).toBe("vybe")
+  test("extracts basename from Unix path with hash suffix", () => {
+    const key = projectKey("/Users/vampire/go/src/vybe")
+    expect(key).toStartWith("vybe-")
+    expect(key).toMatch(/^vybe-[0-9a-f]{6}$/)
   })
 
   test("extracts basename from shallow Unix path", () => {
-    expect(projectKey("/home/user/myproject")).toBe("myproject")
+    const key = projectKey("/home/user/myproject")
+    expect(key).toStartWith("myproject-")
+    expect(key).toMatch(/^myproject-[0-9a-f]{6}$/)
   })
 
   test("extracts basename from Windows path", () => {
-    expect(projectKey("C:\\Users\\foo\\bar")).toBe("bar")
+    const key = projectKey("C:\\Users\\foo\\bar")
+    expect(key).toStartWith("bar-")
+    expect(key).toMatch(/^bar-[0-9a-f]{6}$/)
   })
 
   test("sanitizes special characters to hyphens", () => {
-    expect(projectKey("my project!")).toBe("my-project-")
+    const key = projectKey("my project!")
+    expect(key).toStartWith("my-project--")
+    expect(key).toMatch(/-[0-9a-f]{6}$/)
   })
 
   test("lowercases the result", () => {
-    expect(projectKey("MyProject")).toBe("myproject")
+    const key = projectKey("MyProject")
+    expect(key).toStartWith("myproject-")
+    expect(key).toMatch(/^myproject-[0-9a-f]{6}$/)
   })
 
   test("preserves hyphens and underscores", () => {
-    expect(projectKey("/repos/my-cool_project")).toBe("my-cool_project")
+    const key = projectKey("/repos/my-cool_project")
+    expect(key).toStartWith("my-cool_project-")
+    expect(key).toMatch(/^my-cool_project-[0-9a-f]{6}$/)
+  })
+
+  test("different full paths with same basename produce different keys", () => {
+    const key1 = projectKey("/home/alice/work/api")
+    const key2 = projectKey("/home/bob/personal/api")
+    expect(key1).toStartWith("api-")
+    expect(key2).toStartWith("api-")
+    expect(key1).not.toBe(key2)
+  })
+
+  test("same path always produces same key (deterministic)", () => {
+    const key1 = projectKey("/home/user/myproject")
+    const key2 = projectKey("/home/user/myproject")
+    expect(key1).toBe(key2)
   })
 })
 
@@ -180,15 +235,18 @@ describe("stableAgent", () => {
 
   test("whitespace-only VYBE_AGENT is ignored", () => {
     process.env.VYBE_AGENT = "   "
-    expect(stableAgent(undefined, "/home/user/myproject")).toBe("opencode-myproject")
+    const expected = `opencode-${projectKey("/home/user/myproject")}`
+    expect(stableAgent(undefined, "/home/user/myproject")).toBe(expected)
   })
 
   test("falls back to project dir when no VYBE_AGENT", () => {
-    expect(stableAgent(undefined, "/home/user/myproject")).toBe("opencode-myproject")
+    const expected = `opencode-${projectKey("/home/user/myproject")}`
+    expect(stableAgent(undefined, "/home/user/myproject")).toBe(expected)
   })
 
   test("project dir takes priority over session ID", () => {
-    expect(stableAgent("abcdefghij", "/home/user/myproject")).toBe("opencode-myproject")
+    const expected = `opencode-${projectKey("/home/user/myproject")}`
+    expect(stableAgent("abcdefghij", "/home/user/myproject")).toBe(expected)
   })
 
   test("falls back to session ID prefix (8 chars) when no project dir", () => {

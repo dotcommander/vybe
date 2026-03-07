@@ -153,14 +153,6 @@ func buildVybeHooks() map[string]hookEntry {
 				Timeout: 2000,
 			}},
 		},
-		"PostToolUse": {
-			Matcher: "Write|Edit|MultiEdit|Bash|NotebookEdit",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("tool-success"),
-				Timeout: 2000,
-			}},
-		},
 		"PostToolUseFailure": {
 			Matcher: "",
 			Hooks: []hookHandler{{
@@ -228,11 +220,7 @@ func writeSettings(path string, settings map[string]any) error {
 	}
 	data = append(data, '\n')
 
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
-		return fmt.Errorf("create directory: %w", err)
-	}
-
-	return os.WriteFile(path, data, 0600)
+	return atomicWriteFile(path, data, 0o600)
 }
 
 // HasVybeHook checks if a hooks array already contains a vybe hook command.
@@ -261,27 +249,50 @@ func HasVybeHook(entries []any) bool {
 }
 
 // IsVybeHookCommand checks if a command string is a vybe hook command.
+// Handles quoted executable paths that may contain spaces (e.g. "/path with spaces/vybe").
 func IsVybeHookCommand(command string) bool {
 	cmd := strings.TrimSpace(command)
 	if cmd == "" {
 		return false
 	}
-	parts := strings.Fields(cmd)
-	if len(parts) < 3 {
+
+	var exe, rest string
+	if cmd[0] == '"' {
+		// Quoted executable: find closing quote
+		end := strings.Index(cmd[1:], "\"")
+		if end < 0 {
+			return false
+		}
+		exe = cmd[1 : end+1]
+		rest = strings.TrimSpace(cmd[end+2:])
+	} else if cmd[0] == '\'' {
+		end := strings.Index(cmd[1:], "'")
+		if end < 0 {
+			return false
+		}
+		exe = cmd[1 : end+1]
+		rest = strings.TrimSpace(cmd[end+2:])
+	} else {
+		// Unquoted: split on first space
+		idx := strings.IndexByte(cmd, ' ')
+		if idx < 0 {
+			return false
+		}
+		exe = cmd[:idx]
+		rest = strings.TrimSpace(cmd[idx+1:])
+	}
+
+	if filepath.Base(exe) != "vybe" {
 		return false
 	}
 
-	execToken := strings.Trim(parts[0], "\"'")
-	if filepath.Base(execToken) != "vybe" {
-		return false
-	}
-	if parts[1] != "hook" {
+	parts := strings.Fields(rest)
+	if len(parts) < 2 || parts[0] != "hook" {
 		return false
 	}
 
-	sub := parts[2]
-	switch sub {
-	case "session-start", "session-end", "prompt", "tool-failure", "tool-success",
+	switch parts[1] {
+	case "session-start", "session-end", "prompt", "tool-failure",
 		"checkpoint", "task-completed":
 		return true
 	default:
@@ -358,65 +369,56 @@ const opencodePluginEntry = "./plugins/" + opencodeBridgePluginFilename
 // Returns true if a new entry was added, false if already present.
 func registerOpencodePlugin() (bool, error) {
 	configPath := opencodeConfigPath()
-	settings, err := readSettings(configPath)
-	if err != nil {
-		return false, err
-	}
+	added := false
 
-	plugins, _ := settings["plugin"].([]any)
-	for _, p := range plugins {
-		if s, ok := p.(string); ok && s == opencodePluginEntry {
-			return false, nil // already registered
+	err := withLockedSettings(configPath, func(settings map[string]any) error {
+		plugins, _ := settings["plugin"].([]any)
+		for _, p := range plugins {
+			if s, ok := p.(string); ok && s == opencodePluginEntry {
+				return errSkipWrite
+			}
 		}
-	}
-
-	plugins = append(plugins, opencodePluginEntry)
-	settings["plugin"] = plugins
-
-	if err := writeSettings(configPath, settings); err != nil {
-		return false, err
-	}
-	return true, nil
+		plugins = append(plugins, opencodePluginEntry)
+		settings["plugin"] = plugins
+		added = true
+		return nil
+	})
+	return added, err
 }
 
 // unregisterOpencodePlugin removes the vybe bridge plugin from opencode.json's plugin array.
 // Returns true if an entry was removed.
 func unregisterOpencodePlugin() (bool, error) {
 	configPath := opencodeConfigPath()
-	settings, err := readSettings(configPath)
-	if err != nil {
-		return false, err
-	}
-
-	plugins, _ := settings["plugin"].([]any)
-	if len(plugins) == 0 {
-		return false, nil
-	}
-
-	var kept []any
 	removed := false
-	for _, p := range plugins {
-		if s, ok := p.(string); ok && s == opencodePluginEntry {
-			removed = true
-			continue
+
+	err := withLockedSettings(configPath, func(settings map[string]any) error {
+		plugins, _ := settings["plugin"].([]any)
+		if len(plugins) == 0 {
+			return errSkipWrite
 		}
-		kept = append(kept, p)
-	}
 
-	if !removed {
-		return false, nil
-	}
+		var kept []any
+		for _, p := range plugins {
+			if s, ok := p.(string); ok && s == opencodePluginEntry {
+				removed = true
+				continue
+			}
+			kept = append(kept, p)
+		}
 
-	if len(kept) == 0 {
-		delete(settings, "plugin")
-	} else {
-		settings["plugin"] = kept
-	}
+		if !removed {
+			return errSkipWrite
+		}
 
-	if err := writeSettings(configPath, settings); err != nil {
-		return false, err
-	}
-	return true, nil
+		if len(kept) == 0 {
+			delete(settings, "plugin")
+		} else {
+			settings["plugin"] = kept
+		}
+		return nil
+	})
+	return removed, err
 }
 
 // ResolveTargetFlags returns (claude, opencode) based on explicit flag usage.
@@ -478,42 +480,39 @@ func NewInstallCmd() *cobra.Command {
 			if installClaude {
 				path := resolveClaudeSettingsPath(projectScoped)
 
-				settings, err := readSettings(path)
-				if err != nil {
-					return err
-				}
-
-				hooksObj, _ := settings["hooks"].(map[string]any)
-				if hooksObj == nil {
-					hooksObj = map[string]any{}
-				}
-
 				var installed []string
 				var updated []string
 				var skipped []string
 
-				for eventName, entry := range vybeHooks() {
-					existing, _ := hooksObj[eventName].([]any)
-
-					entryJSON, _ := json.Marshal(entry)
-					var entryMap map[string]any
-					_ = json.Unmarshal(entryJSON, &entryMap)
-
-					entries, outcome := upsertVybeHookEntry(existing, entryMap)
-					hooksObj[eventName] = entries
-
-					switch outcome {
-					case hookInstalled:
-						installed = append(installed, eventName)
-					case hookUpdated:
-						updated = append(updated, eventName)
-					case hookSkipped:
-						skipped = append(skipped, eventName)
+				if err := withLockedSettings(path, func(settings map[string]any) error {
+					hooksObj, _ := settings["hooks"].(map[string]any)
+					if hooksObj == nil {
+						hooksObj = map[string]any{}
 					}
-				}
 
-				settings["hooks"] = hooksObj
-				if err := writeSettings(path, settings); err != nil {
+					for eventName, entry := range vybeHooks() {
+						existing, _ := hooksObj[eventName].([]any)
+
+						entryJSON, _ := json.Marshal(entry)
+						var entryMap map[string]any
+						_ = json.Unmarshal(entryJSON, &entryMap)
+
+						entries, outcome := upsertVybeHookEntry(existing, entryMap)
+						hooksObj[eventName] = entries
+
+						switch outcome {
+						case hookInstalled:
+							installed = append(installed, eventName)
+						case hookUpdated:
+							updated = append(updated, eventName)
+						case hookSkipped:
+							skipped = append(skipped, eventName)
+						}
+					}
+
+					settings["hooks"] = hooksObj
+					return nil
+				}); err != nil {
 					return err
 				}
 
@@ -626,8 +625,8 @@ func NewUninstallCmd() *cobra.Command {
 				Removed []string `json:"removed"`
 			}
 			type opencodeResult struct {
-				Path    string `json:"path"`
-				Removed bool   `json:"removed"`
+				Path   string `json:"path"`
+				Status string `json:"status"`
 			}
 			type result struct {
 				Claude   *claudeResult   `json:"claude,omitempty"`
@@ -640,16 +639,15 @@ func NewUninstallCmd() *cobra.Command {
 			if uninstallClaude {
 				path := resolveClaudeSettingsPath(projectScoped)
 
-				settings, err := readSettings(path)
-				if err != nil {
-					return err
-				}
+				var removed []string
+				noHooks := false
 
-				hooksObj, _ := settings["hooks"].(map[string]any)
-				if hooksObj == nil {
-					resp.Claude = &claudeResult{Path: path, Removed: []string{}}
-				} else {
-					var removed []string
+				if err := withLockedSettings(path, func(settings map[string]any) error {
+					hooksObj, _ := settings["hooks"].(map[string]any)
+					if hooksObj == nil {
+						noHooks = true
+						return errSkipWrite
+					}
 
 					for _, eventName := range vybeHookEventNames() {
 						entries, ok := hooksObj[eventName].([]any)
@@ -700,32 +698,47 @@ func NewUninstallCmd() *cobra.Command {
 					}
 
 					settings["hooks"] = hooksObj
-					if err := writeSettings(path, settings); err != nil {
-						return err
-					}
+					return nil
+				}); err != nil {
+					return err
+				}
 
+				if noHooks {
+					resp.Claude = &claudeResult{Path: path, Removed: []string{}}
+				} else {
 					resp.Claude = &claudeResult{Path: path, Removed: removed}
 				}
 			}
 
 			if uninstallOpenCode {
 				path := opencodePluginPath()
-				removed := false
-				if _, err := os.Stat(path); err == nil {
+				force, _ := cmd.Flags().GetBool("force")
+
+				var status string
+				existing, readErr := os.ReadFile(path)
+				switch {
+				case readErr != nil:
+					status = "not_found"
+				case string(existing) == opencodeBridgePluginSource:
+					status = "removed"
+				case force:
+					status = "removed"
+				default:
+					status = "skipped_conflict"
+				}
+
+				if status == "removed" {
 					if err := os.Remove(path); err != nil {
 						return fmt.Errorf("remove opencode bridge plugin: %w", err)
 					}
-					removed = true
+
+					// Also remove from opencode.json
+					if _, unregErr := unregisterOpencodePlugin(); unregErr != nil {
+						slog.Default().Warn("hook uninstall: unregister opencode plugin failed", "error", unregErr)
+					}
 				}
 
-				// Also remove from opencode.json
-				unregistered, unregErr := unregisterOpencodePlugin()
-				if unregErr != nil {
-					slog.Default().Warn("hook uninstall: unregister opencode plugin failed", "error", unregErr)
-				}
-				_ = unregistered
-
-				resp.OpenCode = &opencodeResult{Path: path, Removed: removed}
+				resp.OpenCode = &opencodeResult{Path: path, Status: status}
 			}
 
 			return output.PrintSuccess(resp)
@@ -735,6 +748,7 @@ func NewUninstallCmd() *cobra.Command {
 	cmd.Flags().Bool("claude", false, "Uninstall Claude Code hooks")
 	cmd.Flags().Bool("opencode", false, "Uninstall OpenCode bridge plugin")
 	cmd.Flags().Bool("project", false, "Uninstall Claude hooks from ./.claude/settings.json")
+	cmd.Flags().Bool("force", false, "Remove modified OpenCode plugin file")
 
 	return cmd
 }

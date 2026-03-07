@@ -4,11 +4,22 @@ function reqID(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`
 }
 
+function hashPath(path: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < path.length; i++) {
+    h ^= path.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(16).padStart(8, "0")
+}
+
 function projectKey(projectDir?: string): string {
   if (!projectDir || projectDir.trim() === "") return ""
   const base = projectDir.split(/[\\/]/).filter(Boolean).pop() ?? ""
   if (base === "") return ""
-  return base.replace(/[^A-Za-z0-9_-]/g, "-").toLowerCase()
+  const slug = base.replace(/[^A-Za-z0-9_-]/g, "-").toLowerCase()
+  const hash = hashPath(projectDir).slice(0, 6)
+  return `${slug}-${hash}`
 }
 
 function stableAgent(sessionID?: string, projectDir?: string): string {
