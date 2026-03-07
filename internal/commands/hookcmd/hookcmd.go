@@ -526,16 +526,12 @@ func NewInstallCmd() *cobra.Command {
 
 			if installOpenCode {
 				path := opencodePluginPath()
-				force, _ := cmd.Flags().GetBool("force")
 
 				var status string
 				if existing, readErr := os.ReadFile(path); readErr == nil {
-					switch {
-					case string(existing) == opencodeBridgePluginSource:
+					if string(existing) == opencodeBridgePluginSource {
 						status = "skipped"
-					case !force:
-						status = "skipped_conflict"
-					default:
+					} else {
 						status = "updated"
 					}
 				} else {
@@ -553,13 +549,10 @@ func NewInstallCmd() *cobra.Command {
 
 				// Auto-register plugin in opencode.json
 				registered := false
-				if status != "skipped_conflict" {
-					reg, regErr := registerOpencodePlugin()
-					if regErr != nil {
-						slog.Default().Warn("hook install: register opencode plugin failed", "error", regErr)
-					} else {
-						registered = reg
-					}
+				if reg, regErr := registerOpencodePlugin(); regErr != nil {
+					slog.Default().Warn("hook install: register opencode plugin failed", "error", regErr)
+				} else {
+					registered = reg
 				}
 
 				ensureHookAgentStateBestEffort("opencode-agent")
@@ -585,8 +578,6 @@ func NewInstallCmd() *cobra.Command {
 					parts = append(parts, "OpenCode bridge plugin installed")
 				case "updated":
 					parts = append(parts, "OpenCode bridge plugin updated")
-				case "skipped_conflict":
-					parts = append(parts, "OpenCode bridge plugin conflict — use --force to overwrite")
 				default:
 					parts = append(parts, "OpenCode bridge plugin already installed")
 				}
@@ -602,7 +593,6 @@ func NewInstallCmd() *cobra.Command {
 	cmd.Flags().Bool("claude", false, "Install Claude Code hooks")
 	cmd.Flags().Bool("opencode", false, "Install OpenCode bridge plugin")
 	cmd.Flags().Bool("project", false, "Install Claude hooks in ./.claude/settings.json")
-	cmd.Flags().Bool("force", false, "Overwrite conflicting OpenCode plugin file")
 
 	return cmd
 }

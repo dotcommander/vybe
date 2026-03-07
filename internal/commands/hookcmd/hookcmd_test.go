@@ -208,59 +208,26 @@ func TestReadSettings_InvalidJSON(t *testing.T) {
 	require.Nil(t, settings)
 }
 
-func TestInstallOpenCode_SkipsConflictWithoutForce(t *testing.T) {
+func TestInstallOpenCode_UpdatesDifferingContent(t *testing.T) {
 	dir := t.TempDir()
 	pluginDir := filepath.Join(dir, "plugins")
 	require.NoError(t, os.MkdirAll(pluginDir, 0o755))
 
 	path := filepath.Join(pluginDir, opencodeBridgePluginFilename)
 
-	// Write a user-customized plugin file that differs from embedded source
-	customContent := "// user-customized plugin\nconsole.log('custom');\n"
-	require.NoError(t, os.WriteFile(path, []byte(customContent), 0o600))
+	// Write an old/different plugin version
+	oldContent := "// old vybe plugin version\nconsole.log('old');\n"
+	require.NoError(t, os.WriteFile(path, []byte(oldContent), 0o600))
 
-	// Read it back — should still be user's content (simulate what install checks)
 	existing, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.NotEqual(t, opencodeBridgePluginSource, string(existing))
 
-	// Verify conflict detection logic directly
+	// Install should detect the difference and report "updated"
 	var status string
 	if string(existing) == opencodeBridgePluginSource {
 		status = "skipped"
 	} else {
-		status = "skipped_conflict"
-	}
-	require.Equal(t, "skipped_conflict", status)
-
-	// Verify file was NOT overwritten
-	after, err := os.ReadFile(path)
-	require.NoError(t, err)
-	require.Equal(t, customContent, string(after))
-}
-
-func TestInstallOpenCode_OverwritesWithForce(t *testing.T) {
-	dir := t.TempDir()
-	pluginDir := filepath.Join(dir, "plugins")
-	require.NoError(t, os.MkdirAll(pluginDir, 0o755))
-
-	path := filepath.Join(pluginDir, opencodeBridgePluginFilename)
-
-	customContent := "// user-customized plugin\n"
-	require.NoError(t, os.WriteFile(path, []byte(customContent), 0o600))
-
-	existing, err := os.ReadFile(path)
-	require.NoError(t, err)
-
-	// With force=true, status should be "updated"
-	force := true
-	var status string
-	switch {
-	case string(existing) == opencodeBridgePluginSource:
-		status = "skipped"
-	case !force:
-		status = "skipped_conflict"
-	default:
 		status = "updated"
 	}
 	require.Equal(t, "updated", status)
