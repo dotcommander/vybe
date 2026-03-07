@@ -23,6 +23,8 @@ const (
 	upgradeVersionTimeout   = 5 * time.Second
 )
 
+const expectedModule = "github.com/dotcommander/vybe"
+
 // NewUpgradeCmd creates the upgrade command.
 func NewUpgradeCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -67,7 +69,7 @@ func findSourceDir() string {
 	}
 
 	for _, dir := range candidates {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		if isVybeSourceDir(dir) {
 			return dir
 		}
 	}
@@ -76,17 +78,59 @@ func findSourceDir() string {
 	if binPath, err := exec.LookPath("vybe"); err == nil {
 		if resolved, err := filepath.EvalSymlinks(binPath); err == nil {
 			srcDir := filepath.Dir(resolved)
-			if _, err := os.Stat(filepath.Join(srcDir, "go.mod")); err == nil {
+			if isVybeSourceDir(srcDir) {
 				return srcDir
 			}
 			srcDir = filepath.Dir(srcDir)
-			if _, err := os.Stat(filepath.Join(srcDir, "go.mod")); err == nil {
+			if isVybeSourceDir(srcDir) {
 				return srcDir
 			}
 		}
 	}
 
 	return ""
+}
+
+// resolveInstalledBinary returns the absolute path to the vybe binary in GOBIN or GOPATH/bin.
+func resolveInstalledBinary() string {
+	if gobin := os.Getenv("GOBIN"); gobin != "" {
+		p := filepath.Join(gobin, "vybe")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	gopath := os.Getenv("GOPATH")
+	if gopath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			gopath = filepath.Join(home, "go")
+		}
+	}
+	if gopath != "" {
+		p := filepath.Join(gopath, "bin", "vybe")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	// Last resort: PATH lookup (better than failing entirely)
+	if p, err := exec.LookPath("vybe"); err == nil {
+		return p
+	}
+	return "vybe"
+}
+
+// isVybeSourceDir checks if dir contains a go.mod with the expected module path.
+func isVybeSourceDir(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.SplitN(string(data), "\n", 3) {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module ")) == expectedModule
+		}
+	}
+	return false
 }
 
 func upgradeViaGitPull(srcDir string) error {
@@ -121,7 +165,7 @@ func upgradeViaGitPull(srcDir string) error {
 	newVersion := getGitVersion(srcDir)
 
 	migrated, migrateErr := migrateAfterUpgrade()
-	hooksReinstalled, hooksErr := reinstallHooks()
+	hooksReinstalled, hooksErr := reinstallHooks(resolveInstalledBinary())
 
 	type result struct {
 		Source           string `json:"source"`
@@ -133,7 +177,7 @@ func upgradeViaGitPull(srcDir string) error {
 		HooksReinstalled bool   `json:"hooks_reinstalled"`
 		HooksError       string `json:"hooks_error,omitempty"`
 	}
-	return output.PrintSuccess(result{
+	r := result{
 		Source:           srcDir,
 		OldCommit:        oldVersion,
 		NewCommit:        newVersion,
@@ -142,7 +186,17 @@ func upgradeViaGitPull(srcDir string) error {
 		MigrateError:     migrateErr,
 		HooksReinstalled: hooksReinstalled,
 		HooksError:       hooksErr,
-	})
+	}
+	if migrateErr != "" || hooksErr != "" {
+		_ = output.Print(output.Response{
+			SchemaVersion: "v1",
+			Success:       false,
+			Data:          r,
+			Error:         "upgrade succeeded but post-upgrade steps failed",
+		})
+		return printedError{err: fmt.Errorf("post-upgrade steps failed: migrate=%s hooks=%s", migrateErr, hooksErr)}
+	}
+	return output.PrintSuccess(r)
 }
 
 func upgradeViaGoInstall() error {
@@ -151,7 +205,7 @@ func upgradeViaGoInstall() error {
 	installCtx, installCancel := context.WithTimeout(context.Background(), upgradeGoInstallTimeout)
 	defer installCancel()
 
-	install := exec.CommandContext(installCtx, "go", "install", "github.com/dotcommander/vybe/cmd/vybe@latest") //nolint:gosec // G204: go is a known system tool
+	install := exec.CommandContext(installCtx, "go", "install", expectedModule+"/cmd/vybe@latest") //nolint:gosec // G204: go is a known system tool
 	install.Stdout = os.Stderr
 	install.Stderr = os.Stderr
 	if err := install.Run(); err != nil {
@@ -160,7 +214,7 @@ func upgradeViaGoInstall() error {
 
 	newVersion := getVybeVersion()
 	migrated, migrateErr := migrateAfterUpgrade()
-	hooksReinstalled, hooksErr := reinstallHooks()
+	hooksReinstalled, hooksErr := reinstallHooks(resolveInstalledBinary())
 
 	type result struct {
 		Source           string `json:"source"`
@@ -173,8 +227,8 @@ func upgradeViaGoInstall() error {
 		HooksReinstalled bool   `json:"hooks_reinstalled"`
 		HooksError       string `json:"hooks_error,omitempty"`
 	}
-	return output.PrintSuccess(result{
-		Source:           "github.com/dotcommander/vybe@latest",
+	r := result{
+		Source:           expectedModule + "@latest",
 		Method:           "go install",
 		OldVersion:       oldVersion,
 		NewVersion:       newVersion,
@@ -183,7 +237,17 @@ func upgradeViaGoInstall() error {
 		MigrateError:     migrateErr,
 		HooksReinstalled: hooksReinstalled,
 		HooksError:       hooksErr,
-	})
+	}
+	if migrateErr != "" || hooksErr != "" {
+		_ = output.Print(output.Response{
+			SchemaVersion: "v1",
+			Success:       false,
+			Data:          r,
+			Error:         "upgrade succeeded but post-upgrade steps failed",
+		})
+		return printedError{err: fmt.Errorf("post-upgrade steps failed: migrate=%s hooks=%s", migrateErr, hooksErr)}
+	}
+	return output.PrintSuccess(r)
 }
 
 // migrateAfterUpgrade opens the database and runs pending migrations.
@@ -205,11 +269,12 @@ func migrateAfterUpgrade() (bool, string) {
 
 // reinstallHooks runs hook uninstall + install to pick up changes in the new binary.
 // Best-effort: returns status and error string, never fails the upgrade.
-func reinstallHooks() (bool, string) {
+// binPath must be the resolved absolute path to the installed vybe binary.
+func reinstallHooks(binPath string) (bool, string) {
 	uninstallCtx, uninstallCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer uninstallCancel()
 
-	uninstall := exec.CommandContext(uninstallCtx, "vybe", "hook", "uninstall") //nolint:gosec // G204: vybe is the tool being upgraded
+	uninstall := exec.CommandContext(uninstallCtx, binPath, "hook", "uninstall") //nolint:gosec // G204: resolved binary path
 	uninstall.Stdout = os.Stderr
 	uninstall.Stderr = os.Stderr
 	if err := uninstall.Run(); err != nil {
@@ -219,7 +284,7 @@ func reinstallHooks() (bool, string) {
 	installCtx, installCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer installCancel()
 
-	install := exec.CommandContext(installCtx, "vybe", "hook", "install") //nolint:gosec // G204: vybe is the tool being upgraded
+	install := exec.CommandContext(installCtx, binPath, "hook", "install") //nolint:gosec // G204: resolved binary path
 	install.Stdout = os.Stderr
 	install.Stderr = os.Stderr
 	if err := install.Run(); err != nil {

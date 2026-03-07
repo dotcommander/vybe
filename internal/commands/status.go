@@ -315,6 +315,9 @@ func typedFlagDefault(flagType, raw string) any {
 	return raw
 }
 
+// isRequiredFlag checks if a flag is required, first via cobra annotation
+// (BashCompOneRequiredFlag), then by checking for "(required)" in usage text.
+// WARNING: Changing usage text that contains "(required)" affects schema output.
 func isRequiredFlag(f *pflag.Flag) bool {
 	if f.Annotations != nil {
 		if vals, ok := f.Annotations[cobra.BashCompOneRequiredFlag]; ok && len(vals) > 0 && vals[0] == "true" {
@@ -326,6 +329,9 @@ func isRequiredFlag(f *pflag.Flag) bool {
 	return strings.Contains(usage, "(required)")
 }
 
+// parseEnumValues extracts enum values from flag usage text by looking for
+// "description: a|b|c" patterns (pipe-separated values after a colon).
+// WARNING: Changing usage text format affects schema contract for machine callers.
 func parseEnumValues(usage string) []string {
 	usage = strings.TrimSpace(usage)
 	if usage == "" {

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/output"
@@ -56,13 +57,28 @@ func withDB(fn func(db *DB) error) error {
 
 // withDBSilent opens the database and runs fn, logging errors to slog only.
 // Used in hook handlers where stdout must never be corrupted with error JSON.
+// Retries openDB once on transient failures (e.g. migration lock contention).
+// fn errors are not retried — store operations already use RetryWithBackoff internally.
 func withDBSilent(fn func(db *DB) error) {
-	db, closeDB, err := openDB()
+	var db *DB
+	var closeDB func()
+	var err error
+
+	for attempt := range 2 {
+		db, closeDB, err = openDB()
+		if err == nil {
+			break
+		}
+		slog.Default().Warn("hook db open failed", "error", err, "attempt", attempt+1)
+		if attempt == 0 {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
 	if err != nil {
-		slog.Default().Warn("hook db open failed", "error", err)
 		return
 	}
 	defer closeDB()
+
 	if err := fn(db); err != nil {
 		slog.Default().Warn("hook db operation failed", "error", err)
 	}

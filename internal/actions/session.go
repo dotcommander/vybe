@@ -353,6 +353,11 @@ func AutoSummarizeEventsIdempotent(db *sql.DB, agentName, requestID, projectID s
 		return 0, 0, errors.New("request id is required")
 	}
 
+	// Count, window, and archive are separate reads — concurrent writes between them can
+	// shift the exact boundary by a few events. This is intentional: the archive is bounded
+	// by the computed ID range, idempotency prevents double-archiving, and the worst case
+	// is keeping slightly more or fewer events than keepRecent. A single-tx approach would
+	// add complexity for negligible benefit.
 	count, err := store.CountActiveEvents(db, projectID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("count active events: %w", err)
