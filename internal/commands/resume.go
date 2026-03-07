@@ -58,18 +58,10 @@ Use --focus <task-id> to set the agent's focus task before resuming (request-id 
 
 			var response *actions.ResumeResponse
 			if err := withDB(func(db *DB) error {
-				if focus != "" {
-					if _, err := store.LoadOrCreateAgentState(db, agentName); err != nil {
-						return err
-					}
-					if _, err := store.SetAgentFocusTaskWithEventIdempotent(db, agentName, requestID+"_focus", focus); err != nil {
-						return err
-					}
-				}
-
 				r, err := actions.ResumeWithOptionsIdempotent(db, agentName, requestID, actions.ResumeOptions{
-					EventLimit: limit,
-					ProjectDir: projectDir,
+					EventLimit:        limit,
+					ProjectDir:        projectDir,
+					FocusTaskOverride: focus,
 				})
 				if err != nil {
 					return err

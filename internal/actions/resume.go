@@ -33,8 +33,9 @@ type ResumeResponse struct {
 
 // ResumeOptions controls the behavior of a resume operation.
 type ResumeOptions struct {
-	EventLimit int
-	ProjectDir string // When set, scope resume to this project and include recent prompts for it
+	EventLimit        int
+	ProjectDir        string // When set, scope resume to this project and include recent prompts for it
+	FocusTaskOverride string // When set, override focus task atomically within the resume transaction
 }
 
 // resumePacket holds pre-computed state for both resume variants.
@@ -238,8 +239,8 @@ func appendRecentPromptsContext(b *strings.Builder, recentPrompts []*models.Even
 	b.WriteString("\nWhat the user was working on recently:\n")
 	for _, event := range recentPrompts {
 		msg := event.Message
-		if len(msg) > 120 {
-			msg = msg[:120] + "..."
+		if r := []rune(msg); len(r) > 120 {
+			msg = string(r[:120]) + "..."
 		}
 		fmt.Fprintf(b, "  - %s\n", msg)
 	}
@@ -262,8 +263,8 @@ func appendReasoningContext(b *strings.Builder, brief *store.BriefPacket) {
 			fmt.Fprintf(b, "  - Approach: %s\n", approach)
 		default:
 			msg := event.Message
-			if len(msg) > 200 {
-				msg = msg[:200] + "..."
+			if r := []rune(msg); len(r) > 200 {
+				msg = string(r[:200]) + "..."
 			}
 			fmt.Fprintf(b, "  - %s\n", msg)
 		}
@@ -407,6 +408,14 @@ func ResumeWithOptionsIdempotent(db *sql.DB, agentName, requestID string, opts R
 		func(tx *sql.Tx) (ResumeResponse, error) {
 			applied := *resp
 
+			// Apply focus override atomically within this transaction.
+			if opts.FocusTaskOverride != "" {
+				applied.FocusTaskID = opts.FocusTaskOverride
+				if _, err := store.InsertEventTx(tx, models.EventKindAgentFocus, agentName, opts.FocusTaskOverride, fmt.Sprintf("Focus set: %s", opts.FocusTaskOverride), ""); err != nil {
+					return ResumeResponse{}, fmt.Errorf("failed to emit focus event: %w", err)
+				}
+			}
+
 			// Agents-only heartbeat: always update last_active_at and reconcile head state (cursor/focus).
 			if opts.ProjectDir != "" {
 				if updateErr := store.UpdateAgentStateAtomicWithProjectTx(tx, agentName, applied.NewCursor, applied.FocusTaskID, applied.FocusProjectID); updateErr != nil {
@@ -432,8 +441,8 @@ func ResumeWithOptionsIdempotent(db *sql.DB, agentName, requestID string, opts R
 		return nil, err
 	}
 
-	// After transaction, if focus or cursor changed due to contention, rebuild brief with authoritative state.
-	if persisted.FocusTaskID != pkt.focusTaskID || persisted.NewCursor != pkt.newCursor {
+	// After transaction, if focus, cursor, or project changed due to contention, rebuild brief with authoritative state.
+	if persisted.FocusTaskID != pkt.focusTaskID || persisted.NewCursor != pkt.newCursor || persisted.FocusProjectID != pkt.focusProjectID {
 		newBrief, briefErr := store.BuildBrief(db, persisted.FocusTaskID, persisted.FocusProjectID, agentName)
 		if briefErr != nil {
 			slog.Default().Warn("failed to rebuild brief after contention", "error", briefErr)
@@ -441,6 +450,7 @@ func ResumeWithOptionsIdempotent(db *sql.DB, agentName, requestID string, opts R
 		} else {
 			persisted.Brief = newBrief
 		}
+		persisted.Prompt = buildPrompt(agentName, persisted.Brief, pkt.recentPrompts)
 	}
 
 	return &persisted, nil

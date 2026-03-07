@@ -180,3 +180,55 @@ func TestArtifactAddIdempotent_Replay(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM events WHERE kind = 'artifact_added' AND task_id = ?`, task.ID).Scan(&eventCount))
 	require.Equal(t, 1, eventCount)
 }
+
+func TestTaskCreateIdempotent_ReplayAfterDeletion(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	agent := "agent1"
+	req := "req_task_create_del"
+
+	task1, eid1, err := TaskCreateIdempotent(db, agent, req, "t1", "d1", "", 0)
+	require.NoError(t, err)
+	require.NotNil(t, task1)
+
+	// Delete the task directly, simulating a deletion after creation.
+	_, err = db.Exec(`DELETE FROM tasks WHERE id = ?`, task1.ID)
+	require.NoError(t, err)
+
+	// Replay with the same request-id: must return the original snapshot, not an error.
+	task2, eid2, err := TaskCreateIdempotent(db, agent, req, "t1", "d1", "", 0)
+	require.NoError(t, err)
+	require.NotNil(t, task2)
+
+	require.Equal(t, task1.ID, task2.ID)
+	require.Equal(t, task1.Title, task2.Title)
+	require.Equal(t, task1.Description, task2.Description)
+	require.Equal(t, models.TaskStatusPending, task2.Status)
+	require.Equal(t, eid1, eid2)
+}
+
+func TestProjectCreateIdempotent_ReplayAfterDeletion(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	agent := "agent1"
+	req := "req_project_create_del"
+
+	proj1, eid1, err := ProjectCreateIdempotent(db, agent, req, "MyProject", "")
+	require.NoError(t, err)
+	require.NotNil(t, proj1)
+
+	// Delete the project directly, simulating a deletion after creation.
+	_, err = db.Exec(`DELETE FROM projects WHERE id = ?`, proj1.ID)
+	require.NoError(t, err)
+
+	// Replay with the same request-id: must return the original snapshot, not an error.
+	proj2, eid2, err := ProjectCreateIdempotent(db, agent, req, "MyProject", "")
+	require.NoError(t, err)
+	require.NotNil(t, proj2)
+
+	require.Equal(t, proj1.ID, proj2.ID)
+	require.Equal(t, proj1.Name, proj2.Name)
+	require.Equal(t, eid1, eid2)
+}
