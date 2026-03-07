@@ -59,6 +59,130 @@ func TestIdempotency_InProgressIsRetryable(t *testing.T) {
 	require.True(t, isRetryableError(err))
 }
 
+func TestRunIdempotentWithRetry_ExhaustsAttempts(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	attempts := 0
+	_, _, err := RunIdempotentWithRetry(context.Background(), db,
+		"agent1", "req_exhaust", "unit.exhaust",
+		3, defaultRetryPredicate,
+		func(tx *sql.Tx) (string, error) {
+			attempts++
+			return "", ErrIdempotencyInProgress
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, 3, attempts, "should exhaust all attempts")
+}
+
+func TestRunIdempotentWithRetry_SucceedsOnRetry(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	attempts := 0
+	result, replayed, err := RunIdempotentWithRetry(context.Background(), db,
+		"agent1", "req_retry_ok", "unit.retry_ok",
+		5, defaultRetryPredicate,
+		func(tx *sql.Tx) (string, error) {
+			attempts++
+			if attempts < 3 {
+				return "", ErrIdempotencyInProgress
+			}
+			return "success", nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "success", result)
+	require.False(t, replayed)
+	require.Equal(t, 3, attempts)
+}
+
+func TestRunIdempotentWithRetry_CustomPredicate(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	attempts := 0
+	// Custom predicate that rejects ErrIdempotencyInProgress
+	neverRetry := func(error) bool { return false }
+
+	_, _, err := RunIdempotentWithRetry(context.Background(), db,
+		"agent1", "req_custom_pred", "unit.custom_pred",
+		5, neverRetry,
+		func(tx *sql.Tx) (string, error) {
+			attempts++
+			return "", ErrIdempotencyInProgress
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, 1, attempts, "custom predicate should stop after first attempt")
+}
+
+func TestRunIdempotentWithRetry_NilPredicateStopsOnFirst(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	attempts := 0
+	_, _, err := RunIdempotentWithRetry(context.Background(), db,
+		"agent1", "req_nil_pred", "unit.nil_pred",
+		5, nil,
+		func(tx *sql.Tx) (string, error) {
+			attempts++
+			return "", ErrIdempotencyInProgress
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, 1, attempts, "nil shouldRetry should stop after first attempt")
+}
+
+func TestRunIdempotentWithRetry_ZeroMaxAttemptsDefaultsToOne(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	attempts := 0
+	result, _, err := RunIdempotentWithRetry(context.Background(), db,
+		"agent1", "req_zero_max", "unit.zero_max",
+		0, defaultRetryPredicate,
+		func(tx *sql.Tx) (string, error) {
+			attempts++
+			return "ok", nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "ok", result)
+	require.Equal(t, 1, attempts, "maxAttempts=0 should default to 1")
+}
+
+func TestRunIdempotentWithRetry_ReplayedFlag(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// First call: fresh execution
+	result1, replayed1, err := RunIdempotentWithRetry(context.Background(), db,
+		"agent1", "req_replay_flag", "unit.replay_flag",
+		3, defaultRetryPredicate,
+		func(tx *sql.Tx) (string, error) {
+			return "first", nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "first", result1)
+	require.False(t, replayed1, "first execution should not be replayed")
+
+	// Second call: same request_id → replay
+	result2, replayed2, err := RunIdempotentWithRetry(context.Background(), db,
+		"agent1", "req_replay_flag", "unit.replay_flag",
+		3, defaultRetryPredicate,
+		func(tx *sql.Tx) (string, error) {
+			t.Fatal("should not execute on replay")
+			return "", nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "first", result2)
+	require.True(t, replayed2, "second execution should be replayed")
+}
+
 func TestRunIdempotent_ReplaySkipsOperation(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

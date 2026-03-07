@@ -46,6 +46,9 @@ func RetryWithBackoff(ctx context.Context, operation func() error) error {
 // Uses typed sqlite.Error code matching first (belt), then string matching
 // as a fallback for wrapped errors that may lose the concrete type (suspenders).
 func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
 	// Idempotency in-progress rows should be treated as transient contention.
 	if errors.Is(err, ErrIdempotencyInProgress) {
 		return true

@@ -249,7 +249,7 @@ func AppendEventWithMetadataIdempotent(db *sql.DB, agentName, requestID, kind, t
 
 // ArchiveEventsRangeWithSummaryIdempotent marks events in an ID range as archived and appends
 // a single summary event for continuity compression.
-// When projectID is non-empty, only events matching that project (or with NULL project) are archived.
+// When projectID is non-empty, only events matching that project are archived (global events excluded).
 //
 //nolint:revive // argument-limit: all 8 params (agent, req, project, task, from, to, summary) required together
 func ArchiveEventsRangeWithSummaryIdempotent(db *sql.DB, agentName, requestID, projectID, taskID string, fromID, toID int64, summary string) (summaryEventID int64, archivedCount int64, err error) {
@@ -309,7 +309,7 @@ func ArchiveEventsRangeWithSummaryIdempotent(db *sql.DB, agentName, requestID, p
 			return idemResult{}, fmt.Errorf("failed to marshal summary metadata: %w", txErr)
 		}
 
-		summaryEventID, txErr := insertEventRowTx(tx, models.EventKindEventsSummary, agentName, taskID, summary, string(metaBytes))
+		summaryEventID, txErr := InsertEventWithProjectTx(tx, models.EventKindEventsSummary, agentName, projectID, taskID, summary, string(metaBytes))
 		if txErr != nil {
 			return idemResult{}, txErr
 		}

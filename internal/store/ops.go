@@ -76,8 +76,13 @@ func attemptIdempotent[T any](
 // The operation callback must perform only transactional work (DB reads/writes via tx).
 // Non-transactional side effects (HTTP, file I/O) will re-execute on retry.
 func RunIdempotent[T any](ctx context.Context, db *sql.DB, agentName, requestID, command string, operation func(tx *sql.Tx) (T, error)) (T, error) {
-	out, _, err := RunIdempotentWithRetry(ctx, db, agentName, requestID, command, 1, nil, operation)
+	out, _, err := RunIdempotentWithRetry(ctx, db, agentName, requestID, command, 3, defaultRetryPredicate, operation)
 	return out, err
+}
+
+// defaultRetryPredicate retries on transient SQLite contention and idempotency in-progress races.
+func defaultRetryPredicate(err error) bool {
+	return isRetryableError(err)
 }
 
 // RunIdempotentWithRetry executes an idempotent operation with bounded retry on caller-defined retryable errors.

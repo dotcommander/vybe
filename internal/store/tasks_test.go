@@ -299,6 +299,64 @@ func TestUpdateTaskPriorityWithEventTx(t *testing.T) {
 	assert.True(t, found, "expected task_priority_changed event")
 }
 
+func TestUpdateTaskStatusWithEventTx_BlockedReasonTransitions(t *testing.T) {
+	// Tests the SQL CASE contract in UpdateTaskStatusWithEventTx:
+	// 1. non-blocked → blocked: preserves existing blocked_reason (stays NULL for new tasks)
+	// 2. blocked (with reason) → blocked: preserves blocked_reason
+	// 3. blocked (with reason) → non-blocked: clears blocked_reason to NULL
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	task, err := CreateTask(db, "Blocked Reason Test", "", "", 0)
+	require.NoError(t, err)
+	assert.Empty(t, task.BlockedReason)
+
+	// Step 1: pending → blocked; blocked_reason was NULL and must remain NULL (preserved)
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
+		_, txErr := UpdateTaskStatusWithEventTx(tx, "test-agent", task.ID, "blocked", task.Version)
+		return txErr
+	})
+	require.NoError(t, err)
+
+	after1, err := GetTask(db, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "blocked", string(after1.Status))
+	assert.Empty(t, after1.BlockedReason, "blocked_reason must be preserved (NULL) when transitioning to blocked")
+
+	// Step 2: set blocked_reason explicitly, then blocked → blocked must preserve it
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
+		return SetBlockedReasonTx(tx, task.ID, "dependency")
+	})
+	require.NoError(t, err)
+
+	after2, err := GetTask(db, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.BlockedReasonDependency, after2.BlockedReason)
+
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
+		_, txErr := UpdateTaskStatusWithEventTx(tx, "test-agent", task.ID, "blocked", after2.Version)
+		return txErr
+	})
+	require.NoError(t, err)
+
+	after3, err := GetTask(db, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "blocked", string(after3.Status))
+	assert.Equal(t, models.BlockedReasonDependency, after3.BlockedReason, "blocked_reason must be preserved when staying blocked")
+
+	// Step 3: blocked (with reason) → pending; blocked_reason must be cleared to NULL
+	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
+		_, txErr := UpdateTaskStatusWithEventTx(tx, "test-agent", task.ID, "pending", after3.Version)
+		return txErr
+	})
+	require.NoError(t, err)
+
+	after4, err := GetTask(db, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "pending", string(after4.Status))
+	assert.Empty(t, after4.BlockedReason, "blocked_reason must be cleared when transitioning out of blocked")
+}
+
 func TestUpdateTaskPriorityWithEventTx_VersionConflict(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

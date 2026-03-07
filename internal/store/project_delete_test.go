@@ -47,6 +47,14 @@ func TestDeleteProject_ClearsReferences(t *testing.T) {
 	_, err = SetAgentFocusProjectWithEventIdempotent(db, "agent1", "req-del-proj-focus", project.ID)
 	require.NoError(t, err)
 
+	// Add an artifact linked to the task (which is in the project)
+	artifact, _, err := AddArtifact(db, "agent1", task.ID, "/tmp/test-artifact.txt", "text/plain")
+	require.NoError(t, err)
+
+	// Add project-scoped memory
+	err = SetMemory(db, "proj-key", "proj-value", "string", "project", project.ID, nil)
+	require.NoError(t, err)
+
 	// Delete the project
 	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
 		return DeleteProjectTx(tx, project.ID)
@@ -62,4 +70,15 @@ func TestDeleteProject_ClearsReferences(t *testing.T) {
 	state, err := LoadOrCreateAgentState(db, "agent1")
 	require.NoError(t, err)
 	assert.Empty(t, state.FocusProjectID)
+
+	// artifact.project_id should be NULL after project deletion
+	var projectIDVal sql.NullString
+	err = db.QueryRowContext(context.Background(), `SELECT project_id FROM artifacts WHERE id = ?`, artifact.ID).Scan(&projectIDVal)
+	require.NoError(t, err)
+	assert.False(t, projectIDVal.Valid, "artifact.project_id should be NULL after project deletion")
+
+	// project-scoped memory should be deleted (GetMemory returns nil, nil when not found)
+	mem, memErr := GetMemory(db, "proj-key", "project", project.ID)
+	require.NoError(t, memErr)
+	assert.Nil(t, mem, "project-scoped memory should be deleted after project deletion")
 }

@@ -31,6 +31,20 @@ func appendEvent(t *testing.T, db *sql.DB, kind, agentName, taskID, message stri
 	return id
 }
 
+// appendEventWithProject is a test helper that inserts an event with an explicit project_id.
+func appendEventWithProject(t *testing.T, db *sql.DB, kind, agentName, projectID, taskID, message string) int64 {
+	t.Helper()
+	var id int64
+	if err := Transact(context.Background(), db, func(tx *sql.Tx) error {
+		var txErr error
+		id, txErr = InsertEventWithProjectTx(tx, kind, agentName, projectID, taskID, message, "")
+		return txErr
+	}); err != nil {
+		t.Fatalf("appendEventWithProject(%q, %q, %q, %q, %q): %v", kind, agentName, projectID, taskID, message, err)
+	}
+	return id
+}
+
 // appendEventWithMetadata is a test helper that inserts an event with metadata.
 func appendEventWithMetadata(t *testing.T, db *sql.DB, kind, agentName, taskID, message, metadata string) int64 {
 	t.Helper()

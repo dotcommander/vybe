@@ -8,8 +8,9 @@ import (
 )
 
 // DeleteProjectTx deletes a project by ID inside an existing transaction.
-// Before deleting, it clears project_id references in tasks, events, and agent_state
-// to maintain referential integrity (no FK constraints on these columns).
+// Before deleting, it clears project_id references in tasks, events, agent_state, and artifacts,
+// and deletes project-scoped memory entries, to maintain referential integrity
+// (no FK constraints on these columns).
 func DeleteProjectTx(tx *sql.Tx, projectID string) error {
 	if projectID == "" {
 		return errors.New("project ID is required")
@@ -28,6 +29,16 @@ func DeleteProjectTx(tx *sql.Tx, projectID string) error {
 	// Clear agent_state.focus_project_id
 	if _, err := tx.ExecContext(context.Background(), `UPDATE agent_state SET focus_project_id = NULL WHERE focus_project_id = ?`, projectID); err != nil {
 		return fmt.Errorf("failed to clear agent_state focus_project_id: %w", err)
+	}
+
+	// Clear artifacts.project_id
+	if _, err := tx.ExecContext(context.Background(), `UPDATE artifacts SET project_id = NULL WHERE project_id = ?`, projectID); err != nil {
+		return fmt.Errorf("failed to clear artifacts project_id: %w", err)
+	}
+
+	// Delete project-scoped memory
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM memory WHERE scope = 'project' AND scope_id = ?`, projectID); err != nil {
+		return fmt.Errorf("failed to delete project-scoped memory: %w", err)
 	}
 
 	// Delete the project

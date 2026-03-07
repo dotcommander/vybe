@@ -16,12 +16,18 @@ var embedMigrations embed.FS
 // MigrateDB runs all pending migrations with a file lock to prevent concurrent
 // migration races. For in-memory databases (tests), the lock is skipped.
 func MigrateDB(db *sql.DB, dbPath string) error {
+	// Fast path: skip lock + goose.Up when schema is already current.
+	current, latest, err := SchemaVersion(db)
+	if err == nil && current >= latest && latest > 0 {
+		return nil
+	}
+
 	if dbPath != ":memory:" && !strings.Contains(dbPath, ":memory:") {
-		lockF, err := lockFile(dbPath)
+		lockF, err := LockFile(dbPath + ".migrate.lock")
 		if err != nil {
 			return fmt.Errorf("migration lock: %w", err)
 		}
-		defer unlockFile(lockF)
+		defer UnlockFile(lockF)
 	}
 	return RunMigrations(db)
 }
@@ -39,8 +45,11 @@ func SchemaVersion(db *sql.DB) (current int64, latest int64, err error) {
 
 	current, err = goose.GetDBVersion(db)
 	if err != nil {
-		// Fresh DB with no goose_db_version table: treat as version 0
-		current = 0
+		if strings.Contains(err.Error(), "no such table") {
+			current = 0
+		} else {
+			return 0, 0, fmt.Errorf("get db version: %w", err)
+		}
 	}
 
 	latest, err = latestMigrationVersion()

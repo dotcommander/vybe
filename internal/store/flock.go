@@ -7,15 +7,14 @@ import (
 	"syscall"
 )
 
-// lockFile acquires an exclusive advisory lock on a .migrate.lock file
-// adjacent to the database. Blocks until the lock is available.
-// Returns the lock file handle; pass to unlockFile when done.
-func lockFile(dbPath string) (*os.File, error) {
-	lockPath := dbPath + ".migrate.lock"
+// LockFile acquires an exclusive advisory flock on the given lock path.
+// Blocks until the lock is available. Returns the lock file handle;
+// pass to UnlockFile when done.
+func LockFile(lockPath string) (*os.File, error) {
 	if dir := filepath.Dir(lockPath); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 	}
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644) //nolint:gosec // G304: lockPath derived from trusted dbPath
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644) //nolint:gosec // G304: lockPath derived from trusted caller path
 	if err != nil {
 		return nil, fmt.Errorf("open lock file %s: %w", lockPath, err)
 	}
@@ -26,8 +25,8 @@ func lockFile(dbPath string) (*os.File, error) {
 	return f, nil
 }
 
-// unlockFile releases the advisory lock and closes the file. Nil-safe.
-func unlockFile(f *os.File) {
+// UnlockFile releases the advisory lock and closes the file. Nil-safe.
+func UnlockFile(f *os.File) {
 	if f == nil {
 		return
 	}

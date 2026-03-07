@@ -304,3 +304,42 @@ func TestPruneArchivedEventsIdempotent(t *testing.T) {
 	// event 3 + summary event remain.
 	require.Equal(t, 2, total)
 }
+
+// TestArchiveEventsRangeWithSummaryIdempotent_SummaryUsesExplicitProject verifies that
+// the summary event produced by archiving uses the explicit projectID passed to the function,
+// not the agent's inferred focus project. This protects against drift when agent focus changes
+// or when taskID is empty (as in AutoSummarizeEventsIdempotent).
+func TestArchiveEventsRangeWithSummaryIdempotent_SummaryUsesExplicitProject(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	const explicitProject = "proj_explicit"
+	const agentFocusProject = "proj_agent_focus"
+	const agentName = "agent-summary-proj"
+
+	// Set the agent's focus to a different project than the one we will archive.
+	_, err := db.Exec(`
+		INSERT INTO agent_state (agent_name, focus_project_id, last_seen_event_id, version)
+		VALUES (?, ?, 0, 1)
+	`, agentName, agentFocusProject)
+	require.NoError(t, err)
+
+	// Insert events tagged with the explicit project (no task).
+	id1 := appendEventWithProject(t, db, "task.note", agentName, explicitProject, "", "event one")
+	id2 := appendEventWithProject(t, db, "task.note", agentName, explicitProject, "", "event two")
+
+	summaryEventID, archivedCount, err := ArchiveEventsRangeWithSummaryIdempotent(
+		db, agentName, "req-summary-proj-1", explicitProject, "", id1, id2, "Compressed project events",
+	)
+	require.NoError(t, err)
+	require.Greater(t, summaryEventID, int64(0))
+	require.Equal(t, int64(2), archivedCount)
+
+	// The summary event must carry explicitProject, NOT the agent's focus project.
+	var summaryProjectID sql.NullString
+	err = db.QueryRow(`SELECT project_id FROM events WHERE id = ?`, summaryEventID).Scan(&summaryProjectID)
+	require.NoError(t, err)
+	require.True(t, summaryProjectID.Valid, "summary event project_id should not be NULL")
+	require.Equal(t, explicitProject, summaryProjectID.String,
+		"summary event project_id must match the explicit projectID passed to ArchiveEventsRangeWithSummaryIdempotent, not the agent focus project")
+}

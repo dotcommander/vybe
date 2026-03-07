@@ -73,7 +73,8 @@ func startTaskAndFocusTx(tx *sql.Tx, agentName, taskID string) (statusEventID in
 func markTaskInProgressTx(tx *sql.Tx, agentName, taskID string) (int64, error) {
 	var status string
 	var version int
-	queryErr := tx.QueryRowContext(context.Background(), `SELECT status, version FROM tasks WHERE id = ?`, taskID).Scan(&status, &version)
+	var blockedReason sql.NullString
+	queryErr := tx.QueryRowContext(context.Background(), `SELECT status, version, blocked_reason FROM tasks WHERE id = ?`, taskID).Scan(&status, &version, &blockedReason)
 	if queryErr != nil {
 		if queryErr == sql.ErrNoRows {
 			return 0, fmt.Errorf("task not found: %s", taskID)
@@ -83,6 +84,16 @@ func markTaskInProgressTx(tx *sql.Tx, agentName, taskID string) (int64, error) {
 
 	if status == "in_progress" {
 		return 0, nil
+	}
+
+	if status == "blocked" && blockedReason.Valid && blockedReason.String == string(models.BlockedReasonDependency) {
+		hasUnresolved, depErr := HasUnresolvedDependenciesTx(tx, taskID)
+		if depErr != nil {
+			return 0, fmt.Errorf("failed to check dependencies: %w", depErr)
+		}
+		if hasUnresolved {
+			return 0, fmt.Errorf("task %s is blocked by unresolved dependencies; resolve dependencies first or use set-status to override", taskID)
+		}
 	}
 
 	res, err := tx.ExecContext(context.Background(), `

@@ -84,6 +84,13 @@ func GetTaskVersionTx(tx *sql.Tx, taskID string) (int, error) {
 }
 
 // UpdateTaskStatusWithEventTx updates task status and appends task_status event atomically in-tx.
+//
+// blocked_reason behavior (via SQL CASE):
+//   - status != "blocked": blocked_reason is cleared to NULL
+//   - status == "blocked": blocked_reason is PRESERVED (not set)
+//
+// Callers that need to SET blocked_reason must follow with SetBlockedReasonTx
+// within the same transaction. See CloseTaskTx and TaskSetStatusIdempotent.
 func UpdateTaskStatusWithEventTx(tx *sql.Tx, agentName, taskID, status string, version int) (int64, error) {
 	result, err := tx.ExecContext(context.Background(), `
 		UPDATE tasks
@@ -368,6 +375,36 @@ func SetBlockedReasonTx(tx *sql.Tx, taskID, reason string) error {
 	if err != nil {
 		return fmt.Errorf("failed to set blocked_reason: %w", err)
 	}
+	return nil
+}
+
+// casUpdateTaskStatusTx performs a CAS update of task status and blocked_reason.
+// This is the low-level primitive for status mutations that don't emit events.
+// Used by dependency management (block/unblock) where transitions are system-driven.
+// For agent-driven transitions, use UpdateTaskStatusWithEventTx instead.
+func casUpdateTaskStatusTx(tx *sql.Tx, taskID, status, blockedReason string, version int) error {
+	var brVal any
+	if blockedReason != "" {
+		brVal = blockedReason
+	}
+
+	res, err := tx.ExecContext(context.Background(), `
+		UPDATE tasks
+		SET status = ?, blocked_reason = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND version = ?
+	`, status, brVal, taskID, version)
+	if err != nil {
+		return fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	ra, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if ra == 0 {
+		return &VersionConflictError{Entity: "task", ID: taskID, Version: version}
+	}
+
 	return nil
 }
 

@@ -109,7 +109,7 @@ func AddTaskDependencyTx(tx *sql.Tx, taskID, dependsOnTaskID string) error {
 	}
 
 	// If dependency is not completed, set task to blocked with reason
-	if depStatus != "completed" {
+	if models.TaskStatus(depStatus) != models.TaskStatusCompleted {
 		return blockTaskForDependencyTx(tx, taskID)
 	}
 
@@ -122,23 +122,7 @@ func blockTaskForDependencyTx(tx *sql.Tx, taskID string) error {
 	if err != nil {
 		return err
 	}
-
-	res, err := tx.ExecContext(context.Background(), `
-		UPDATE tasks
-		SET status = 'blocked', blocked_reason = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND version = ?
-	`, models.BlockedReasonDependency, taskID, version)
-	if err != nil {
-		return fmt.Errorf("failed to update task to blocked: %w", err)
-	}
-	ra, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check blocked rows affected: %w", err)
-	}
-	if ra == 0 {
-		return ErrVersionConflict
-	}
-	return nil
+	return casUpdateTaskStatusTx(tx, taskID, string(models.TaskStatusBlocked), string(models.BlockedReasonDependency), version)
 }
 
 // RemoveTaskDependency removes a dependency relationship between two tasks.
@@ -176,7 +160,7 @@ func RemoveTaskDependencyTx(tx *sql.Tx, taskID, dependsOnTaskID string) error {
 		return fmt.Errorf("failed to get task status after dep removal: %w", err)
 	}
 
-	if status == "blocked" {
+	if models.TaskStatus(status) == models.TaskStatusBlocked {
 		return unblockTaskIfResolvedTx(tx, taskID)
 	}
 
@@ -197,23 +181,7 @@ func unblockTaskIfResolvedTx(tx *sql.Tx, taskID string) error {
 	if err != nil {
 		return err
 	}
-
-	res, err := tx.ExecContext(context.Background(), `
-		UPDATE tasks
-		SET status = 'pending', blocked_reason = NULL, version = version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND version = ?
-	`, taskID, version)
-	if err != nil {
-		return fmt.Errorf("failed to unblock task after dep removal: %w", err)
-	}
-	ra, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check unblock rows affected: %w", err)
-	}
-	if ra == 0 {
-		return ErrVersionConflict
-	}
-	return nil
+	return casUpdateTaskStatusTx(tx, taskID, string(models.TaskStatusPending), "", version)
 }
 
 // queryDependencyIDs runs a query that returns a single string column and collects the results.
@@ -277,55 +245,14 @@ func HasUnresolvedDependenciesTx(tx *sql.Tx, taskID string) (bool, error) {
 // Must be called inside an existing transaction.
 // Returns the list of unblocked task IDs (useful for event logging).
 func UnblockDependentsTx(tx *sql.Tx, completedTaskID string) ([]string, error) {
-	// Batch UPDATE: unblock all tasks that:
-	// 1. Depend on the completed task
-	// 2. Are currently blocked with reason='dependency'
-	// 3. Have no other unresolved dependencies
-	result, err := tx.ExecContext(context.Background(), `
-		UPDATE tasks
-		SET status = 'pending', blocked_reason = NULL, version = version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id IN (
-			SELECT DISTINCT td.task_id
-			FROM task_dependencies td
-			JOIN tasks t ON t.id = td.task_id
-			WHERE td.depends_on_task_id = ?
-			  AND t.status = 'blocked'
-			  AND t.blocked_reason = 'dependency'
-			  AND NOT EXISTS (
-				SELECT 1 FROM task_dependencies td2
-				JOIN tasks dep ON dep.id = td2.depends_on_task_id
-				WHERE td2.task_id = td.task_id
-				  AND td2.depends_on_task_id != ?
-				  AND dep.status != 'completed'
-			  )
-		)
-	`, completedTaskID, completedTaskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unblock dependent tasks: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return nil, fmt.Errorf("failed to check unblocked rows affected: %w", err)
-	}
-
-	// If no tasks were unblocked, return empty list
-	if rowsAffected == 0 {
-		return []string{}, nil
-	}
-
-	// Fetch the list of unblocked task IDs
-	// SQLite doesn't support RETURNING clause, so query separately
-	rows, err := tx.QueryContext(context.Background(), `
+	// Find eligible tasks: blocked by dependency, all deps now resolved.
+	eligible, err := queryStringColumn(tx, `
 		SELECT DISTINCT td.task_id
 		FROM task_dependencies td
 		JOIN tasks t ON t.id = td.task_id
 		WHERE td.depends_on_task_id = ?
-		  AND t.status = 'pending'
-		  AND t.blocked_reason IS NULL
-		  AND t.version >= (
-			SELECT MAX(version) FROM tasks WHERE id = td.task_id
-		  )
+		  AND t.status = 'blocked'
+		  AND t.blocked_reason = 'dependency'
 		  AND NOT EXISTS (
 			SELECT 1 FROM task_dependencies td2
 			JOIN tasks dep ON dep.id = td2.depends_on_task_id
@@ -335,21 +262,24 @@ func UnblockDependentsTx(tx *sql.Tx, completedTaskID string) ([]string, error) {
 		  )
 	`, completedTaskID, completedTaskID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query unblocked task IDs: %w", err)
+		return nil, fmt.Errorf("failed to find unblockable dependents: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
 
+	if len(eligible) == 0 {
+		return []string{}, nil
+	}
+
+	// Unblock each via CAS primitive.
 	var unblockedIDs []string
-	for rows.Next() {
-		var taskID string
-		if scanErr := rows.Scan(&taskID); scanErr != nil {
-			return nil, fmt.Errorf("failed to scan unblocked task ID: %w", scanErr)
+	for _, taskID := range eligible {
+		version, vErr := GetTaskVersionTx(tx, taskID)
+		if vErr != nil {
+			return nil, fmt.Errorf("failed to get version for task %s: %w", taskID, vErr)
+		}
+		if uErr := casUpdateTaskStatusTx(tx, taskID, string(models.TaskStatusPending), "", version); uErr != nil {
+			return nil, fmt.Errorf("failed to unblock task %s: %w", taskID, uErr)
 		}
 		unblockedIDs = append(unblockedIDs, taskID)
-	}
-
-	if rowsErr := rows.Err(); rowsErr != nil {
-		return nil, fmt.Errorf("error iterating unblocked task IDs: %w", rowsErr)
 	}
 
 	return unblockedIDs, nil
