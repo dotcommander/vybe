@@ -145,18 +145,6 @@ func (r *Runner) vybeWithStdin(stdin string, args ...string) (map[string]any, st
 	}, args...)
 }
 
-// vybeRaw runs vybe with only --db-path (no --agent).
-func (r *Runner) vybeRaw(args ...string) (string, error) {
-	r.printCommand(args)
-	raw, _, cmdErr := RunCLICommand(CLICommandOptions{
-		BinPath: r.binPath,
-		DBPath:  r.dbPath,
-	}, args...)
-	if raw == "" && cmdErr != nil {
-		return "", fmt.Errorf("command failed: %w", cmdErr)
-	}
-	return raw, nil
-}
 
 // vybeWithDir runs vybe with a custom working directory.
 func (r *Runner) vybeWithDir(dir string, args ...string) (map[string]any, string, error) {

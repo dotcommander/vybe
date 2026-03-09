@@ -64,7 +64,7 @@ func ListEvents(db *sql.DB, p ListEventsParams) ([]*models.Event, error) {
 		FROM events
 	`
 	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
+		query += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // G202: clauses are hardcoded literals
 	}
 	if p.Desc {
 		query += " ORDER BY id DESC"

@@ -37,7 +37,7 @@ func readTailLines(path string, maxLines int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only
 
 	info, err := f.Stat()
 	if err != nil {

@@ -36,7 +36,7 @@ func columnExists(t *testing.T, db *sql.DB, table, column string) bool {
 	t.Helper()
 	rows, err := db.Query("PRAGMA table_info(" + table + ")")
 	require.NoError(t, err)
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // test helper
 	for rows.Next() {
 		var cid int
 		var name, ctype string

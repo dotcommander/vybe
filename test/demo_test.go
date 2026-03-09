@@ -114,15 +114,6 @@ func (h *harness) vybeWithDir(dir string, args ...string) string {
 	return stdout
 }
 
-// vybeRaw runs the vybe binary with only --db-path set (no --agent).
-func (h *harness) vybeRaw(args ...string) string {
-	h.t.Helper()
-	stdout, _, _ := demo.RunCLICommand(demo.CLICommandOptions{
-		BinPath: vybeTestBin,
-		DBPath:  h.dbPath,
-	}, args...)
-	return stdout
-}
 
 // mustJSON parses JSON output and returns map[string]any.
 func mustJSON(t *testing.T, output string) map[string]any {
