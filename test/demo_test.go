@@ -3,7 +3,6 @@
 package test
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/demo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,65 +79,65 @@ func newHarness(t *testing.T) *harness {
 // stderr (log lines) is discarded.
 func (h *harness) vybe(args ...string) string {
 	h.t.Helper()
-	fullArgs := append([]string{"--db-path", h.dbPath, "--agent", h.agent}, args...)
-	cmd := exec.Command(vybeTestBin, fullArgs...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		// Some commands exit non-zero on validation errors; caller inspects JSON.
-		_ = err
-	}
-	return stdout.String()
+	stdout, _, _ := demo.RunCLICommand(demo.CLICommandOptions{
+		BinPath:      vybeTestBin,
+		DBPath:       h.dbPath,
+		Agent:        h.agent,
+		IncludeAgent: true,
+	}, args...)
+	return stdout
 }
 
 // vybeWithStdin runs the vybe binary with piped stdin JSON, returns stdout.
 func (h *harness) vybeWithStdin(stdinJSON string, args ...string) string {
 	h.t.Helper()
-	fullArgs := append([]string{"--db-path", h.dbPath, "--agent", h.agent}, args...)
-	cmd := exec.Command(vybeTestBin, fullArgs...)
-	cmd.Stdin = strings.NewReader(stdinJSON)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	_ = cmd.Run()
-	return stdout.String()
+	stdout, _, _ := demo.RunCLICommand(demo.CLICommandOptions{
+		BinPath:      vybeTestBin,
+		DBPath:       h.dbPath,
+		Agent:        h.agent,
+		Stdin:        stdinJSON,
+		IncludeAgent: true,
+	}, args...)
+	return stdout
 }
 
 // vybeWithDir runs vybe with a custom working directory.
 func (h *harness) vybeWithDir(dir string, args ...string) string {
 	h.t.Helper()
-	fullArgs := append([]string{"--db-path", h.dbPath, "--agent", h.agent}, args...)
-	cmd := exec.Command(vybeTestBin, fullArgs...)
-	cmd.Dir = dir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	_ = cmd.Run()
-	return stdout.String()
+	stdout, _, _ := demo.RunCLICommand(demo.CLICommandOptions{
+		BinPath:      vybeTestBin,
+		DBPath:       h.dbPath,
+		Agent:        h.agent,
+		Dir:          dir,
+		IncludeAgent: true,
+	}, args...)
+	return stdout
 }
 
 // vybeRaw runs the vybe binary with only --db-path set (no --agent).
 func (h *harness) vybeRaw(args ...string) string {
 	h.t.Helper()
-	fullArgs := append([]string{"--db-path", h.dbPath}, args...)
-	cmd := exec.Command(vybeTestBin, fullArgs...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	_ = cmd.Run()
-	return stdout.String()
+	stdout, _, _ := demo.RunCLICommand(demo.CLICommandOptions{
+		BinPath: vybeTestBin,
+		DBPath:  h.dbPath,
+	}, args...)
+	return stdout
 }
 
 // mustJSON parses JSON output and returns map[string]any.
 func mustJSON(t *testing.T, output string) map[string]any {
 	t.Helper()
-	output = strings.TrimSpace(output)
-	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(output), &m), "failed to parse JSON: %s", output)
+	m, err := demo.ParseCLIJSON(output)
+	require.NoError(t, err, "failed to parse JSON: %s", output)
 	return m
 }
+
+var (
+	getStr                 = demo.GetString
+	hookStdin              = demo.HookStdin
+	hookStdinWithToolInput = demo.HookStdinWithToolInput
+	rid                    = demo.RequestID
+)
 
 // requireSuccess asserts the vybe JSON response has success=true.
 func requireSuccess(t *testing.T, output string) map[string]any {
@@ -145,59 +145,6 @@ func requireSuccess(t *testing.T, output string) map[string]any {
 	m := mustJSON(t, output)
 	require.Equal(t, true, m["success"], "expected success=true, got: %s", output)
 	return m
-}
-
-// getStr extracts a nested string field from the parsed JSON using dot-path.
-// E.g. getStr(m, "data", "task", "id") returns m["data"]["task"]["id"].(string).
-func getStr(m map[string]any, keys ...string) string {
-	var cur any = m
-	for _, k := range keys {
-		if mm, ok := cur.(map[string]any); ok {
-			cur = mm[k]
-		} else {
-			return ""
-		}
-	}
-	if s, ok := cur.(string); ok {
-		return s
-	}
-	return ""
-}
-
-// rid generates a deterministic request ID for a given phase and step.
-func rid(phase string, step int) string {
-	return fmt.Sprintf("demo_%s_%d", phase, step)
-}
-
-// hookStdin builds the JSON stdin payload for hook commands.
-func hookStdin(eventName, sessionID, cwd, source, prompt, toolName string) string {
-	payload := map[string]any{
-		"cwd":             cwd,
-		"session_id":      sessionID,
-		"hook_event_name": eventName,
-		"prompt":          prompt,
-		"tool_name":       toolName,
-		"tool_input":      map[string]any{},
-		"tool_response":   map[string]any{},
-		"source":          source,
-	}
-	data, _ := json.Marshal(payload)
-	return string(data)
-}
-
-// hookStdinWithToolInput builds the JSON stdin payload for hook commands with tool input.
-func hookStdinWithToolInput(eventName, sessionID, cwd, toolName string, toolInput map[string]any) string {
-	payload := map[string]any{
-		"cwd":             cwd,
-		"session_id":      sessionID,
-		"hook_event_name": eventName,
-		"tool_name":       toolName,
-		"tool_input":      toolInput,
-		"tool_response":   map[string]any{"output": "ok"},
-		"source":          "",
-	}
-	data, _ := json.Marshal(payload)
-	return string(data)
 }
 
 // TestDemoAgentSession is a guided tour of every vybe capability, told as a

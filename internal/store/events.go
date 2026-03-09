@@ -29,6 +29,10 @@ const (
 	ProjectOrGlobalScopeClause = "(project_id = ? OR project_id IS NULL)"
 )
 
+type eventIDResult struct {
+	EventID int64 `json:"event_id"`
+}
+
 // ValidateEventPayload enforces event payload constraints for durability and safety.
 func ValidateEventPayload(kind, agentName, message, metadata string) error {
 	if kind == "" {
@@ -176,28 +180,36 @@ func InsertEventWithProjectTx(tx *sql.Tx, kind, agentName, projectID, taskID, me
 	return result.LastInsertId()
 }
 
-// AppendEventWithProjectAndMetadataIdempotent inserts an event with explicit project_id,
-// idempotent on (agent_name, request_id).
-//
-//nolint:revive // argument-limit: all 8 event params (agent, req, kind, project, task, msg, metadata) required for idempotent path
-func AppendEventWithProjectAndMetadataIdempotent(db *sql.DB, agentName, requestID, kind, projectID, taskID, message, metadata string) (int64, error) {
+func appendEventIdempotentResult(
+	db *sql.DB,
+	agentName, requestID, command, kind, message, metadata string,
+	insert func(tx *sql.Tx) (int64, error),
+) (int64, error) {
 	if err := ValidateEventPayload(kind, agentName, message, metadata); err != nil {
 		return 0, err
 	}
-	type idemResult struct {
-		EventID int64 `json:"event_id"`
-	}
-	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "events.append_with_project", func(tx *sql.Tx) (idemResult, error) {
-		eventID, err := InsertEventWithProjectTx(tx, kind, agentName, projectID, taskID, message, metadata)
+
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, command, func(tx *sql.Tx) (eventIDResult, error) {
+		eventID, err := insert(tx)
 		if err != nil {
-			return idemResult{}, err
+			return eventIDResult{}, err
 		}
-		return idemResult{EventID: eventID}, nil
+		return eventIDResult{EventID: eventID}, nil
 	})
 	if err != nil {
 		return 0, err
 	}
 	return r.EventID, nil
+}
+
+// AppendEventWithProjectAndMetadataIdempotent inserts an event with explicit project_id,
+// idempotent on (agent_name, request_id).
+//
+//nolint:revive // argument-limit: all 8 event params (agent, req, kind, project, task, msg, metadata) required for idempotent path
+func AppendEventWithProjectAndMetadataIdempotent(db *sql.DB, agentName, requestID, kind, projectID, taskID, message, metadata string) (int64, error) {
+	return appendEventIdempotentResult(db, agentName, requestID, "events.append_with_project", kind, message, metadata, func(tx *sql.Tx) (int64, error) {
+		return InsertEventWithProjectTx(tx, kind, agentName, projectID, taskID, message, metadata)
+	})
 }
 
 // AppendEventIdempotent appends a new event once per (agent_name, request_id).
@@ -205,46 +217,18 @@ func AppendEventWithProjectAndMetadataIdempotent(db *sql.DB, agentName, requestI
 //
 //nolint:revive // argument-limit: event params (agent, req, kind, task, msg) are all required
 func AppendEventIdempotent(db *sql.DB, agentName, requestID, kind, taskID, message string) (int64, error) {
-	if err := ValidateEventPayload(kind, agentName, message, ""); err != nil {
-		return 0, err
-	}
-	type idemResult struct {
-		EventID int64 `json:"event_id"`
-	}
-	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "events.append", func(tx *sql.Tx) (idemResult, error) {
-		eventID, err := insertEventRowTx(tx, kind, agentName, taskID, message, "")
-		if err != nil {
-			return idemResult{}, err
-		}
-		return idemResult{EventID: eventID}, nil
+	return appendEventIdempotentResult(db, agentName, requestID, "events.append", kind, message, "", func(tx *sql.Tx) (int64, error) {
+		return insertEventRowTx(tx, kind, agentName, taskID, message, "")
 	})
-	if err != nil {
-		return 0, err
-	}
-	return r.EventID, nil
 }
 
 // AppendEventWithMetadataIdempotent is the metadata variant of AppendEventIdempotent.
 //
 //nolint:revive // argument-limit: event params (agent, req, kind, task, msg, metadata) are all required
 func AppendEventWithMetadataIdempotent(db *sql.DB, agentName, requestID, kind, taskID, message, metadata string) (int64, error) {
-	if err := ValidateEventPayload(kind, agentName, message, metadata); err != nil {
-		return 0, err
-	}
-	type idemResult struct {
-		EventID int64 `json:"event_id"`
-	}
-	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "events.append_with_metadata", func(tx *sql.Tx) (idemResult, error) {
-		eventID, err := insertEventRowTx(tx, kind, agentName, taskID, message, metadata)
-		if err != nil {
-			return idemResult{}, err
-		}
-		return idemResult{EventID: eventID}, nil
+	return appendEventIdempotentResult(db, agentName, requestID, "events.append_with_metadata", kind, message, metadata, func(tx *sql.Tx) (int64, error) {
+		return insertEventRowTx(tx, kind, agentName, taskID, message, metadata)
 	})
-	if err != nil {
-		return 0, err
-	}
-	return r.EventID, nil
 }
 
 // ArchiveEventsRangeWithSummaryIdempotent marks events in an ID range as archived and appends

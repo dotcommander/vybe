@@ -1,7 +1,6 @@
 package actions
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,40 +12,28 @@ import (
 // ProjectCreateIdempotent creates a project once per (agent_name, request_id).
 // On retries with the same request id, it returns the originally created project + event id.
 func ProjectCreateIdempotent(db *sql.DB, agentName, requestID, name, metadata string) (*models.Project, int64, error) {
-	if agentName == "" {
-		return nil, 0, errors.New("agent name is required")
-	}
-	if requestID == "" {
-		return nil, 0, errors.New("request id is required")
-	}
 	if name == "" {
 		return nil, 0, errors.New("project name is required")
 	}
 
-	type idemResult struct {
-		Project models.Project `json:"project"`
-		EventID int64          `json:"event_id"`
-	}
-
-	r, err := store.RunIdempotent(context.Background(), db, agentName, requestID, "project.create", func(tx *sql.Tx) (idemResult, error) {
+	project, eventID, err := runCreateWithEvent(db, agentName, requestID, "project.create", "create project", func(tx *sql.Tx) (models.Project, int64, error) {
 		createdProject, err := store.CreateProjectTx(tx, name, metadata)
 		if err != nil {
-			return idemResult{}, err
+			return models.Project{}, 0, err
 		}
 
 		eventID, err := store.InsertEventTx(tx, models.EventKindProjectCreated, agentName, "", fmt.Sprintf("Project created: %s", name), "")
 		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to append event: %w", err)
+			return models.Project{}, 0, fmt.Errorf("failed to append event: %w", err)
 		}
 
-		return idemResult{Project: *createdProject, EventID: eventID}, nil
+		return *createdProject, eventID, nil
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to create project: %w", err)
+		return nil, 0, err
 	}
 
-	project := r.Project
-	return &project, r.EventID, nil
+	return project, eventID, nil
 }
 
 // ProjectFocusIdempotent sets the agent's focus project once per (agent_name, request_id).
