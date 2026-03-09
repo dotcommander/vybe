@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/dotcommander/vybe/internal/models"
@@ -421,12 +422,14 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 	if len(ids) > 0 {
 		placeholders := strings.Repeat("?,", len(ids))
 		placeholders = placeholders[:len(placeholders)-1]
-		updateQuery := fmt.Sprintf(`UPDATE memory SET access_count = access_count + 1, last_accessed_at = CURRENT_TIMESTAMP WHERE id IN (%s)`, placeholders)
+		updateQuery := fmt.Sprintf(`UPDATE memory SET access_count = access_count + 1, last_accessed_at = CURRENT_TIMESTAMP WHERE id IN (%s)`, placeholders) //nolint:gosec // G201: placeholders are safe "?,?" repetitions
 		args := make([]any, len(ids))
 		for i, id := range ids {
 			args[i] = id
 		}
-		_, _ = db.ExecContext(context.Background(), updateQuery, args...)
+		if _, err := db.ExecContext(context.Background(), updateQuery, args...); err != nil {
+			slog.Warn("failed to update memory access counts", "error", err)
+		}
 	}
 
 	return memories, nil
