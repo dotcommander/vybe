@@ -1,4 +1,5 @@
-package demo
+// Package testutil provides CLI test helpers for integration tests.
+package testutil
 
 import (
 	"bytes"
@@ -68,24 +69,6 @@ func ParseCLIJSON(raw string) (map[string]any, error) {
 	return parsed, nil
 }
 
-// RunCLIJSON executes the vybe binary and parses the JSON response.
-func RunCLIJSON(opts CLICommandOptions, args ...string) (map[string]any, string, error) {
-	raw, stderr, err := RunCLICommand(opts, args...)
-	if raw == "" {
-		if err != nil {
-			return nil, "", fmt.Errorf("command failed: %w (stderr: %s)", err, stderr)
-		}
-		return nil, raw, nil
-	}
-
-	parsed, parseErr := ParseCLIJSON(raw)
-	if parseErr != nil {
-		return nil, raw, parseErr
-	}
-
-	return parsed, raw, nil
-}
-
 // GetString extracts a nested string field from a parsed JSON map.
 func GetString(m map[string]any, keys ...string) string {
 	var cur any = m
@@ -137,11 +120,3 @@ func HookStdinWithToolInput(eventName, sessionID, cwd, toolName string, toolInpu
 	data, _ := json.Marshal(payload)
 	return string(data)
 }
-
-// Package-level aliases for backward compatibility with demo/test call sites.
-var (
-	getStr                = GetString
-	rid                   = RequestID
-	hookStdin             = HookStdin
-	hookStdinWithToolInput = HookStdinWithToolInput
-)

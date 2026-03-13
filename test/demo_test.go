@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dotcommander/vybe/internal/demo"
+	"github.com/dotcommander/vybe/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,7 +79,7 @@ func newHarness(t *testing.T) *harness {
 // stderr (log lines) is discarded.
 func (h *harness) vybe(args ...string) string {
 	h.t.Helper()
-	stdout, _, _ := demo.RunCLICommand(demo.CLICommandOptions{
+	stdout, _, _ := testutil.RunCLICommand(testutil.CLICommandOptions{
 		BinPath:      vybeTestBin,
 		DBPath:       h.dbPath,
 		Agent:        h.agent,
@@ -91,7 +91,7 @@ func (h *harness) vybe(args ...string) string {
 // vybeWithStdin runs the vybe binary with piped stdin JSON, returns stdout.
 func (h *harness) vybeWithStdin(stdinJSON string, args ...string) string {
 	h.t.Helper()
-	stdout, _, _ := demo.RunCLICommand(demo.CLICommandOptions{
+	stdout, _, _ := testutil.RunCLICommand(testutil.CLICommandOptions{
 		BinPath:      vybeTestBin,
 		DBPath:       h.dbPath,
 		Agent:        h.agent,
@@ -104,7 +104,7 @@ func (h *harness) vybeWithStdin(stdinJSON string, args ...string) string {
 // vybeWithDir runs vybe with a custom working directory.
 func (h *harness) vybeWithDir(dir string, args ...string) string {
 	h.t.Helper()
-	stdout, _, _ := demo.RunCLICommand(demo.CLICommandOptions{
+	stdout, _, _ := testutil.RunCLICommand(testutil.CLICommandOptions{
 		BinPath:      vybeTestBin,
 		DBPath:       h.dbPath,
 		Agent:        h.agent,
@@ -118,16 +118,16 @@ func (h *harness) vybeWithDir(dir string, args ...string) string {
 // mustJSON parses JSON output and returns map[string]any.
 func mustJSON(t *testing.T, output string) map[string]any {
 	t.Helper()
-	m, err := demo.ParseCLIJSON(output)
+	m, err := testutil.ParseCLIJSON(output)
 	require.NoError(t, err, "failed to parse JSON: %s", output)
 	return m
 }
 
 var (
-	getStr                 = demo.GetString
-	hookStdin              = demo.HookStdin
-	hookStdinWithToolInput = demo.HookStdinWithToolInput
-	rid                    = demo.RequestID
+	getStr                 = testutil.GetString
+	hookStdin              = testutil.HookStdin
+	hookStdinWithToolInput = testutil.HookStdinWithToolInput
+	rid                    = testutil.RequestID
 )
 
 // requireSuccess asserts the vybe JSON response has success=true.
