@@ -259,46 +259,6 @@ func TestListTasks_PriorityFilter(t *testing.T) {
 	assert.Empty(t, tasks)
 }
 
-func TestUpdateTaskPriorityWithEventTx(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	task, err := CreateTask(db, "Priority Test", "", "", 0)
-	require.NoError(t, err)
-	assert.Equal(t, 0, task.Priority)
-
-	// Update priority inside transaction
-	var eventID int64
-	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
-		eid, txErr := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 5, task.Version)
-		if txErr != nil {
-			return txErr
-		}
-		eventID = eid
-		return nil
-	})
-	require.NoError(t, err)
-	assert.Greater(t, eventID, int64(0))
-
-	// Verify task updated
-	updated, err := GetTask(db, task.ID)
-	require.NoError(t, err)
-	assert.Equal(t, 5, updated.Priority)
-	assert.Equal(t, 2, updated.Version)
-
-	// Verify event emitted
-	events, err := FetchEventsSince(db, 0, 100, "")
-	require.NoError(t, err)
-	var found bool
-	for _, e := range events {
-		if e.Kind == "task_priority_changed" && e.TaskID == task.ID {
-			found = true
-			assert.Contains(t, e.Message, "5")
-		}
-	}
-	assert.True(t, found, "expected task_priority_changed event")
-}
-
 func TestUpdateTaskStatusWithEventTx_BlockedReasonTransitions(t *testing.T) {
 	// Tests the SQL CASE contract in UpdateTaskStatusWithEventTx:
 	// 1. non-blocked → blocked: preserves existing blocked_reason (stays NULL for new tasks)
@@ -357,24 +317,3 @@ func TestUpdateTaskStatusWithEventTx_BlockedReasonTransitions(t *testing.T) {
 	assert.Empty(t, after4.BlockedReason, "blocked_reason must be cleared when transitioning out of blocked")
 }
 
-func TestUpdateTaskPriorityWithEventTx_VersionConflict(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	task, err := CreateTask(db, "Conflict Test", "", "", 0)
-	require.NoError(t, err)
-
-	// First update succeeds
-	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
-		_, txErr := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 5, task.Version)
-		return txErr
-	})
-	require.NoError(t, err)
-
-	// Second update with stale version fails
-	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
-		_, txErr := UpdateTaskPriorityWithEventTx(tx, "test-agent", task.ID, 10, task.Version)
-		return txErr
-	})
-	assert.ErrorIs(t, err, ErrVersionConflict)
-}

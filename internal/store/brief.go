@@ -31,7 +31,6 @@ type BriefPacket struct {
 	ApproxTokens   int                `json:"approx_tokens"`
 	Counts         *TaskStatusCounts  `json:"counts,omitempty"`
 	Pipeline       []PipelineTask     `json:"pipeline,omitempty"`
-	Unlocks        []PipelineTask     `json:"unlocks,omitempty"`
 }
 
 // BuildBrief constructs a brief packet for a focus task and optional project.
@@ -104,9 +103,6 @@ func BuildBrief(db *sql.DB, focusTaskID, focusProjectID, agentName string) (*Bri
 	}
 	if pipeline, pErr := FetchPipelineTasks(db, focusTaskID, agentName, focusProjectID, 5); pErr == nil && len(pipeline) > 0 {
 		brief.Pipeline = pipeline
-	}
-	if unlocks, uErr := FetchUnlockedByCompletion(db, focusTaskID); uErr == nil && len(unlocks) > 0 {
-		brief.Unlocks = unlocks
 	}
 
 	return brief, nil
@@ -259,11 +255,6 @@ func FetchPipelineTasks(db *sql.DB, excludeTaskID, agentName, projectID string, 
 			SELECT id, title, priority FROM tasks
 			WHERE status = 'pending'
 			  AND id != ?
-			  AND NOT EXISTS (
-				SELECT 1 FROM task_dependencies td
-				JOIN tasks dep ON dep.id = td.depends_on_task_id
-				WHERE td.task_id = tasks.id AND dep.status != 'completed'
-			  )
 		`
 		args := []any{excludeTaskID}
 		if projectID != "" {
@@ -294,48 +285,6 @@ func FetchPipelineTasks(db *sql.DB, excludeTaskID, agentName, projectID string, 
 	}
 
 	_ = agentName
-	return tasks, nil
-}
-
-// FetchUnlockedByCompletion finds tasks that would become unblocked if focusTaskID were completed.
-func FetchUnlockedByCompletion(db *sql.DB, focusTaskID string) ([]PipelineTask, error) {
-	var tasks []PipelineTask
-	err := RetryWithBackoff(context.Background(), func() error {
-		query := `
-			SELECT t.id, t.title, t.priority
-			FROM task_dependencies td
-			JOIN tasks t ON t.id = td.task_id
-			WHERE td.depends_on_task_id = ?
-			  AND t.status != 'completed'
-			  AND NOT EXISTS (
-				SELECT 1 FROM task_dependencies td2
-				JOIN tasks dep ON dep.id = td2.depends_on_task_id
-				WHERE td2.task_id = t.id
-				  AND td2.depends_on_task_id != ?
-				  AND dep.status != 'completed'
-			  )
-			ORDER BY t.priority DESC, t.created_at ASC
-		`
-		rows, err := db.QueryContext(context.Background(), query, focusTaskID, focusTaskID)
-		if err != nil {
-			return fmt.Errorf("failed to query unlocked tasks: %w", err)
-		}
-		defer func() { _ = rows.Close() }()
-
-		tasks = make([]PipelineTask, 0)
-		for rows.Next() {
-			var pt PipelineTask
-			if err := rows.Scan(&pt.ID, &pt.Title, &pt.Priority); err != nil {
-				return fmt.Errorf("failed to scan unlocked task: %w", err)
-			}
-			tasks = append(tasks, pt)
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	return tasks, nil
 }
 

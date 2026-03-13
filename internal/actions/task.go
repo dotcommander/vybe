@@ -1,7 +1,6 @@
 package actions
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -113,14 +112,6 @@ func TaskSetStatusIdempotent(db *sql.DB, agentName, requestID, taskID, status, b
 			return eventResult{}, err
 		}
 
-		// Unblock dependent tasks atomically if this task is now completed
-		if status == completedStatus {
-			_, ubErr := store.UnblockDependentsTx(tx, taskID)
-			if ubErr != nil {
-				return eventResult{}, fmt.Errorf("failed to unblock dependents: %w", ubErr)
-			}
-		}
-
 		// Set blocked_reason atomically with status change
 		if status == blockedStatus && blockedReason != "" {
 			if brErr := store.SetBlockedReasonTx(tx, taskID, blockedReason); brErr != nil {
@@ -194,116 +185,6 @@ func TaskList(db *sql.DB, statusFilter, projectFilter string, priorityFilter int
 	}
 
 	return tasks, nil
-}
-
-// TaskSetPriorityIdempotent updates task priority once per (agent_name, request_id).
-// Uses RunIdempotentWithRetry internally to handle both idempotency replay
-// and CAS version conflicts in a single retry loop.
-func TaskSetPriorityIdempotent(db *sql.DB, agentName, requestID, taskID string, priority int) (*models.Task, int64, error) {
-	updatedTask, result, err := runTaskMutationWithRetry(db, agentName, requestID, taskID, "task.set_priority", "updated", func(tx *sql.Tx) (eventResult, error) {
-		version, err := store.GetTaskVersionTx(tx, taskID)
-		if err != nil {
-			return eventResult{}, fmt.Errorf("failed to get task: %w", err)
-		}
-
-		eventID, err := store.UpdateTaskPriorityWithEventTx(tx, agentName, taskID, priority, version)
-		if err != nil {
-			return eventResult{}, err
-		}
-
-		return eventResult{EventID: eventID}, nil
-	},
-	)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return updatedTask, result.EventID, nil
-}
-
-func validateDependencyArgs(agentName, taskID, dependsOnTaskID string) error {
-	if agentName == "" {
-		return errors.New("agent name is required")
-	}
-	if taskID == "" {
-		return errors.New("task ID is required")
-	}
-	if dependsOnTaskID == "" {
-		return errors.New("depends_on_task_id is required")
-	}
-	return nil
-}
-
-func taskDependencyMessage(taskID, dependsOnTaskID string, adding bool) string {
-	if adding {
-		return fmt.Sprintf("Dependency added: %s depends on %s", taskID, dependsOnTaskID)
-	}
-	return fmt.Sprintf("Dependency removed: %s no longer depends on %s", taskID, dependsOnTaskID)
-}
-
-type taskDependencyParams struct {
-	db              *sql.DB
-	agentName       string
-	taskID          string
-	dependsOnTaskID string
-	eventKind       string
-	idempotencyCmd  string
-	requestID       string
-	mutate          func(tx *sql.Tx, taskID, dependsOnTaskID string) error
-	adding          bool
-}
-
-func mutateTaskDependency(p taskDependencyParams) error {
-	if err := validateDependencyArgs(p.agentName, p.taskID, p.dependsOnTaskID); err != nil {
-		return err
-	}
-
-	message := taskDependencyMessage(p.taskID, p.dependsOnTaskID, p.adding)
-
-	type idemResult struct {
-		EventID int64 `json:"event_id"`
-	}
-
-	_, err := store.RunIdempotent(context.Background(), p.db, p.agentName, p.requestID, p.idempotencyCmd, func(tx *sql.Tx) (idemResult, error) {
-		if err := p.mutate(tx, p.taskID, p.dependsOnTaskID); err != nil {
-			return idemResult{}, err
-		}
-
-		eventID, err := store.InsertEventTx(tx, p.eventKind, p.agentName, p.taskID, message, "")
-		if err != nil {
-			return idemResult{}, fmt.Errorf("failed to append event: %w", err)
-		}
-
-		return idemResult{EventID: eventID}, nil
-	})
-
-	return err
-}
-
-// TaskAddDependencyIdempotent adds a dependency once per (agent_name, request_id).
-func TaskAddDependencyIdempotent(db *sql.DB, agentName, requestID, taskID, dependsOnTaskID string) error {
-	if requestID == "" {
-		return errors.New("request id is required")
-	}
-
-	return mutateTaskDependency(taskDependencyParams{
-		db: db, agentName: agentName, taskID: taskID, dependsOnTaskID: dependsOnTaskID,
-		eventKind: models.EventKindTaskDependencyAdded, idempotencyCmd: "task.add_dependency",
-		requestID: requestID, mutate: store.AddTaskDependencyTx, adding: true,
-	})
-}
-
-// TaskRemoveDependencyIdempotent removes a dependency once per (agent_name, request_id).
-func TaskRemoveDependencyIdempotent(db *sql.DB, agentName, requestID, taskID, dependsOnTaskID string) error {
-	if requestID == "" {
-		return errors.New("request id is required")
-	}
-
-	return mutateTaskDependency(taskDependencyParams{
-		db: db, agentName: agentName, taskID: taskID, dependsOnTaskID: dependsOnTaskID,
-		eventKind: models.EventKindTaskDependencyRemoved, idempotencyCmd: "task.remove_dependency",
-		requestID: requestID, mutate: store.RemoveTaskDependencyTx, adding: false,
-	})
 }
 
 // TaskCloseResult captures the output of a close operation.

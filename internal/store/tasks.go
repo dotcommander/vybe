@@ -180,54 +180,7 @@ func getTaskByQuerier(q Querier, taskID string) (*models.Task, error) {
 		return nil, fmt.Errorf("failed to query task: %w", err)
 	}
 
-	// Populate dependencies
-	deps, err := loadTaskDependencies(q, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load task dependencies: %w", err)
-	}
-	task.DependsOn = deps
-
 	return task, nil
-}
-
-// loadTaskDependencies loads dependencies for a task using a querier (db or tx).
-func loadTaskDependencies(q Querier, taskID string) ([]string, error) {
-	rows, err := q.Query(`
-		SELECT depends_on_task_id
-		FROM task_dependencies
-		WHERE task_id = ?
-		ORDER BY created_at ASC
-	`, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query task dependencies: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var deps []string
-	for rows.Next() {
-		var depID string
-		if err := rows.Scan(&depID); err != nil {
-			return nil, fmt.Errorf("failed to scan task dependency: %w", err)
-		}
-		deps = append(deps, depID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating task dependencies: %w", err)
-	}
-
-	return deps, nil
-}
-
-// UpdateTaskPriorityWithEventTx updates task priority and appends task_priority_changed event atomically in-tx.
-func UpdateTaskPriorityWithEventTx(tx *sql.Tx, agentName, taskID string, priority, version int) (int64, error) {
-	return casUpdateTaskWithEvent(tx, agentName, taskID, version,
-		`UPDATE tasks
-		SET priority = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND version = ?`,
-		[]any{priority, taskID, version},
-		models.EventKindTaskPriorityChanged,
-		fmt.Sprintf("Priority changed to: %d", priority),
-	)
 }
 
 // ListTasks retrieves all tasks, optionally filtered by status, project, and/or priority.
@@ -258,100 +211,20 @@ func ListTasks(db *sql.DB, statusFilter, projectFilter string, priorityFilter in
 	defer func() { _ = rows.Close() }()
 
 	var tasks []*models.Task
-	var taskIDs []string
 	for rows.Next() {
 		scanner := &taskRowScanner{}
 		if scanErr := scanner.scan(rows); scanErr != nil {
 			return nil, fmt.Errorf("failed to scan task row: %w", scanErr)
 		}
 		scanner.hydrate()
-		task := scanner.getTask()
-		tasks = append(tasks, task)
-		taskIDs = append(taskIDs, task.ID)
+		tasks = append(tasks, scanner.getTask())
 	}
 
 	if rowsErr := rows.Err(); rowsErr != nil {
 		return nil, fmt.Errorf("error iterating task rows: %w", rowsErr)
 	}
 
-	// Batch-load all dependencies if we have tasks
-	if len(taskIDs) > 0 {
-		depsMap, depsErr := batchLoadTaskDependencies(db, taskIDs)
-		if depsErr != nil {
-			return nil, fmt.Errorf("failed to batch-load dependencies: %w", depsErr)
-		}
-
-		// Assign dependencies to each task
-		for _, task := range tasks {
-			task.DependsOn = depsMap[task.ID]
-		}
-	}
-
 	return tasks, nil
-}
-
-// batchLoadTaskDependencies loads dependencies for multiple tasks in batches,
-// respecting SQLite's SQLITE_MAX_VARIABLE_NUMBER limit (999).
-//
-//nolint:gocognit // batch loop with inline IIFE for deferred close; placeholder building adds structural branches that inflate the metric
-func batchLoadTaskDependencies(db *sql.DB, taskIDs []string) (map[string][]string, error) {
-	depsMap := make(map[string][]string)
-
-	// SQLite default SQLITE_MAX_VARIABLE_NUMBER is 999
-	const batchSize = 999
-
-	for i := 0; i < len(taskIDs); i += batchSize {
-		end := i + batchSize
-		if end > len(taskIDs) {
-			end = len(taskIDs)
-		}
-		batch := taskIDs[i:end]
-
-		// Build IN clause with placeholders
-		placeholders := make([]byte, 0, len(batch)*2)
-		for j := range batch {
-			if j > 0 {
-				placeholders = append(placeholders, ',')
-			}
-			placeholders = append(placeholders, '?')
-		}
-
-		// placeholders contains only '?' and ',' — no user input, safe to format.
-		//nolint:gosec // G201: placeholders is built from safe byte literals ('?' and ',') only — no user input
-		query := fmt.Sprintf(`
-			SELECT task_id, depends_on_task_id
-			FROM task_dependencies
-			WHERE task_id IN (%s)
-			ORDER BY task_id, created_at ASC
-		`, string(placeholders))
-
-		// Convert batch to []any for query args
-		queryArgs := make([]any, len(batch))
-		for j, id := range batch {
-			queryArgs[j] = id
-		}
-
-		if scanErr := func() error {
-			rows, err := db.QueryContext(context.Background(), query, queryArgs...)
-			if err != nil {
-				return fmt.Errorf("failed to query task dependencies batch: %w", err)
-			}
-			defer func() { _ = rows.Close() }()
-
-			for rows.Next() {
-				var taskID, depID string
-				if err := rows.Scan(&taskID, &depID); err != nil {
-					return fmt.Errorf("failed to scan task dependency: %w", err)
-				}
-				depsMap[taskID] = append(depsMap[taskID], depID)
-			}
-			return rows.Err()
-		}(); scanErr != nil {
-			return nil, scanErr
-		}
-	}
-
-	return depsMap, nil
 }
 
 // SetBlockedReasonTx sets the blocked_reason column for a task.
@@ -371,36 +244,6 @@ func SetBlockedReasonTx(tx *sql.Tx, taskID, reason string) error {
 	if err != nil {
 		return fmt.Errorf("failed to set blocked_reason: %w", err)
 	}
-	return nil
-}
-
-// casUpdateTaskStatusTx performs a CAS update of task status and blocked_reason.
-// This is the low-level primitive for status mutations that don't emit events.
-// Used by dependency management (block/unblock) where transitions are system-driven.
-// For agent-driven transitions, use UpdateTaskStatusWithEventTx instead.
-func casUpdateTaskStatusTx(tx *sql.Tx, taskID, status, blockedReason string, version int) error {
-	var brVal any
-	if blockedReason != "" {
-		brVal = blockedReason
-	}
-
-	res, err := tx.ExecContext(context.Background(), `
-		UPDATE tasks
-		SET status = ?, blocked_reason = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND version = ?
-	`, status, brVal, taskID, version)
-	if err != nil {
-		return fmt.Errorf("failed to update task status: %w", err)
-	}
-
-	ra, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check rows affected: %w", err)
-	}
-	if ra == 0 {
-		return &VersionConflictError{Entity: "task", ID: taskID, Version: version}
-	}
-
 	return nil
 }
 

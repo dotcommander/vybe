@@ -189,36 +189,3 @@ func TestPushIdempotent_EmptyPush(t *testing.T) {
 	assert.Contains(t, err.Error(), "at least one operation")
 }
 
-func TestPushIdempotent_UnblocksDependentsOnComplete(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	taskA, _, err := TaskCreateIdempotent(db, "test-agent", "req_create_A", "Task A", "", "", 0)
-	require.NoError(t, err)
-
-	taskB, _, err := TaskCreateIdempotent(db, "test-agent", "req_create_B", "Task B", "", "", 0)
-	require.NoError(t, err)
-
-	// B depends on A
-	err = TaskAddDependencyIdempotent(db, "test-agent", "req_dep_B_on_A", taskB.ID, taskA.ID)
-	require.NoError(t, err)
-
-	// Block B
-	_, _, err = TaskSetStatusIdempotent(db, "test-agent", "req_block_B", taskB.ID, "blocked", "dependency")
-	require.NoError(t, err)
-
-	// Complete A via push
-	_, err = PushIdempotent(db, "test-agent", "push_complete_A", PushInput{
-		TaskID: taskA.ID,
-		TaskStatus: &PushTaskStatusInput{
-			Status:  "completed",
-			Summary: "Done",
-		},
-	})
-	require.NoError(t, err)
-
-	// B should now be pending (unblocked)
-	bTask, err := store.GetTask(db, taskB.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "pending", string(bTask.Status))
-}

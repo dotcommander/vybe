@@ -12,7 +12,7 @@ func TestNewTaskCmd_HasExpectedSubcommands(t *testing.T) {
 	require.Equal(t, "task", cmd.Use)
 	require.Equal(t, "Manage tasks", cmd.Short)
 
-	for _, name := range []string{"create", "begin", "set-status", "get", "list", "add-dep", "set-priority"} {
+	for _, name := range []string{"create", "begin", "set-status", "get", "list"} {
 		sub, _, err := cmd.Find([]string{name})
 		require.NoError(t, err)
 		require.NotNil(t, sub)
@@ -74,89 +74,11 @@ func TestTaskSetStatusCmd_RequiresIDAndStatus(t *testing.T) {
 	})
 }
 
-func TestTaskDepCmd_RequiresInputsBeforeDB(t *testing.T) {
-	apply := func(db *DB, agentName, requestID, taskID, dependsOn string) error {
-		return nil
-	}
-	cmd := newTaskDepCmd("dep", "dep", "ok", apply)
-
-	err := cmd.RunE(cmd, nil)
-	require.Error(t, err)
-	require.IsType(t, printedError{}, err)
-
-	require.NoError(t, cmd.Flags().Set("id", "task-1"))
-	err = cmd.RunE(cmd, nil)
-	require.Error(t, err)
-	require.IsType(t, printedError{}, err)
-}
-
-func TestTaskDepCmd_RequiresActorAndRequestID(t *testing.T) {
-	called := false
-	apply := func(db *DB, agentName, requestID, taskID, dependsOn string) error {
-		called = true
-		return nil
-	}
-	cmd := newTaskDepCmd("dep", "dep", "ok", apply)
-	require.NoError(t, cmd.Flags().Set("id", "task-1"))
-	require.NoError(t, cmd.Flags().Set("depends-on", "task-2"))
-
-	err := cmd.RunE(cmd, nil)
-	require.Error(t, err)
-	require.EqualError(t, err, "error already printed")
-	require.IsType(t, printedError{}, err)
-	require.False(t, called)
-}
-
-func TestNewTaskDepVariants_Metadata(t *testing.T) {
-	add := newTaskAddDepCmd()
-	require.Equal(t, "add-dep", add.Name())
-	require.Contains(t, add.Short, "dependency")
-}
-
 func TestTaskCreateCmd_DefinesFlags(t *testing.T) {
 	cmd := newTaskCreateCmd()
 	requireFlagExists(t, cmd, "title")
 	requireFlagExists(t, cmd, "desc")
 	requireFlagExists(t, cmd, "project-id")
-	requireFlagExists(t, cmd, "priority")
-}
-
-func TestTaskSetPriority_RequiredFlags(t *testing.T) {
-	t.Run("missing id", func(t *testing.T) {
-		cmd := newTaskSetPriorityCmd()
-		t.Setenv("VYBE_AGENT", "agent-1")
-		t.Setenv("VYBE_REQUEST_ID", "req-1")
-
-		err := cmd.RunE(cmd, nil)
-		require.Error(t, err)
-		require.IsType(t, printedError{}, err)
-	})
-
-	t.Run("missing agent", func(t *testing.T) {
-		cmd := newTaskSetPriorityCmd()
-		require.NoError(t, cmd.Flags().Set("id", "task-1"))
-		require.NoError(t, cmd.Flags().Set("priority", "5"))
-
-		err := cmd.RunE(cmd, nil)
-		require.Error(t, err)
-		require.IsType(t, printedError{}, err)
-	})
-
-	t.Run("missing request-id", func(t *testing.T) {
-		cmd := newTaskSetPriorityCmd()
-		t.Setenv("VYBE_AGENT", "agent-1")
-		require.NoError(t, cmd.Flags().Set("id", "task-1"))
-		require.NoError(t, cmd.Flags().Set("priority", "5"))
-
-		err := cmd.RunE(cmd, nil)
-		require.Error(t, err)
-		require.IsType(t, printedError{}, err)
-	})
-}
-
-func TestTaskSetPriorityCmd_DefinesFlags(t *testing.T) {
-	cmd := newTaskSetPriorityCmd()
-	requireFlagExists(t, cmd, "id")
 	requireFlagExists(t, cmd, "priority")
 }
 

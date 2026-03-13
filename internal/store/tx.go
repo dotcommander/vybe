@@ -13,25 +13,6 @@ type Querier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// queryStringColumn executes query and returns all values of the first string column.
-func queryStringColumn(q Querier, query string, args ...any) ([]string, error) {
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	var out []string
-	for rows.Next() {
-		var s string
-		if scanErr := rows.Scan(&s); scanErr != nil {
-			return nil, scanErr
-		}
-		out = append(out, s)
-	}
-	return out, rows.Err()
-}
-
 // Transact runs fn in a transaction wrapped with RetryWithBackoff.
 func Transact(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
 	return RetryWithBackoff(ctx, func() error {

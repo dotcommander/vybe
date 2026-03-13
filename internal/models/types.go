@@ -90,7 +90,6 @@ type Task struct {
 	Priority      int           `json:"priority"`
 	ProjectID     string        `json:"project_id,omitempty"`
 	BlockedReason BlockedReason `json:"blocked_reason,omitempty"`
-	DependsOn     []string      `json:"depends_on,omitempty"`
 	Version       int           `json:"version"`
 	CreatedAt     time.Time     `json:"created_at"`
 	UpdatedAt     time.Time     `json:"updated_at"`
@@ -99,11 +98,6 @@ type Task struct {
 // IsBlocked returns true if the task status is blocked.
 func (t *Task) IsBlocked() bool {
 	return t.Status == TaskStatusBlocked
-}
-
-// IsBlockedByDependency returns true if the task is blocked due to an unresolved dependency.
-func (t *Task) IsBlockedByDependency() bool {
-	return t.BlockedReason == BlockedReasonDependency
 }
 
 // IsBlockedByFailure returns true if the task is blocked due to an execution failure.

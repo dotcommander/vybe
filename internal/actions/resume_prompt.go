@@ -144,7 +144,6 @@ func appendPipelineContext(b *strings.Builder, brief *store.BriefPacket) {
 
 	appendProgressCountsContext(b, brief)
 	appendPipelineTasksContext(b, brief.Pipeline)
-	appendUnlocksContext(b, brief.Unlocks)
 }
 
 func appendProgressCountsContext(b *strings.Builder, brief *store.BriefPacket) {
@@ -169,17 +168,6 @@ func appendPipelineTasksContext(b *strings.Builder, pipeline []store.PipelineTas
 
 	b.WriteString("\nUp next:\n")
 	for _, task := range pipeline {
-		fmt.Fprintf(b, "  - %s (%s)\n", task.Title, task.ID)
-	}
-}
-
-func appendUnlocksContext(b *strings.Builder, unlocks []store.PipelineTask) {
-	if len(unlocks) == 0 {
-		return
-	}
-
-	b.WriteString("\nCompleting this task unlocks:\n")
-	for _, task := range unlocks {
 		fmt.Fprintf(b, "  - %s (%s)\n", task.Title, task.ID)
 	}
 }

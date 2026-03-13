@@ -31,8 +31,7 @@ type CloseTaskParams struct {
 }
 
 // CloseTaskTx atomically closes a task: CAS status update,
-// unblock dependents (if completed), set blocked_reason (if blocked),
-// emit task_status + task_closed events.
+// set blocked_reason (if blocked), emit task_status + task_closed events.
 //
 // Status must be "completed" or "blocked".
 func CloseTaskTx(tx *sql.Tx, p CloseTaskParams) (*CloseTaskResult, error) {
@@ -58,13 +57,6 @@ func CloseTaskTx(tx *sql.Tx, p CloseTaskParams) (*CloseTaskResult, error) {
 	statusEventID, err := UpdateTaskStatusWithEventTx(tx, p.AgentName, p.TaskID, p.Status, version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update task status: %w", err)
-	}
-
-	// Unblock dependents if completed.
-	if p.Status == taskStatusCompleted {
-		if _, ubErr := UnblockDependentsTx(tx, p.TaskID); ubErr != nil {
-			return nil, fmt.Errorf("failed to unblock dependents: %w", ubErr)
-		}
 	}
 
 	// Always set/clear blocked_reason when blocked to avoid stale values.

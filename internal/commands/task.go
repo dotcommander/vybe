@@ -2,7 +2,6 @@ package commands
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/dotcommander/vybe/internal/actions"
 	"github.com/dotcommander/vybe/internal/models"
@@ -67,8 +66,6 @@ func NewTaskCmd() *cobra.Command {
 	cmd.AddCommand(newTaskSetStatusCmd())
 	cmd.AddCommand(newTaskGetCmd())
 	cmd.AddCommand(newTaskListCmd())
-	cmd.AddCommand(newTaskAddDepCmd())
-	cmd.AddCommand(newTaskSetPriorityCmd())
 
 	namespaceIndex(cmd)
 	return cmd
@@ -243,79 +240,3 @@ func newTaskGetCmd() *cobra.Command {
 	return cmd
 }
 
-func newTaskDepCmd(use, short, successFmt string, apply func(db *DB, agentName, requestID, taskID, dependsOn string) error) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   use,
-		Short: short,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			taskID, _ := cmd.Flags().GetString("id")
-			dependsOn, _ := cmd.Flags().GetString("depends-on")
-			if taskID == "" {
-				return cmdErr(errors.New("--id is required"))
-			}
-			if dependsOn == "" {
-				return cmdErr(errors.New("--depends-on is required"))
-			}
-
-			agentName, requestID, err := requireMutationParams(cmd)
-			if err != nil {
-				return err
-			}
-
-			if err := withDB(func(db *DB) error {
-				return apply(db, agentName, requestID, taskID, dependsOn)
-			}); err != nil {
-				return err
-			}
-
-			type resp struct {
-				Message string `json:"message"`
-			}
-			return output.PrintSuccess(resp{Message: fmt.Sprintf(successFmt, taskID, dependsOn)})
-		},
-	}
-
-	cmd.Flags().String("id", "", "Task ID (required)")
-	cmd.Flags().String("depends-on", "", "Dependency task ID (required)")
-
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
-	return cmd
-}
-
-func newTaskAddDepCmd() *cobra.Command {
-	return newTaskDepCmd(
-		"add-dep",
-		"Add a task dependency (task depends on another task)",
-		"Dependency added: %s depends on %s",
-		actions.TaskAddDependencyIdempotent,
-	)
-}
-
-func newTaskSetPriorityCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "set-priority",
-		Short: "Update task priority",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			taskID, _ := cmd.Flags().GetString("id")
-			if !cmd.Flags().Changed("priority") {
-				return cmdErr(errors.New("--priority is required"))
-			}
-			priority, _ := cmd.Flags().GetInt("priority")
-
-			if taskID == "" {
-				return cmdErr(errors.New("--id is required"))
-			}
-
-			return runTaskCmd(cmd, func(db *DB, agentName, requestID string) (taskCmdResult, error) {
-				t, eid, err := actions.TaskSetPriorityIdempotent(db, agentName, requestID, taskID, priority)
-				return taskCmdResult{Task: t, EventID: eid}, err
-			})
-		},
-	}
-
-	cmd.Flags().String("id", "", "Task ID (required)")
-	cmd.Flags().Int("priority", 0, "New priority value (required)")
-
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
-	return cmd
-}

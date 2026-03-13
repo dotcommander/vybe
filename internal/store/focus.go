@@ -32,15 +32,7 @@ func keepCurrentFocus(db *sql.DB, currentFocusID string) (bool, string) {
 		return true, fmt.Sprintf("rule1: kept in_progress focus on %s", currentFocusID)
 	}
 	if task.Status == statusBlocked && !task.BlockedReason.IsFailure() {
-		var hasUnresolved bool
-		depErr := Transact(context.Background(), db, func(tx *sql.Tx) error {
-			var txErr error
-			hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, currentFocusID)
-			return txErr
-		})
-		if depErr == nil && hasUnresolved {
-			return true, fmt.Sprintf("rule1.5: kept dependency-blocked focus on %s", currentFocusID)
-		}
+		return true, fmt.Sprintf("rule1.5: kept blocked focus on %s (not failure-blocked)", currentFocusID)
 	}
 
 	return false, ""
@@ -52,15 +44,6 @@ func pickAssignedTask(db *sql.DB, taskID, projectID string) string {
 		return ""
 	}
 	if task.Status != "pending" {
-		return ""
-	}
-
-	var hasUnresolved bool
-	if depErr := Transact(context.Background(), db, func(tx *sql.Tx) error {
-		var txErr error
-		hasUnresolved, txErr = HasUnresolvedDependenciesTx(tx, taskID)
-		return txErr
-	}); depErr != nil || hasUnresolved {
 		return ""
 	}
 	if projectID != "" && task.ProjectID != projectID {
@@ -104,14 +87,7 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 	err := RetryWithBackoff(context.Background(), func() error {
 		if projectID != "" {
 			err := db.QueryRowContext(context.Background(), `
-				SELECT id FROM tasks
-				WHERE status = 'pending' AND project_id = ?
-				  AND NOT EXISTS (
-					SELECT 1 FROM task_dependencies td
-					JOIN tasks dep ON dep.id = td.depends_on_task_id
-					WHERE td.task_id = tasks.id AND dep.status != 'completed'
-				  )
-				ORDER BY priority DESC, created_at ASC LIMIT 1
+				SELECT id FROM tasks WHERE status = 'pending' AND project_id = ? ORDER BY priority DESC, created_at ASC LIMIT 1
 			`, projectID).Scan(&taskID)
 			if err == sql.ErrNoRows {
 				taskID = ""
@@ -121,14 +97,7 @@ func DetermineFocusTask(db *sql.DB, agentName, currentFocusID string, deltas []*
 		}
 
 		err := db.QueryRowContext(context.Background(), `
-			SELECT id FROM tasks
-			WHERE status = 'pending'
-			  AND NOT EXISTS (
-				SELECT 1 FROM task_dependencies td
-				JOIN tasks dep ON dep.id = td.depends_on_task_id
-				WHERE td.task_id = tasks.id AND dep.status != 'completed'
-			  )
-			ORDER BY priority DESC, created_at ASC LIMIT 1
+			SELECT id FROM tasks WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT 1
 		`).Scan(&taskID)
 		if err == sql.ErrNoRows {
 			taskID = ""

@@ -102,11 +102,11 @@ func TestCrashRecovery_OOM(t *testing.T) {
 			require.Equal(t, "in_progress", status)
 		})
 
-		// Step 5: Add dependency — C blocked by A
+		// Step 5: Block task C directly
 		t.Run("step5_block_c_on_a", func(t *testing.T) {
-			out := h.vybe("task", "add-dep",
+			out := h.vybe("task", "set-status",
 				"--id", taskCID,
-				"--depends-on", taskAID,
+				"--status", "blocked",
 				"--request-id", crashRID("p1s5", 1),
 			)
 			requireSuccess(t, out)

@@ -58,38 +58,15 @@ func TestProjectFocusIdempotent_Replay(t *testing.T) {
 	require.Equal(t, e1, e2)
 }
 
-func TestTaskStartIdempotentAndDependencyActions(t *testing.T) {
+func TestTaskStartIdempotent_Works(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()
 
 	a, err := store.CreateTask(db, "a", "", "", 0)
-	require.NoError(t, err)
-	b, err := store.CreateTask(db, "b", "", "", 0)
 	require.NoError(t, err)
 
 	startResult, err := TaskStartIdempotent(db, "agent-a", "req-start-1", a.ID)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, startResult.StatusEventID, int64(0))
 	require.Greater(t, startResult.FocusEventID, int64(0))
-
-	err = TaskAddDependencyIdempotent(db, "agent-a", "req-dep-add-1", a.ID, b.ID)
-	require.NoError(t, err)
-
-	err = TaskRemoveDependencyIdempotent(db, "agent-a", "req-dep-rm-1", a.ID, b.ID)
-	require.NoError(t, err)
-}
-
-func TestTaskAddDependencyIdempotent_Replay(t *testing.T) {
-	db, cleanup := setupTestDBWithCleanup(t)
-	defer cleanup()
-
-	a, err := store.CreateTask(db, "a", "", "", 0)
-	require.NoError(t, err)
-	b, err := store.CreateTask(db, "b", "", "", 0)
-	require.NoError(t, err)
-
-	err = TaskAddDependencyIdempotent(db, "agent-a", "req-dep-1", a.ID, b.ID)
-	require.NoError(t, err)
-	err = TaskAddDependencyIdempotent(db, "agent-a", "req-dep-1", a.ID, b.ID)
-	require.NoError(t, err)
 }

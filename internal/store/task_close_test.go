@@ -45,40 +45,6 @@ func TestCloseTaskTx_Done(t *testing.T) {
 	assert.Equal(t, models.TaskStatusCompleted, updated.Status)
 }
 
-func TestCloseTaskTx_DoneUnblocksDependents(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-	var err error
-
-	blocker, err := CreateTask(db, "blocker", "", "", 0)
-	require.NoError(t, err)
-	dependent, err := CreateTask(db, "dependent", "", "", 0)
-	require.NoError(t, err)
-	require.NoError(t, AddTaskDependency(db, dependent.ID, blocker.ID))
-
-	// Verify dependent is blocked.
-	dep, err := GetTask(db, dependent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusBlocked, dep.Status)
-
-	// Start then close the blocker.
-	_, _, err = StartTaskAndFocus(db, "agent1", blocker.ID)
-	require.NoError(t, err)
-
-	require.NoError(t, Transact(context.Background(), db, func(tx *sql.Tx) error {
-		_, txErr := CloseTaskTx(tx, CloseTaskParams{
-			AgentName: "agent1", TaskID: blocker.ID,
-			Status: "completed", Summary: "Done blocking",
-		})
-		return txErr
-	}))
-
-	// Verify dependent is unblocked.
-	dep, err = GetTask(db, dependent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusPending, dep.Status)
-}
-
 func TestCloseTaskTx_Blocked(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

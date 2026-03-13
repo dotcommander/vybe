@@ -104,47 +104,23 @@ func TestDetermineFocusTask_FailureBlockedSkips(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	// Create two tasks: one blocked (no deps = failure-blocked), one pending
+	// Create two tasks: one failure-blocked, one pending
 	blockedTask, err := CreateTask(db, "Blocked Task", "Description", "", 0)
 	require.NoError(t, err)
 
 	pendingTask, err := CreateTask(db, "Pending Task", "Description", "", 0)
 	require.NoError(t, err)
 
-	// Update to blocked (but no dependency — simulates failure-blocked)
+	// Set to blocked with a failure reason — rule1.5 must skip failure-blocked tasks
 	err = UpdateTaskStatus(db, blockedTask.ID, "blocked", blockedTask.Version)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE tasks SET blocked_reason = 'failure:build_error' WHERE id = ?`, blockedTask.ID)
 	require.NoError(t, err)
 
 	// Determine focus: should skip failure-blocked and pick pending task
 	result, err := DetermineFocusTask(db, "agent1", blockedTask.ID, []*models.Event{}, "")
 	require.NoError(t, err)
 	require.Equal(t, pendingTask.ID, result.TaskID, "Should skip failure-blocked focus and pick pending task")
-}
-
-func TestDetermineFocusTask_DependencyBlockedKeeps(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	// Create two tasks with a dependency
-	depTask, err := CreateTask(db, "Dependency Task", "Description", "", 0)
-	require.NoError(t, err)
-
-	blockedTask, err := CreateTask(db, "Blocked Task", "Description", "", 0)
-	require.NoError(t, err)
-
-	// blockedTask depends on depTask (will auto-block)
-	err = AddTaskDependency(db, blockedTask.ID, depTask.ID)
-	require.NoError(t, err)
-
-	// Verify it's blocked
-	refreshed, err := GetTask(db, blockedTask.ID)
-	require.NoError(t, err)
-	require.Equal(t, models.TaskStatusBlocked, refreshed.Status)
-
-	// Determine focus: should KEEP dependency-blocked focus
-	result, err := DetermineFocusTask(db, "agent1", blockedTask.ID, []*models.Event{}, "")
-	require.NoError(t, err)
-	require.Equal(t, blockedTask.ID, result.TaskID, "Should keep dependency-blocked focus")
 }
 
 func TestDetermineFocusTask_TaskAssigned_SkipsInProgressByOther(t *testing.T) {
@@ -923,18 +899,15 @@ func TestGetTaskStatusCounts_Global(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, UpdateTaskStatus(db, t4.ID, "completed", t4.Version))
 
-	// blocked via dependency
-	require.NoError(t, AddTaskDependency(db, t1.ID, t3.ID))
-	refreshed, err := GetTask(db, t1.ID)
-	require.NoError(t, err)
-	require.Equal(t, models.TaskStatusBlocked, refreshed.Status)
+	// blocked task
+	require.NoError(t, UpdateTaskStatus(db, t1.ID, "blocked", t1.Version))
 
 	counts, err := GetTaskStatusCounts(db, "")
 	require.NoError(t, err)
 	require.Equal(t, 1, counts.Pending)    // Pending 2
 	require.Equal(t, 1, counts.InProgress) // In Progress
 	require.Equal(t, 1, counts.Completed)  // Completed
-	require.Equal(t, 1, counts.Blocked)    // Pending 1 (dep-blocked)
+	require.Equal(t, 1, counts.Blocked)    // Pending 1 (blocked)
 }
 
 func TestGetTaskStatusCounts_ProjectScoped(t *testing.T) {
@@ -989,12 +962,10 @@ func TestFetchPipelineTasks_ExcludesInProgressAndBlocked(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, UpdateTaskStatus(db, inprog.ID, "in_progress", 1))
 
-	// Blocked by dependency
-	blocker, err := CreateTask(db, "Blocker", "", "", 0)
-	require.NoError(t, err)
+	// Manually blocked task
 	blocked, err := CreateTask(db, "Blocked", "", "", 0)
 	require.NoError(t, err)
-	require.NoError(t, AddTaskDependency(db, blocked.ID, blocker.ID))
+	require.NoError(t, UpdateTaskStatus(db, blocked.ID, "blocked", blocked.Version))
 
 	tasks, err := FetchPipelineTasks(db, "", "agent1", "", 10)
 	require.NoError(t, err)
@@ -1004,86 +975,8 @@ func TestFetchPipelineTasks_ExcludesInProgressAndBlocked(t *testing.T) {
 		ids[pt.ID] = true
 	}
 	require.True(t, ids[avail.ID], "Available task should be in pipeline")
-	require.True(t, ids[blocker.ID], "Blocker task should be in pipeline (it's pending, no deps)")
 	require.False(t, ids[inprog.ID], "In_progress task should be excluded")
 	require.False(t, ids[blocked.ID], "Blocked task should be excluded")
-}
-
-func TestFetchUnlockedByCompletion_SingleDep(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	focus, err := CreateTask(db, "Focus Task", "", "", 0)
-	require.NoError(t, err)
-
-	waiting, err := CreateTask(db, "Waiting Task", "", "", 0)
-	require.NoError(t, err)
-	require.NoError(t, AddTaskDependency(db, waiting.ID, focus.ID))
-
-	unlocked, err := FetchUnlockedByCompletion(db, focus.ID)
-	require.NoError(t, err)
-	require.Len(t, unlocked, 1)
-	require.Equal(t, waiting.ID, unlocked[0].ID)
-	require.Equal(t, "Waiting Task", unlocked[0].Title)
-}
-
-func TestFetchUnlockedByCompletion_MultipleDeps(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	focus, err := CreateTask(db, "Focus Task", "", "", 0)
-	require.NoError(t, err)
-	other, err := CreateTask(db, "Other Dep", "", "", 0)
-	require.NoError(t, err)
-
-	waiting, err := CreateTask(db, "Waiting Task", "", "", 0)
-	require.NoError(t, err)
-	require.NoError(t, AddTaskDependency(db, waiting.ID, focus.ID))
-	require.NoError(t, AddTaskDependency(db, waiting.ID, other.ID))
-
-	// focus is NOT the only dep — other is also unresolved
-	unlocked, err := FetchUnlockedByCompletion(db, focus.ID)
-	require.NoError(t, err)
-	require.Empty(t, unlocked, "Should not unlock task with other unresolved deps")
-}
-
-func TestBuildBrief_PopulatesDiscoveryContext(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	// Focus task
-	focus, err := CreateTask(db, "Focus Task", "Do the thing", "", 5)
-	require.NoError(t, err)
-
-	// Pipeline tasks
-	_, err = CreateTask(db, "Next Task", "", "", 3)
-	require.NoError(t, err)
-	_, err = CreateTask(db, "Later Task", "", "", 1)
-	require.NoError(t, err)
-
-	// Task that depends on focus (should appear in Unlocks)
-	waiting, err := CreateTask(db, "Blocked On Focus", "", "", 0)
-	require.NoError(t, err)
-	require.NoError(t, AddTaskDependency(db, waiting.ID, focus.ID))
-
-	brief, err := BuildBrief(db, focus.ID, "", "agent1")
-	require.NoError(t, err)
-
-	// Counts
-	require.NotNil(t, brief.Counts)
-	total := brief.Counts.Pending + brief.Counts.InProgress + brief.Counts.Completed + brief.Counts.Blocked
-	require.Equal(t, 4, total, "Should count all 4 tasks")
-
-	// Pipeline: should not include focus or blocked-on-focus
-	require.NotEmpty(t, brief.Pipeline)
-	for _, pt := range brief.Pipeline {
-		require.NotEqual(t, focus.ID, pt.ID, "Pipeline should exclude focus task")
-		require.NotEqual(t, waiting.ID, pt.ID, "Pipeline should exclude dep-blocked task")
-	}
-
-	// Unlocks
-	require.Len(t, brief.Unlocks, 1)
-	require.Equal(t, waiting.ID, brief.Unlocks[0].ID)
 }
 
 func TestFetchRelevantMemory_ACTRScoring(t *testing.T) {
