@@ -232,16 +232,25 @@ func ListMemory(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
 	return memories, nil
 }
 
-// DeleteMemoryWithEvent deletes memory and appends an event in the same transaction.
-// Returns the event ID.
-func DeleteMemoryWithEvent(db *sql.DB, agentName, key, scope, scopeID string) (int64, error) {
-	if err := validateScope(scope, scopeID); err != nil {
-		return 0, err
-	}
-
+// DeleteMemoryTx deletes a memory entry and appends an event within an existing transaction.
+// Returns (eventID, found, error). found is false when no row matched the key/scope/scopeID.
+func DeleteMemoryTx(tx *sql.Tx, agentName, key, scope, scopeID string) (int64, bool, error) {
 	taskID := ""
 	if scope == "task" {
 		taskID = scopeID
+	}
+
+	result, err := tx.ExecContext(context.Background(), `DELETE FROM memory WHERE key = ? AND scope = ? AND scope_id = ?`, key, scope, scopeID)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to delete memory: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return 0, false, nil
 	}
 
 	meta := struct {
@@ -253,32 +262,32 @@ func DeleteMemoryWithEvent(db *sql.DB, agentName, key, scope, scopeID string) (i
 		Scope:   scope,
 		ScopeID: scopeID,
 	}
-	metaBytes, err := json.Marshal(meta)
+	metaBytes, _ := json.Marshal(meta)
+
+	eventID, err := InsertEventTx(tx, models.EventKindMemoryDelete, agentName, taskID, fmt.Sprintf("Memory deleted: %s", key), string(metaBytes))
 	if err != nil {
-		return 0, fmt.Errorf("failed to marshal memory delete event metadata: %w", err)
+		return 0, false, fmt.Errorf("failed to append event: %w", err)
+	}
+	return eventID, true, nil
+}
+
+// DeleteMemoryWithEvent deletes memory and appends an event in the same transaction.
+// Returns the event ID.
+func DeleteMemoryWithEvent(db *sql.DB, agentName, key, scope, scopeID string) (int64, error) {
+	if err := validateScope(scope, scopeID); err != nil {
+		return 0, err
 	}
 
 	var eventID int64
-	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
-		result, txErr := tx.ExecContext(context.Background(), `DELETE FROM memory WHERE key = ? AND scope = ? AND scope_id = ?`, key, scope, scopeID)
+	err := Transact(context.Background(), db, func(tx *sql.Tx) error {
+		id, found, txErr := DeleteMemoryTx(tx, agentName, key, scope, scopeID)
 		if txErr != nil {
-			return fmt.Errorf("failed to delete memory: %w", txErr)
+			return txErr
 		}
-
-		rowsAffected, txErr := result.RowsAffected()
-		if txErr != nil {
-			return fmt.Errorf("failed to get rows affected: %w", txErr)
-		}
-		if rowsAffected == 0 {
+		if !found {
 			return errors.New("memory entry not found")
 		}
-
-		id, txErr := InsertEventTx(tx, models.EventKindMemoryDelete, agentName, taskID, fmt.Sprintf("Memory deleted: %s", key), string(metaBytes))
-		if txErr != nil {
-			return fmt.Errorf("failed to append event: %w", txErr)
-		}
 		eventID = id
-
 		return nil
 	})
 	if err != nil {
@@ -296,47 +305,17 @@ func DeleteMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, scop
 		return 0, err
 	}
 
-	taskID := ""
-	if scope == "task" {
-		taskID = scopeID
-	}
-
-	meta := struct {
-		Key     string `json:"key"`
-		Scope   string `json:"scope"`
-		ScopeID string `json:"scope_id,omitempty"`
-	}{
-		Key:     key,
-		Scope:   scope,
-		ScopeID: scopeID,
-	}
-	metaBytes, err := json.Marshal(meta)
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal memory delete event metadata: %w", err)
-	}
-
 	type idemResult struct {
 		EventID int64 `json:"event_id"`
 	}
 	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "memory.delete", func(tx *sql.Tx) (idemResult, error) {
-		result, txErr := tx.ExecContext(context.Background(), `DELETE FROM memory WHERE key = ? AND scope = ? AND scope_id = ?`, key, scope, scopeID)
+		eventID, found, txErr := DeleteMemoryTx(tx, agentName, key, scope, scopeID)
 		if txErr != nil {
-			return idemResult{}, fmt.Errorf("failed to delete memory: %w", txErr)
+			return idemResult{}, txErr
 		}
-
-		rowsAffected, txErr := result.RowsAffected()
-		if txErr != nil {
-			return idemResult{}, fmt.Errorf("failed to get rows affected: %w", txErr)
+		if !found {
+			return idemResult{}, fmt.Errorf("memory key not found: %s (scope=%s, scope_id=%s)", key, scope, scopeID)
 		}
-		if rowsAffected == 0 {
-			return idemResult{EventID: 0}, nil
-		}
-
-		eventID, txErr := InsertEventTx(tx, models.EventKindMemoryDelete, agentName, taskID, fmt.Sprintf("Memory deleted: %s", key), string(metaBytes))
-		if txErr != nil {
-			return idemResult{}, fmt.Errorf("failed to append event: %w", txErr)
-		}
-
 		return idemResult{EventID: eventID}, nil
 	})
 	if err != nil {
