@@ -71,6 +71,10 @@ Safety rails:
 				return cmdErr(fmt.Errorf("invalid --cooldown: %w", err))
 			}
 
+			if !dryRun && command == "" {
+				return cmdErr(fmt.Errorf("required flag(s) \"command\" not set"))
+			}
+
 			opts := runOptions{
 				agentName:    agentName,
 				project:      projectDir,
@@ -95,7 +99,6 @@ Safety rails:
 	cmd.Flags().StringVar(&cooldown, "cooldown", "5s", "Wait between tasks")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would run without spawning")
 	cmd.Flags().StringVar(&command, "command", "", "Command to spawn (receives prompt via -p flag)")
-	_ = cmd.MarkFlagRequired("command")
 	cmd.Flags().StringVar(&postHook, "post-hook", "", "Command to pipe run results JSON to on completion (must be explicitly set per run)")
 	cmd.Flags().BoolVar(&disableHooks, "spawn-disable-hooks", false, "Disable hooks for spawned agents (sets hookless mode and isolation env vars)")
 

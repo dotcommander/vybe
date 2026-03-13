@@ -4,19 +4,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewEventsCmd creates the events command group.
+// NewEventsCmd creates the events command.
 func NewEventsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "events",
-		Short: "Query the event stream",
-		Args:  cobra.NoArgs,
-	}
-	cmd.AddCommand(newEventsListCmd())
-	namespaceIndex(cmd)
-	return cmd
-}
-
-func newEventsListCmd() *cobra.Command {
 	var (
 		all             bool
 		taskID          string
@@ -28,7 +17,7 @@ func newEventsListCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "list",
+		Use:   "events",
 		Short: "List events from the event stream",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runEventsMode(cmd, all, taskID, kind, since, limit, asc, includeArchived)

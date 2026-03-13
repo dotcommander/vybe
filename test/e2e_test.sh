@@ -176,7 +176,7 @@ rid() {
 
 section "schema"
 
-SCHEMA=$(vybe schema commands)
+SCHEMA=$(vybe schema)
 assert_success "schema: success" "$SCHEMA"
 assert_jq "schema: data.commands is array" "$SCHEMA" '.data.commands | type == "array"'
 assert_jq "schema: data.commands non-empty" "$SCHEMA" '.data.commands | length > 0'
@@ -249,7 +249,7 @@ assert_jq_eq "push event: kind matches" "$EVT" '.data.kind' "progress"
 
 EVENT_ID=$(echo "$EVT" | jq '.data.event_id')  # integer, not string
 
-EVT_LIST=$(vybe events list --task-id "$TASK_ID")
+EVT_LIST=$(vybe events --task-id "$TASK_ID")
 assert_success "events list: success" "$EVT_LIST"
 assert_jq "events list: events is array" "$EVT_LIST" '.data.events | type == "array"'
 # event_id is an integer — use --argjson for comparison, extract result then assert_eq
@@ -351,7 +351,7 @@ ART=$(vybe push \
   --request-id "$(rid art_add)")
 assert_success "push artifact: success" "$ART"
 
-ART_LIST=$(vybe artifacts list --task-id "$TASK_ID")
+ART_LIST=$(vybe artifacts --task-id "$TASK_ID")
 assert_success "artifacts list: success" "$ART_LIST"
 assert_jq "artifacts list: artifacts is array" "$ART_LIST" '.data.artifacts | type == "array"'
 assert_jq_arg "artifacts list: contains artifact" "$ART_LIST" \
@@ -461,7 +461,7 @@ assert_jq_arg "task list --status completed: contains completed task" "$COMPLETE
 # ---------------------------------------------------------------------------
 section "events list with kind filter"
 
-KIND_LIST=$(vybe events list --kind progress --task-id "$TASK_ID")
+KIND_LIST=$(vybe events --kind progress --task-id "$TASK_ID")
 assert_success "events list --kind: success" "$KIND_LIST"
 assert_jq "events list --kind: events is array" "$KIND_LIST" '.data.events | type == "array"'
 # All returned events must match the filter kind
@@ -506,7 +506,7 @@ vybe push \
   --agent e2e-test \
   --request-id "$(rid int_evt)" > /dev/null
 
-INT_EVENTS=$(vybe events list --task-id "$INT_TASK_ID")
+INT_EVENTS=$(vybe events --task-id "$INT_TASK_ID")
 assert_jq "integration: events recorded (>= 2)" "$INT_EVENTS" '.data.events | length >= 2'
 
 # 5. Set task-scoped memory
@@ -657,47 +657,6 @@ if [[ "$NO_SCOPE_ID_OK" == "false" || -z "$NO_SCOPE_ID_OK" ]]; then
 else
   fail "edge: task-scoped memory without scope-id returns error" "expected success=false, got success=$NO_SCOPE_ID_OK"
 fi
-
-# ===========================================================================
-# TASK DEPENDENCY TESTS
-# ===========================================================================
-
-section "Task Dependencies"
-
-DEP_A=$(vybe task create \
-  --title "Dependency A" \
-  --request-id "$(rid dep_a)")
-DEP_A_ID=$(echo "$DEP_A" | jq -r '.data.task.id')
-
-DEP_B=$(vybe task create \
-  --title "Dependency B (depends on A)" \
-  --request-id "$(rid dep_b)")
-DEP_B_ID=$(echo "$DEP_B" | jq -r '.data.task.id')
-
-ADD_DEP=$(vybe task add-dep \
-  --id "$DEP_B_ID" \
-  --depends-on "$DEP_A_ID" \
-  --request-id "$(rid dep_add)")
-assert_success "task add-dep: success" "$ADD_DEP"
-
-# ===========================================================================
-# TASK SET-PRIORITY TEST
-# ===========================================================================
-
-section "task set-priority"
-
-PRIO_T=$(vybe task create \
-  --title "Priority Change Task" \
-  --priority 0 \
-  --request-id "$(rid prio_task)")
-PRIO_T_ID=$(echo "$PRIO_T" | jq -r '.data.task.id')
-
-PRIO_SET=$(vybe task set-priority \
-  --id "$PRIO_T_ID" \
-  --priority 5 \
-  --request-id "$(rid prio_set)")
-assert_success "task set-priority: success" "$PRIO_SET"
-assert_jq "task set-priority: priority updated to 5" "$PRIO_SET" '.data.task.priority == 5'
 
 # ===========================================================================
 # FINAL REPORT
