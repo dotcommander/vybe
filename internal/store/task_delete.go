@@ -10,7 +10,7 @@ import (
 // DeleteTaskTx deletes a task by ID inside an existing transaction.
 // Foreign key CASCADE handles cleanup of task_dependencies rows.
 // Returns error if the task does not exist.
-func DeleteTaskTx(tx *sql.Tx, agentName, taskID string) error {
+func DeleteTaskTx(tx *sql.Tx, _, taskID string) error {
 	if taskID == "" {
 		return errors.New("task ID is required")
 	}
