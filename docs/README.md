@@ -8,7 +8,6 @@ Route to the right doc fast.
 | --- | --- | --- |
 | Operator (run agent loops) | `operator-guide.md` | install/bootstrap, baseline loop, day-2 recipes |
 | Integrator (connect tools/assistants) | `agent-contract.md` | machine I/O, idempotency/retries, command contract |
-| Contributor (change vybe code) | `contributor-guide.md` | architecture, safe change workflow, verification |
 
 ## All docs
 
@@ -16,9 +15,7 @@ Route to the right doc fast.
 | --- | --- |
 | [`operator-guide.md`](operator-guide.md) | Bootstrap, baseline loop, and day-2 operational recipes |
 | [`agent-contract.md`](agent-contract.md) | Machine I/O contract, idempotency, retry behavior, session mappings |
-| [`contributor-guide.md`](contributor-guide.md) | Safe change workflow, architecture route, verification commands |
-| [`decisions.md`](decisions.md) | Command-surface guardrails and rationale for removed/kept commands |
-| [`minimal-surface.md`](minimal-surface.md) | Keep-vs-optional matrix and pruning checklist |
+| [`decisions.md`](decisions.md) | Command-surface guardrails and design principles |
 
 Working examples (Claude Code skill, autonomous loop demo, OpenCode plugin) are in [`examples/`](../examples/).
 

@@ -127,7 +127,6 @@ For comprehensive examples, see [Operator Guide](docs/operator-guide.md).
 
 ```
 cmd/vybe/main.go
-cmd/demo/main.go        # Interactive demo harness
   ↓
 internal/commands/     # Cobra CLI layer (parse flags, call actions)
   ↓
@@ -138,8 +137,8 @@ internal/store/        # SQLite persistence + migrations (transactions, retry, C
 internal/app/          # Config loading, DB init, settings
 internal/output/       # JSON output formatting
 internal/llm/          # LLM CLI integration (extract runner)
-internal/demo/         # Demo acts, steps, runner
 internal/models/       # Domain types shared across layers
+internal/testutil/     # CLI test helpers for integration tests
 ```
 
 **Layers:** Commands → Actions → Store
@@ -234,7 +233,7 @@ When unset, all project-scoped memory is included.
 | `idempotency` | Request deduplication (agent_name + request_id composite PK) |
 | `projects` | Project metadata (id, name, metadata, created_at) |
 
-**Note:** 19 migrations total; task claiming and retrospective jobs were added then removed.
+**Note:** 20 migration files (sequence numbers have gaps from removed migrations, highest is 23); task claiming and retrospective jobs were added then removed.
 
 **SQLite Config:** WAL mode, busy_timeout=5000ms, synchronous=NORMAL, foreign_keys=ON
 
@@ -257,6 +256,14 @@ Transactions alone don't prevent read-modify-write races because the read and th
 - `RetryWithBackoff()` handles both `SQLITE_BUSY` and version conflicts
 - `RunIdempotentWithRetry()` adds configurable retry with conflict predicate
 
+## Nolint Policy
+
+- Prefer fixing the code over adding `//nolint`.
+- If suppression is required, scope it to explicit rules (`//nolint:gosec`) with a short reason.
+- Do not use blanket suppressions (`//nolint` without rule names).
+- Remove stale suppressions when touching a file.
+- Treat `gosec` suppressions as trust-boundary declarations; reason must state why input is trusted.
+
 ## Verification Commands
 
 ```bash
@@ -268,7 +275,7 @@ go build ./...
 ## Completion Status
 
 **Core: Complete**
-- Schema + 19 migrations (including cleanup of deprecated features)
+- Schema + 20 migrations (including cleanup of deprecated features)
 - All CRUD operations (tasks, events, memory, artifacts, agent state, projects)
 - Idempotency system with replay
 - Resume/brief with deterministic focus selection

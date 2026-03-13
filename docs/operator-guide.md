@@ -1,8 +1,6 @@
 # Operator Guide
 
-Purpose: run `vybe` in production-like autonomous loops with minimal ceremony.
-
-For integration contracts (machine I/O, retries, schema discovery), see `agent-contract.md`.
+This guide covers running `vybe` in autonomous loops. For integration contracts — machine I/O, retries, schema discovery — see `agent-contract.md`.
 
 ## Prerequisites
 
@@ -11,12 +9,17 @@ For integration contracts (machine I/O, retries, schema discovery), see `agent-c
 
 ## Operating rules (non-negotiable)
 
-- Use stable identity via `--agent` or `VYBE_AGENT`
-- Include `--request-id` on continuity mutations (`push`, `resume` non-`--peek`, `task *`, `memory set|delete|gc`)
-- Parse JSON envelope from `stdout`; treat `stderr` as diagnostics only
-- Call `resume` before work; check `focus_task_id` for empty
+Your agent needs a stable identity. Pick a name, set it in `VYBE_AGENT`, and keep it across every call.
+
+Every mutation — `push`, `resume` (non-`--peek`), `task *`, `memory set|delete|gc` — requires a `--request-id`. Without it, retries create duplicate state. Generate a fresh ID per call.
+
+All output comes from `stdout` as a JSON envelope. `stderr` is diagnostics only — do not parse it.
+
+Every loop starts with `resume`. If `focus_task_id` is empty, there's nothing to do — stop.
 
 ## Bootstrap
+
+Run this once before your loop starts. It initializes agent state and confirms the DB is reachable. First call to `resume` auto-creates the agent record if it doesn't exist.
 
 ```bash
 #!/usr/bin/env bash
@@ -32,6 +35,8 @@ vybe resume --agent "$VYBE_AGENT" --request-id "$(req_id)" >/dev/null
 ```
 
 ## Baseline loop
+
+`resume` returns the brief packet. Extract `focus_task_id` — if it's set, claim the task, do the work, then mark it complete. The next `resume` call will advance to the next task automatically.
 
 ```bash
 #!/usr/bin/env bash
@@ -55,21 +60,25 @@ if [ -n "$TASK_ID" ]; then
 fi
 ```
 
-## Project-aware loop (recommended)
+## Project-aware loop
 
-Use `--project-dir` for workspace scope and `--project-id` for task association/filtering.
+When your agent works inside a specific workspace, pass `--project-dir` to `resume` so vybe associates the session with the right project. Then extract the resolved project ID from a `--peek` call and use it when creating tasks — this scopes memory and filtering to that project.
 
 ```bash
 WORKSPACE="$(pwd)"
 
 vybe resume --agent "$VYBE_AGENT" --request-id "$(req_id)" --project-dir "$WORKSPACE"
+PROJECT_ID=$(vybe resume --agent "$VYBE_AGENT" --peek | jq -r '.data.project.id // ""')
+
 vybe task create --agent "$VYBE_AGENT" --request-id "$(req_id)" \
-  --project-id "$WORKSPACE" --title "Example" --desc "Scoped task"
+  --project-id "$PROJECT_ID" --title "Example" --desc "Scoped task"
 ```
 
 ## Day-2 recipes
 
 ### Create and start task
+
+Create the task, capture the ID from the response, then immediately claim it. Two calls, not one — `begin` is the claim step that transitions status to `in_progress`.
 
 ```bash
 TASK_ID=$(vybe task create --agent "$VYBE_AGENT" --request-id "task_create_1" \
@@ -80,6 +89,8 @@ vybe task begin --agent "$VYBE_AGENT" --request-id "task_begin_1" --id "$TASK_ID
 
 ### Atomic progress + completion
 
+`push` combines event logging, memory writes, artifact linking, and status updates into one atomic call. Use it at the end of a task instead of issuing four separate commands — it either all lands or none of it does.
+
 ```bash
 vybe push --agent "$VYBE_AGENT" --request-id "close_1" --json '{
   "task_id": "task_123",
@@ -89,6 +100,8 @@ vybe push --agent "$VYBE_AGENT" --request-id "close_1" --json '{
 ```
 
 ### Task memory checkpoint
+
+Write progress into task-scoped memory so a crash mid-task doesn't lose position. On restart, read the checkpoint and resume from where you stopped.
 
 ```bash
 vybe memory set --agent "$VYBE_AGENT" --request-id "mem_set_1" \
@@ -139,5 +152,4 @@ Pass condition: `status --check` JSON output contains `"query_ok": true`, and `r
 ## Related docs
 
 - `agent-contract.md` for integration contracts and retry behavior
-- `contributor-guide.md` for safe code changes
 - `decisions.md` for command-surface guardrails
