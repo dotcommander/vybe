@@ -47,7 +47,7 @@ func NewLoopCmd() *cobra.Command {
 		Short: "Autonomous task driver — loops resume → spawn → complete",
 		Args:  cobra.NoArgs,
 		Long: `Loop is the autonomous driver loop. It repeatedly calls resume to get the next
-focus task, spawns an external command (default: claude -p) with the task prompt,
+focus task, spawns an external command (specified via --command) with the task prompt,
 waits for completion, and moves to the next task.
 
 Safety rails:
@@ -94,9 +94,10 @@ Safety rails:
 	cmd.Flags().StringVar(&taskTimeout, "task-timeout", "10m", "Kill spawned command after this duration")
 	cmd.Flags().StringVar(&cooldown, "cooldown", "5s", "Wait between tasks")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would run without spawning")
-	cmd.Flags().StringVar(&command, "command", "claude", "Command to spawn (receives prompt via -p flag)")
+	cmd.Flags().StringVar(&command, "command", "", "Command to spawn (receives prompt via -p flag)")
+	_ = cmd.MarkFlagRequired("command")
 	cmd.Flags().StringVar(&postHook, "post-hook", "", "Command to pipe run results JSON to on completion (must be explicitly set per run)")
-	cmd.Flags().BoolVar(&disableHooks, "spawn-disable-hooks", false, "Disable hooks for spawned agents (sets hookless Claude settings and isolation env vars)")
+	cmd.Flags().BoolVar(&disableHooks, "spawn-disable-hooks", false, "Disable hooks for spawned agents (sets hookless mode and isolation env vars)")
 
 	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
@@ -407,7 +408,7 @@ func buildAgentPrompt(r *actions.ResumeResponse, projectDir string) string {
 	// Inject Claude Code auto memory for project context
 	if projectDir != "" {
 		if autoMem := readAutoMemory(projectDir, maxAutoMemoryChars); autoMem != "" {
-			b.WriteString("\n== PROJECT MEMORY (from Claude Code) ==\n")
+			b.WriteString("\n== PROJECT MEMORY ==\n")
 			b.WriteString(autoMem)
 			b.WriteString("\n")
 		}
