@@ -113,8 +113,8 @@ vybe memory get --key checkpoint --scope task --scope-id "$TASK_ID" | jq -r '.da
 ### Read events and artifacts
 
 ```bash
-vybe events list --task-id "$TASK_ID" --limit 100
-vybe artifacts list --task-id "$TASK_ID" --limit 100
+vybe events --task-id "$TASK_ID" --limit 100
+vybe artifacts --task-id "$TASK_ID" --limit 100
 ```
 
 ### Install/uninstall hooks
@@ -134,7 +134,7 @@ vybe hook uninstall --opencode
 vybe
 
 # JSON schemas + mutation hints
-vybe schema commands
+vybe schema
 ```
 
 ## Verification
@@ -144,7 +144,7 @@ Run after setup or upgrades:
 ```bash
 vybe status --check
 vybe resume --agent "$VYBE_AGENT" --request-id "verify_resume_1"
-vybe schema commands
+vybe schema
 ```
 
 Pass condition: `status --check` JSON output contains `"query_ok": true`, and `resume` returns a packet. Note: `status --check` always exits 0; health is determined from the JSON payload, not the exit code.

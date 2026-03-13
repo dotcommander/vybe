@@ -284,7 +284,6 @@ done
 # No request IDs, hardcoded task IDs, no null checks
 vybe task create --title "Step 1"
 vybe task create --title "Step 2"
-vybe task add-dep --id task_123 --depends-on task_456
 ```
 
 **After (idempotent):**
@@ -302,13 +301,9 @@ STEP1=$(vybe task create --request-id "step1_$TS" \
 
 STEP2=$(vybe task create --request-id "step2_$TS" \
   --title "Update API handlers" --desc "New endpoints" | jq -r '.data.task.id')
-
-# Step 2 depends on step 1
-vybe task add-dep --request-id "dep_$TS" \
-  --id "$STEP2" --depends-on "$STEP1"
 ```
 
-**Key improvements:** timestamp-based request IDs, `jq` extraction, dependency tracking.
+**Key improvements:** timestamp-based request IDs, `jq` extraction, proper request ID per operation.
 
 ### Crash-Safe Checkpoint (Before/After)
 
@@ -433,7 +428,7 @@ vybe task get --id ID
 vybe push --request-id R --json '{"task_id":"T","event":{"kind":"K","message":"M"},"artifacts":[{"file_path":"P"}]}'
 
 # Events (read-only, no --request-id)
-vybe events list --task-id T
+vybe events --task-id T
 
 # Memory
 vybe memory set  --request-id R --key K --value V --scope S --scope-id SI
@@ -441,7 +436,7 @@ vybe memory get  --key K --scope S --scope-id SI
 vybe memory list --scope S --scope-id SI
 
 # Artifacts (read-only, no --request-id)
-vybe artifacts list --task-id T
+vybe artifacts --task-id T
 
 # Context
 vybe resume --request-id R                  # advances cursor
@@ -469,7 +464,7 @@ vybe status --check                         # fast health gate (exit code)
 | `task start` instead of `task begin` | Command not found | Use `vybe task begin` |
 | `project create` + `project focus` | Extra round-trips | Use `resume --project-dir <dir>` — auto-creates |
 | `brief` command | Command not found | Use `resume --peek` |
-| `artifact list` (no s) | Command not found | Use `artifacts list` (with s) |
+| `artifact list` (no s) | Command not found | Use `artifacts` (with s, no subcommand) |
 | `date +%s%N` on macOS | Fails silently, no nanoseconds | Use `$(date +%s)_$$` |
 
 ## Common Errors

@@ -31,7 +31,7 @@ Structured logs go to `stderr`. Do not parse help prose as protocol data.
 
 ### Command discovery
 
-Hardcoded flags break when the schema changes. `vybe` with no args returns a JSON command index. `vybe schema commands` returns argument schema, mutation hints, and `agent_protocol` guidance. Prefer schema-driven calls over hardcoded flags.
+Hardcoded flags break when the schema changes. `vybe` with no args returns a JSON command index. `vybe schema` returns argument schema, mutation hints, and `agent_protocol` guidance. Prefer schema-driven calls over hardcoded flags.
 
 ## Canonical command surface
 
@@ -52,12 +52,9 @@ Top-level commands:
 
 Primary subcommands:
 
-- `artifacts list`
-- `events list`
 - `hook install|uninstall`
 - `memory set|get|list|delete|gc`
-- `schema commands`
-- `task create|begin|get|list|set-status|set-priority|add-dep`
+- `task create|begin|get|list|set-status`
 
 ## Canonical flag semantics
 
@@ -111,8 +108,8 @@ vybe push --agent "$AGENT" --request-id "$REQ" \
 ### Event and artifact reads
 
 ```bash
-vybe events list --agent "$AGENT" --task-id "$TASK_ID" --limit 50
-vybe artifacts list --task-id "$TASK_ID" --limit 50
+vybe events --agent "$AGENT" --task-id "$TASK_ID" --limit 50
+vybe artifacts --task-id "$TASK_ID" --limit 50
 ```
 
 ## Retry contract

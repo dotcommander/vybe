@@ -15,7 +15,7 @@ Breaking them increases tool-call error rates and retry noise in autonomous work
 
 ### `status` as a mode multiplexer (`--events`, `--schema`, `--artifacts`)
 
-**Decision:** Prefer explicit command paths for distinct operations (`events list`, `artifacts list`, `schema commands`) instead of mode flags on one command.
+**Decision:** Prefer explicit command paths for distinct operations (`events`, `artifacts`, `schema`) instead of mode flags on one command.
 
 **Why not keep mode flags:** When an agent sets two mode flags at once, one silently wins. The agent never knows which.
 

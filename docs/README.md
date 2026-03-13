@@ -19,7 +19,7 @@ Route to the right doc fast.
 
 Working examples (Claude Code skill, autonomous loop demo, OpenCode plugin) are in [`examples/`](../examples/).
 
-For machine callers, use `vybe schema commands` as the source of truth for flags and required fields.
+For machine callers, use `vybe schema` as the source of truth for flags and required fields.
 
 Beta policy: no backward-compatibility shims. Keep one canonical command/flag shape.
 

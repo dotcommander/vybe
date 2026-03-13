@@ -149,7 +149,7 @@ internal/testutil/     # CLI test helpers for integration tests
 
 | Module | Key Operations |
 |--------|----------------|
-| `task.go` | Create, start, close, set-status, set-priority, add/remove dependency |
+| `task.go` | Create, start, close, set-status |
 | `memory.go` | Set, get, list, delete, GC with TTL parsing |
 | `artifact.go` | Add, get, list by task |
 | `resume.go` | Resume with options, brief building, prompt assembly |
@@ -196,10 +196,11 @@ internal/testutil/     # CLI test helpers for integration tests
 
 Deterministic 5-rule system (in `internal/store/resume.go`):
 
-1. Keep current focus if `in_progress` or `blocked`
+1. Keep current focus if `in_progress`
+1.5. Keep current focus if `blocked` and not failure-blocked (non-failure blocked tasks stay until manually resolved)
 2. Check deltas for `task_assigned` events
 3. Resume old focus if unblocked
-4. `SELECT` oldest pending task — when `focus_project_id` is set, prefer project-scoped tasks first, then fall through to global
+4. `SELECT` highest-priority pending task — when `focus_project_id` is set, prefer project-scoped tasks first, then fall through to global
 5. Return empty if no work available
 
 ## Brief Packet Structure
@@ -293,7 +294,7 @@ go build ./...
   - `message` max 4096 chars
   - `metadata` max 16384 chars + must be valid JSON when present
 - Expired memory is cleaned via `vybe memory gc` but has no automatic scheduled cleanup
-- Task status transitions are intentionally unrestricted for agent flexibility (any status → any status). The `blocked_reason` column distinguishes dependency blocks (`"dependency"`) from failure blocks (`"failure:<reason>"`); resume Rule 1.5 uses this to decide whether to keep or skip a blocked focus task
+- Task status transitions are intentionally unrestricted for agent flexibility (any status → any status). The `blocked_reason` column is free-form; failure blocks use the `"failure:<reason>"` prefix convention. Resume Rule 1.5 keeps blocked focus tasks unless `blocked_reason` starts with `"failure:"`
 
 ## Vybe Integration (Claude Code)
 
@@ -365,6 +366,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`
 - Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
-- Command surface: `artifacts` (list), `events` (list), `hook` (install, uninstall), `loop`, `memory` (set, get, list, delete, gc), `push`, `resume` (--peek, --focus, --project-dir, --limit), `schema` (commands), `status` (--check), `task` (create, begin, complete, get, list, add-dep, set-status, set-priority), `upgrade`
+- Command surface: `artifacts`, `events`, `hook` (install, uninstall), `loop`, `memory` (set, get, list, delete, gc), `push`, `resume` (--peek, --focus, --project-dir, --limit), `schema`, `status` (--check), `task` (create, begin, complete, get, list, set-status), `upgrade`
 - Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`
 - **After code changes**: rebuild binary and update symlink: `go build -o vybe ./cmd/vybe && ln -sf "$(pwd)/vybe" ~/go/bin/vybe`
