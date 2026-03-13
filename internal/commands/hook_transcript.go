@@ -22,6 +22,21 @@ var (
 
 const maxAutoMemoryChars = 2000
 
+type transcriptContentItem struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type transcriptMessage struct {
+	Role    string                  `json:"role"`
+	Content []transcriptContentItem `json:"content"`
+}
+
+type transcriptRecord struct {
+	Type    string            `json:"type"`
+	Message transcriptMessage `json:"message"`
+}
+
 // encodeProjectPath converts a filesystem path to the Claude Code project directory
 // name format, where each "/" is replaced with "-".
 // Example: "/Users/vampire/go/src/vybe" -> "-Users-vampire-go-src-vybe"
@@ -81,29 +96,18 @@ func readTailLines(path string, maxLines int) ([]string, error) {
 	return lines, nil
 }
 
-// readPreviousSessionContext finds the most recent Claude Code session transcript
-// for the given working directory (excluding the current session) and returns a
-// formatted string of the last few user/assistant exchanges.
-//
-// All errors are silently swallowed - hooks must never block Claude Code.
-func readPreviousSessionContext(cwd, currentSessionID string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-
-	projectDir := filepath.Join(home, ".claude", "projects", encodeProjectPath(cwd))
+// findMostRecentTranscript scans projectDir for .jsonl transcript files,
+// excludes the given session ID, and returns the most recently modified file.
+func findMostRecentTranscript(projectDir, excludeSessionID string) (string, time.Time, bool) {
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
-		return ""
+		return "", time.Time{}, false
 	}
 
-	// Collect .jsonl files excluding the current session.
-	type fileInfo struct {
-		path    string
-		modTime time.Time
-	}
-	var candidates []fileInfo
+	var bestPath string
+	var bestModTime time.Time
+	found := false
+
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -113,64 +117,34 @@ func readPreviousSessionContext(cwd, currentSessionID string) string {
 			continue
 		}
 		sessionID := strings.TrimSuffix(name, ".jsonl")
-		if sessionID == currentSessionID {
+		if sessionID == excludeSessionID {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		candidates = append(candidates, fileInfo{
-			path:    filepath.Join(projectDir, name),
-			modTime: info.ModTime(),
-		})
-	}
-	if len(candidates) == 0 {
-		return ""
-	}
-
-	// Pick most recent by ModTime.
-	best := candidates[0]
-	for _, c := range candidates[1:] {
-		if c.modTime.After(best.modTime) {
-			best = c
+		if !found || info.ModTime().After(bestModTime) {
+			bestPath = filepath.Join(projectDir, name)
+			bestModTime = info.ModTime()
+			found = true
 		}
 	}
+	return bestPath, bestModTime, found
+}
 
-	// Cache hit: same file, same modtime - return cached result.
-	if best.path == prevSessionCachePath && best.modTime.Equal(prevSessionCacheModTime) {
-		return prevSessionCacheResult
-	}
-
-	lines, err := readTailLines(best.path, 50)
-	if err != nil {
-		return ""
-	}
-
-	type contentItem struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	type message struct {
-		Role    string        `json:"role"`
-		Content []contentItem `json:"content"`
-	}
-	type record struct {
-		Type    string  `json:"type"`
-		Message message `json:"message"`
-	}
-
-	const maxMsgLen = 200
-	const maxTotalLen = 2000
-
+// parseTranscriptExchanges parses JSONL transcript lines and builds a formatted
+// string of user/assistant exchanges, truncating individual messages and total output.
+func parseTranscriptExchanges(lines []string, maxMsgLen, maxTotalLen int) string {
+	const header = "Previous session context (last session before this one):\n"
 	var sb strings.Builder
-	sb.WriteString("Previous session context (last session before this one):\n")
+	sb.WriteString(header)
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		var rec record
+		var rec transcriptRecord
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			continue
 		}
@@ -195,25 +169,50 @@ func readPreviousSessionContext(cwd, currentSessionID string) string {
 		if len(textParts) == 0 {
 			continue
 		}
-		line := fmt.Sprintf("  [%s] %s\n", role, strings.Join(textParts, " "))
-		if sb.Len()+len(line) > maxTotalLen {
+		formatted := fmt.Sprintf("  [%s] %s\n", role, strings.Join(textParts, " "))
+		if sb.Len()+len(formatted) > maxTotalLen {
 			break
 		}
-		sb.WriteString(line)
+		sb.WriteString(formatted)
 	}
 
 	result := sb.String()
-	// If nothing was appended beyond the header, cache and return empty.
-	if result == "Previous session context (last session before this one):\n" {
-		prevSessionCachePath = best.path
-		prevSessionCacheModTime = best.modTime
-		prevSessionCacheResult = ""
+	if result == header {
+		return ""
+	}
+	return result
+}
+
+// readPreviousSessionContext finds the most recent Claude Code session transcript
+// for the given working directory (excluding the current session) and returns a
+// formatted string of the last few user/assistant exchanges.
+//
+// All errors are silently swallowed - hooks must never block Claude Code.
+func readPreviousSessionContext(cwd, currentSessionID string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
 		return ""
 	}
 
-	// Cache the result for subsequent calls.
-	prevSessionCachePath = best.path
-	prevSessionCacheModTime = best.modTime
+	projectDir := filepath.Join(home, ".claude", "projects", encodeProjectPath(cwd))
+	path, modTime, ok := findMostRecentTranscript(projectDir, currentSessionID)
+	if !ok {
+		return ""
+	}
+
+	if path == prevSessionCachePath && modTime.Equal(prevSessionCacheModTime) {
+		return prevSessionCacheResult
+	}
+
+	lines, err := readTailLines(path, 50)
+	if err != nil {
+		return ""
+	}
+
+	result := parseTranscriptExchanges(lines, 200, 2000)
+
+	prevSessionCachePath = path
+	prevSessionCacheModTime = modTime
 	prevSessionCacheResult = result
 	return result
 }

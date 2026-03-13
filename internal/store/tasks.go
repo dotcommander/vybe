@@ -83,22 +83,12 @@ func GetTaskVersionTx(tx *sql.Tx, taskID string) (int, error) {
 	return version, nil
 }
 
-// UpdateTaskStatusWithEventTx updates task status and appends task_status event atomically in-tx.
-//
-// blocked_reason behavior (via SQL CASE):
-//   - status != "blocked": blocked_reason is cleared to NULL
-//   - status == "blocked": blocked_reason is PRESERVED (not set)
-//
-// Callers that need to SET blocked_reason must follow with SetBlockedReasonTx
-// within the same transaction. See CloseTaskTx and TaskSetStatusIdempotent.
-func UpdateTaskStatusWithEventTx(tx *sql.Tx, agentName, taskID, status string, version int) (int64, error) {
-	result, err := tx.ExecContext(context.Background(), `
-		UPDATE tasks
-		SET status = ?,
-		    blocked_reason = CASE WHEN ? = 'blocked' THEN blocked_reason ELSE NULL END,
-		    version = version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND version = ?
-	`, status, status, taskID, version)
+// casUpdateTaskWithEvent executes a CAS UPDATE on the tasks table and appends an event in the
+// same transaction. The caller provides the full SQL and its args (the final two args must be
+// the task ID and the expected version for the WHERE clause). On zero rows affected the helper
+// returns VersionConflictError so callers can retry via RetryWithBackoff.
+func casUpdateTaskWithEvent(tx *sql.Tx, agentName, taskID string, version int, updateSQL string, updateArgs []any, eventKind, message string) (int64, error) {
+	result, err := tx.ExecContext(context.Background(), updateSQL, updateArgs...)
 	if err != nil {
 		return 0, fmt.Errorf("failed to update task: %w", err)
 	}
@@ -111,12 +101,33 @@ func UpdateTaskStatusWithEventTx(tx *sql.Tx, agentName, taskID, status string, v
 		return 0, &VersionConflictError{Entity: "task", ID: taskID, Version: version}
 	}
 
-	eventID, err := InsertEventTx(tx, models.EventKindTaskStatus, agentName, taskID, fmt.Sprintf("Status changed to: %s", status), "")
+	eventID, err := InsertEventTx(tx, eventKind, agentName, taskID, message, "")
 	if err != nil {
 		return 0, fmt.Errorf("failed to append event: %w", err)
 	}
 
 	return eventID, nil
+}
+
+// UpdateTaskStatusWithEventTx updates task status and appends task_status event atomically in-tx.
+//
+// blocked_reason behavior (via SQL CASE):
+//   - status != "blocked": blocked_reason is cleared to NULL
+//   - status == "blocked": blocked_reason is PRESERVED (not set)
+//
+// Callers that need to SET blocked_reason must follow with SetBlockedReasonTx
+// within the same transaction. See CloseTaskTx and TaskSetStatusIdempotent.
+func UpdateTaskStatusWithEventTx(tx *sql.Tx, agentName, taskID, status string, version int) (int64, error) {
+	return casUpdateTaskWithEvent(tx, agentName, taskID, version,
+		`UPDATE tasks
+		SET status = ?,
+		    blocked_reason = CASE WHEN ? = 'blocked' THEN blocked_reason ELSE NULL END,
+		    version = version + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND version = ?`,
+		[]any{status, status, taskID, version},
+		models.EventKindTaskStatus,
+		fmt.Sprintf("Status changed to: %s", status),
+	)
 }
 
 // UpdateTaskStatus updates a task's status using optimistic concurrency control.
@@ -209,29 +220,14 @@ func loadTaskDependencies(q Querier, taskID string) ([]string, error) {
 
 // UpdateTaskPriorityWithEventTx updates task priority and appends task_priority_changed event atomically in-tx.
 func UpdateTaskPriorityWithEventTx(tx *sql.Tx, agentName, taskID string, priority, version int) (int64, error) {
-	result, err := tx.ExecContext(context.Background(), `
-		UPDATE tasks
+	return casUpdateTaskWithEvent(tx, agentName, taskID, version,
+		`UPDATE tasks
 		SET priority = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND version = ?
-	`, priority, taskID, version)
-	if err != nil {
-		return 0, fmt.Errorf("failed to update task priority: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return 0, &VersionConflictError{Entity: "task", ID: taskID, Version: version}
-	}
-
-	eventID, err := InsertEventTx(tx, models.EventKindTaskPriorityChanged, agentName, taskID, fmt.Sprintf("Priority changed to: %d", priority), "")
-	if err != nil {
-		return 0, fmt.Errorf("failed to append event: %w", err)
-	}
-
-	return eventID, nil
+		WHERE id = ? AND version = ?`,
+		[]any{priority, taskID, version},
+		models.EventKindTaskPriorityChanged,
+		fmt.Sprintf("Priority changed to: %d", priority),
+	)
 }
 
 // ListTasks retrieves all tasks, optionally filtered by status, project, and/or priority.

@@ -27,6 +27,22 @@ func ensureAgentStateTx(tx *sql.Tx, agentName string) error {
 	return nil
 }
 
+func readAgentVersionTx(tx *sql.Tx, agentName string) (int, error) {
+	var version int
+	err := tx.QueryRowContext(context.Background(), `
+		SELECT version
+		FROM agent_state
+		WHERE agent_name = ?
+	`, agentName).Scan(&version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("agent state not found: %s", agentName)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to load agent state: %w", err)
+	}
+	return version, nil
+}
+
 func validateProjectExistsTx(tx *sql.Tx, projectID string) error {
 	if projectID == "" {
 		return nil
@@ -258,17 +274,9 @@ func SetAgentFocusTaskWithEventIdempotent(db *sql.DB, agentName, requestID, task
 }
 
 func setAgentFocusTaskWithEventTx(tx *sql.Tx, agentName, taskID string) (int64, error) {
-	var currentVersion int
-	err := tx.QueryRowContext(context.Background(), `
-		SELECT version
-		FROM agent_state
-		WHERE agent_name = ?
-	`, agentName).Scan(&currentVersion)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("agent state not found: %s", agentName)
-	}
+	currentVersion, err := readAgentVersionTx(tx, agentName)
 	if err != nil {
-		return 0, fmt.Errorf("failed to load agent state: %w", err)
+		return 0, err
 	}
 
 	result, err := tx.ExecContext(context.Background(), `
@@ -314,17 +322,9 @@ func setAgentFocusProjectWithEventTx(tx *sql.Tx, agentName, projectID string) (i
 		return 0, err
 	}
 
-	var currentVersion int
-	err := tx.QueryRowContext(context.Background(), `
-		SELECT version
-		FROM agent_state
-		WHERE agent_name = ?
-	`, agentName).Scan(&currentVersion)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("agent state not found: %s", agentName)
-	}
+	currentVersion, err := readAgentVersionTx(tx, agentName)
 	if err != nil {
-		return 0, fmt.Errorf("failed to load agent state: %w", err)
+		return 0, err
 	}
 
 	var result sql.Result

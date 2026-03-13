@@ -25,6 +25,33 @@ const (
 
 const expectedModule = "github.com/dotcommander/vybe"
 
+type upgradeResult struct {
+	Source           string `json:"source"`
+	Method           string `json:"method,omitempty"`
+	OldCommit        string `json:"old_commit,omitempty"`
+	NewCommit        string `json:"new_commit,omitempty"`
+	OldVersion       string `json:"old_version,omitempty"`
+	NewVersion       string `json:"new_version,omitempty"`
+	Updated          bool   `json:"updated"`
+	Migrated         bool   `json:"migrated"`
+	MigrateError     string `json:"migrate_error,omitempty"`
+	HooksReinstalled bool   `json:"hooks_reinstalled"`
+	HooksError       string `json:"hooks_error,omitempty"`
+}
+
+func printUpgradeResult(r upgradeResult) error {
+	if r.MigrateError != "" || r.HooksError != "" {
+		_ = output.Print(output.Response{
+			SchemaVersion: "v1",
+			Success:       false,
+			Data:          r,
+			Error:         "upgrade succeeded but post-upgrade steps failed",
+		})
+		return printedError{err: fmt.Errorf("post-upgrade steps failed: migrate=%s hooks=%s", r.MigrateError, r.HooksError)}
+	}
+	return output.PrintSuccess(r)
+}
+
 // NewUpgradeCmd creates the upgrade command.
 func NewUpgradeCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -167,17 +194,7 @@ func upgradeViaGitPull(srcDir string) error {
 	migrated, migrateErr := migrateAfterUpgrade()
 	hooksReinstalled, hooksErr := reinstallHooks(resolveInstalledBinary())
 
-	type result struct {
-		Source           string `json:"source"`
-		OldCommit        string `json:"old_commit"`
-		NewCommit        string `json:"new_commit"`
-		Updated          bool   `json:"updated"`
-		Migrated         bool   `json:"migrated"`
-		MigrateError     string `json:"migrate_error,omitempty"`
-		HooksReinstalled bool   `json:"hooks_reinstalled"`
-		HooksError       string `json:"hooks_error,omitempty"`
-	}
-	r := result{
+	return printUpgradeResult(upgradeResult{
 		Source:           srcDir,
 		OldCommit:        oldVersion,
 		NewCommit:        newVersion,
@@ -186,17 +203,7 @@ func upgradeViaGitPull(srcDir string) error {
 		MigrateError:     migrateErr,
 		HooksReinstalled: hooksReinstalled,
 		HooksError:       hooksErr,
-	}
-	if migrateErr != "" || hooksErr != "" {
-		_ = output.Print(output.Response{
-			SchemaVersion: "v1",
-			Success:       false,
-			Data:          r,
-			Error:         "upgrade succeeded but post-upgrade steps failed",
-		})
-		return printedError{err: fmt.Errorf("post-upgrade steps failed: migrate=%s hooks=%s", migrateErr, hooksErr)}
-	}
-	return output.PrintSuccess(r)
+	})
 }
 
 func upgradeViaGoInstall() error {
@@ -216,18 +223,7 @@ func upgradeViaGoInstall() error {
 	migrated, migrateErr := migrateAfterUpgrade()
 	hooksReinstalled, hooksErr := reinstallHooks(resolveInstalledBinary())
 
-	type result struct {
-		Source           string `json:"source"`
-		Method           string `json:"method"`
-		OldVersion       string `json:"old_version"`
-		NewVersion       string `json:"new_version"`
-		Updated          bool   `json:"updated"`
-		Migrated         bool   `json:"migrated"`
-		MigrateError     string `json:"migrate_error,omitempty"`
-		HooksReinstalled bool   `json:"hooks_reinstalled"`
-		HooksError       string `json:"hooks_error,omitempty"`
-	}
-	r := result{
+	return printUpgradeResult(upgradeResult{
 		Source:           expectedModule + "@latest",
 		Method:           "go install",
 		OldVersion:       oldVersion,
@@ -237,17 +233,7 @@ func upgradeViaGoInstall() error {
 		MigrateError:     migrateErr,
 		HooksReinstalled: hooksReinstalled,
 		HooksError:       hooksErr,
-	}
-	if migrateErr != "" || hooksErr != "" {
-		_ = output.Print(output.Response{
-			SchemaVersion: "v1",
-			Success:       false,
-			Data:          r,
-			Error:         "upgrade succeeded but post-upgrade steps failed",
-		})
-		return printedError{err: fmt.Errorf("post-upgrade steps failed: migrate=%s hooks=%s", migrateErr, hooksErr)}
-	}
-	return output.PrintSuccess(r)
+	})
 }
 
 // migrateAfterUpgrade opens the database and runs pending migrations.

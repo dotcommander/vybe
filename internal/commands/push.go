@@ -18,13 +18,9 @@ func NewPushCmd() *cobra.Command {
 		Short: "Atomic batch mutation (event + memories + artifacts + task status)",
 		Long:  "Combine multiple mutations into a single idempotent transaction. Input via --json flag or stdin pipe.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			agentName, err := requireActorName(cmd, "")
+			agentName, requestID, err := requireMutationParams(cmd)
 			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
+				return err
 			}
 
 			// Read JSON input from --json flag or stdin

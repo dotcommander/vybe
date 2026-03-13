@@ -10,6 +10,49 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// taskCmdResult is the common response for task mutation commands.
+type taskCmdResult struct {
+	Task    *models.Task `json:"task"`
+	EventID int64        `json:"event_id"`
+}
+
+// requireMutationParams resolves the agent name and request ID required for all
+// mutating commands. It returns a cmdErr-wrapped error ready to return from RunE.
+func requireMutationParams(cmd *cobra.Command) (agentName, requestID string, err error) {
+	agentName, err = requireActorName(cmd, "")
+	if err != nil {
+		return "", "", cmdErr(err)
+	}
+	requestID, err = requireRequestID(cmd)
+	if err != nil {
+		return "", "", cmdErr(err)
+	}
+	return agentName, requestID, nil
+}
+
+// runTaskCmd handles the common scaffold for task mutation commands:
+// requireActorName, requireRequestID, withDB, and PrintSuccess.
+func runTaskCmd(cmd *cobra.Command, fn func(db *DB, agentName, requestID string) (taskCmdResult, error)) error {
+	agentName, requestID, err := requireMutationParams(cmd)
+	if err != nil {
+		return err
+	}
+
+	var result taskCmdResult
+	if err := withDB(func(db *DB) error {
+		r, err := fn(db, agentName, requestID)
+		if err != nil {
+			return err
+		}
+		result = r
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return output.PrintSuccess(result)
+}
+
 // NewTaskCmd creates the task command group
 func NewTaskCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -40,38 +83,15 @@ func newTaskCreateCmd() *cobra.Command {
 			desc, _ := cmd.Flags().GetString("desc")
 			projectID, _ := cmd.Flags().GetString("project-id")
 			priority, _ := cmd.Flags().GetInt("priority")
-			agentName, err := requireActorName(cmd, "")
-			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
-			}
 
 			if title == "" {
 				return cmdErr(errors.New("--title is required"))
 			}
 
-			var task *models.Task
-			var eventID int64
-			if err := withDB(func(db *DB) error {
+			return runTaskCmd(cmd, func(db *DB, agentName, requestID string) (taskCmdResult, error) {
 				t, eid, err := actions.TaskCreateIdempotent(db, agentName, requestID, title, desc, projectID, priority)
-				if err != nil {
-					return err
-				}
-				task = t
-				eventID = eid
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			type resp struct {
-				Task    *models.Task `json:"task"`
-				EventID int64        `json:"event_id"`
-			}
-			return output.PrintSuccess(resp{Task: task, EventID: eventID})
+				return taskCmdResult{Task: t, EventID: eid}, err
+			})
 		},
 	}
 
@@ -93,14 +113,7 @@ func newTaskSetStatusCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, _ := cmd.Flags().GetString("id")
 			status, _ := cmd.Flags().GetString("status")
-			agentName, err := requireActorName(cmd, "")
-			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
-			}
+			blockedReason, _ := cmd.Flags().GetString("blocked-reason")
 
 			if taskID == "" {
 				return cmdErr(errors.New("--id is required"))
@@ -109,28 +122,10 @@ func newTaskSetStatusCmd() *cobra.Command {
 				return cmdErr(errors.New("--status is required"))
 			}
 
-			var (
-				task    *models.Task
-				eventID int64
-			)
-			if err := withDB(func(db *DB) error {
-				blockedReason, _ := cmd.Flags().GetString("blocked-reason")
+			return runTaskCmd(cmd, func(db *DB, agentName, requestID string) (taskCmdResult, error) {
 				t, eid, err := actions.TaskSetStatusIdempotent(db, agentName, requestID, taskID, status, blockedReason)
-				if err != nil {
-					return err
-				}
-				task = t
-				eventID = eid
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			type resp struct {
-				Task    *models.Task `json:"task"`
-				EventID int64        `json:"event_id"`
-			}
-			return output.PrintSuccess(resp{Task: task, EventID: eventID})
+				return taskCmdResult{Task: t, EventID: eid}, err
+			})
 		},
 	}
 
@@ -152,13 +147,9 @@ func newTaskBeginCmd() *cobra.Command {
 				return cmdErr(errors.New("--id is required"))
 			}
 
-			agentName, err := requireActorName(cmd, "")
+			agentName, requestID, err := requireMutationParams(cmd)
 			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
+				return err
 			}
 
 			var result *actions.TaskStartResult
@@ -266,13 +257,9 @@ func newTaskDepCmd(use, short, successFmt string, apply func(db *DB, agentName, 
 				return cmdErr(errors.New("--depends-on is required"))
 			}
 
-			agentName, err := requireActorName(cmd, "")
+			agentName, requestID, err := requireMutationParams(cmd)
 			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
+				return err
 			}
 
 			if err := withDB(func(db *DB) error {
@@ -314,40 +301,15 @@ func newTaskSetPriorityCmd() *cobra.Command {
 				return cmdErr(errors.New("--priority is required"))
 			}
 			priority, _ := cmd.Flags().GetInt("priority")
-			agentName, err := requireActorName(cmd, "")
-			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
-			}
 
 			if taskID == "" {
 				return cmdErr(errors.New("--id is required"))
 			}
 
-			var (
-				task    *models.Task
-				eventID int64
-			)
-			if err := withDB(func(db *DB) error {
+			return runTaskCmd(cmd, func(db *DB, agentName, requestID string) (taskCmdResult, error) {
 				t, eid, err := actions.TaskSetPriorityIdempotent(db, agentName, requestID, taskID, priority)
-				if err != nil {
-					return err
-				}
-				task = t
-				eventID = eid
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			type resp struct {
-				Task    *models.Task `json:"task"`
-				EventID int64        `json:"event_id"`
-			}
-			return output.PrintSuccess(resp{Task: task, EventID: eventID})
+				return taskCmdResult{Task: t, EventID: eid}, err
+			})
 		},
 	}
 

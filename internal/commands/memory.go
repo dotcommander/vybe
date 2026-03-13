@@ -35,13 +35,9 @@ func newMemoryGCCmd() *cobra.Command {
 		Use:   "gc",
 		Short: "Delete expired memory rows",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			agentName, err := requireActorName(cmd, "")
+			agentName, requestID, err := requireMutationParams(cmd)
 			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
+				return err
 			}
 			limit, _ := cmd.Flags().GetInt("limit")
 
@@ -76,13 +72,9 @@ func newMemorySetCmd() *cobra.Command {
 		Use:   "set",
 		Short: "Set a memory value",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			agentName, err := requireActorName(cmd, "")
+			agentName, requestID, err := requireMutationParams(cmd)
 			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
+				return err
 			}
 			key, _ := cmd.Flags().GetString("key")
 			value, _ := cmd.Flags().GetString("value")
@@ -208,13 +200,9 @@ func newMemoryDeleteCmd() *cobra.Command {
 		Use:   "delete",
 		Short: "Delete a memory entry",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			agentName, err := requireActorName(cmd, "")
+			agentName, requestID, err := requireMutationParams(cmd)
 			if err != nil {
-				return cmdErr(err)
-			}
-			requestID, err := requireRequestID(cmd)
-			if err != nil {
-				return cmdErr(err)
+				return err
 			}
 			key, _ := cmd.Flags().GetString("key")
 			scope, _ := cmd.Flags().GetString("scope")
