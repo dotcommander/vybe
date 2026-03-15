@@ -551,3 +551,32 @@ func TestUpsertMemoryTx_NoConflictOnSameValue(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, count, "no conflict event expected when value is unchanged")
 }
+
+func TestGetMemory_TracksAccess(t *testing.T) {
+	db, cleanup := setupMemoryTestDB(t)
+	defer cleanup()
+
+	require.NoError(t, SetMemory(db, "tracked", "value", "string", "global", "", nil))
+
+	// First access — returned struct has pre-update access_count (0),
+	// but DB is updated to 1 after the scan.
+	mem1, err := GetMemory(db, "tracked", "global", "")
+	require.NoError(t, err)
+	require.NotNil(t, mem1)
+	assert.Equal(t, 0, mem1.AccessCount, "returned struct reflects pre-update value")
+
+	var accessCount int
+	err = db.QueryRow(`SELECT access_count FROM memory WHERE key = 'tracked' AND scope = 'global' AND scope_id = ''`).Scan(&accessCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, accessCount, "DB should have access_count=1 after first GetMemory")
+
+	// Second access
+	mem2, err := GetMemory(db, "tracked", "global", "")
+	require.NoError(t, err)
+	require.NotNil(t, mem2)
+	assert.Equal(t, 1, mem2.AccessCount, "second call scans the value from first update")
+
+	err = db.QueryRow(`SELECT access_count FROM memory WHERE key = 'tracked' AND scope = 'global' AND scope_id = ''`).Scan(&accessCount)
+	require.NoError(t, err)
+	assert.Equal(t, 2, accessCount, "DB should have access_count=2 after second GetMemory")
+}
