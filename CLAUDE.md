@@ -186,6 +186,8 @@ internal/testutil/     # CLI test helpers for integration tests
 | **Idempotent terminal conditions** | "Not found" on delete and "already exists" on create are successes; returning errors poisons the idempotency record |
 | **Graph traversal naming** | Node-count limits vs depth limits protect against different shapes; name the limit for what it actually counts |
 | **UTF-8 truncation** | Never slice strings by byte index when storing/serializing; use `[]rune` or `unicode/utf8` |
+| **Token-budget prompt** | Variable sections (memory, prompts, events, reasoning) share a 1500-token budget filled by priority; fixed sections always included. `estimateTokens` uses `utf8.RuneCountInString / 4` |
+| **Memory access tracking** | `GetMemory` increments `access_count` and updates `last_accessed_at` on every read (best-effort) |
 | **Resource handle sharing** | N sequential ops on the same DB/file → open once, share handle; don't pay setup/migration/lock N times |
 | **SQL CASE NULL semantics** | `ELSE NULL` clears; `ELSE column_name` preserves — opposite meanings; trace caller expectations |
 | **Test the inverse of fixes** | After fixing an edge case, verify the happy path still works; most regressions break the normal path |

@@ -61,6 +61,14 @@ Breaking them increases tool-call error rates and retry noise in autonomous work
 
 **Guardrail:** Every required flag must be validated, and tests should fail if required semantics diverge from behavior.
 
+### Token-budget prompt sections vs hard item limits
+
+**Decision:** Variable resume prompt sections (memory, recent prompts, events, reasoning) share a fixed token budget filled by priority order, rather than each section having a hard item count limit.
+
+**Why not keep hard limits:** Fixed per-section limits (e.g. 5 memories, 3 events) waste budget when one section is empty and starve it when another is rich. A shared budget lets high-priority sections expand into unused space.
+
+**Guardrail:** When adding a new variable section, append it to the priority chain with `appendBudgetedLine`. Do not introduce a new hard item limit.
+
 ## Design principles (standing)
 
 - **Resume is the entry point.** Agents call `resume` to get their focus task, context, and commands. Everything else is secondary.
