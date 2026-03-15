@@ -4,14 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 )
 
 const (
-	promptMemoryLimit = 5
-	promptEventLimit  = 3
+	// defaultContextBudget is the token budget for variable prompt sections
+	// (memory, recent prompts, events, reasoning). Fixed sections always included.
+	defaultContextBudget = 1500
 )
 
 // buildPrompt generates the context prompt injected into agent sessions.
@@ -20,12 +22,19 @@ func buildPrompt(agentName string, brief *store.BriefPacket, recentPrompts []*mo
 
 	b.WriteString("== VYBE (task tracker) ==\n")
 	task := getBriefTask(brief)
+
+	// Fixed sections — always included, not counted against budget.
 	appendTaskContext(&b, brief, task)
 	appendDecisionProtocol(&b, task)
-	appendMemoryContext(&b, brief)
-	appendEventContext(&b, brief)
-	appendRecentPromptsContext(&b, recentPrompts)
-	appendReasoningContext(&b, brief)
+
+	// Variable sections — ranked by priority, filled until budget exhausted.
+	budget := defaultContextBudget
+	appendMemoryContext(&b, brief, &budget)
+	appendRecentPromptsContext(&b, recentPrompts, &budget)
+	appendEventContext(&b, brief, &budget)
+	appendReasoningContext(&b, brief, &budget)
+
+	// Fixed sections — always included.
 	appendPipelineContext(&b, brief)
 	appendTaskCommands(&b, agentName, task)
 
@@ -71,68 +80,93 @@ func appendDecisionProtocol(b *strings.Builder, task *models.Task) {
 	b.WriteString("  - Use DONE/STUCK commands below (set-status path)\n")
 }
 
-func appendMemoryContext(b *strings.Builder, brief *store.BriefPacket) {
-	if brief == nil || len(brief.RelevantMemory) == 0 {
+func appendMemoryContext(b *strings.Builder, brief *store.BriefPacket, remainingBudget *int) {
+	if brief == nil || len(brief.RelevantMemory) == 0 || *remainingBudget <= 0 {
 		return
 	}
 
-	b.WriteString("\nSaved notes from previous sessions:\n")
-	limit := min(len(brief.RelevantMemory), promptMemoryLimit)
-	for i := 0; i < limit; i++ {
-		memory := brief.RelevantMemory[i]
-		fmt.Fprintf(b, "  %s = %s\n", memory.Key, memory.Value)
+	header := "\nSaved notes from previous sessions:\n"
+	for _, memory := range brief.RelevantMemory {
+		line := fmt.Sprintf("  %s = %s\n", memory.Key, memory.Value)
+		if header != "" {
+			line = header + line
+			header = ""
+		}
+		if !appendBudgetedLine(b, line, remainingBudget) {
+			break
+		}
 	}
 }
 
-func appendEventContext(b *strings.Builder, brief *store.BriefPacket) {
-	if brief == nil || len(brief.RecentEvents) == 0 {
+func appendEventContext(b *strings.Builder, brief *store.BriefPacket, remainingBudget *int) {
+	if brief == nil || len(brief.RecentEvents) == 0 || *remainingBudget <= 0 {
 		return
 	}
 
-	b.WriteString("\nRecent activity:\n")
-	limit := min(len(brief.RecentEvents), promptEventLimit)
-	for i := 0; i < limit; i++ {
-		event := brief.RecentEvents[i]
-		fmt.Fprintf(b, "  [%s] %s\n", event.Kind, event.Message)
+	header := "\nRecent activity:\n"
+	for _, event := range brief.RecentEvents {
+		line := fmt.Sprintf("  [%s] %s\n", event.Kind, event.Message)
+		if header != "" {
+			line = header + line
+			header = ""
+		}
+		if !appendBudgetedLine(b, line, remainingBudget) {
+			break
+		}
 	}
 }
 
-func appendRecentPromptsContext(b *strings.Builder, recentPrompts []*models.Event) {
-	if len(recentPrompts) == 0 {
+func appendRecentPromptsContext(b *strings.Builder, recentPrompts []*models.Event, remainingBudget *int) {
+	if len(recentPrompts) == 0 || *remainingBudget <= 0 {
 		return
 	}
 
-	b.WriteString("\nWhat the user was working on recently:\n")
+	header := "\nWhat the user was working on recently:\n"
 	for _, event := range recentPrompts {
 		msg := event.Message
 		if r := []rune(msg); len(r) > 120 {
 			msg = string(r[:120]) + "..."
 		}
-		fmt.Fprintf(b, "  - %s\n", msg)
+		line := fmt.Sprintf("  - %s\n", msg)
+		if header != "" {
+			line = header + line
+			header = ""
+		}
+		if !appendBudgetedLine(b, line, remainingBudget) {
+			break
+		}
 	}
 }
 
-func appendReasoningContext(b *strings.Builder, brief *store.BriefPacket) {
-	if brief == nil || len(brief.PriorReasoning) == 0 {
+func appendReasoningContext(b *strings.Builder, brief *store.BriefPacket, remainingBudget *int) {
+	if brief == nil || len(brief.PriorReasoning) == 0 || *remainingBudget <= 0 {
 		return
 	}
 
-	b.WriteString("\nPrior reasoning from previous sessions:\n")
+	header := "\nPrior reasoning from previous sessions:\n"
 	for _, event := range brief.PriorReasoning {
 		intent, approach := extractReasoningFields(event.Metadata)
+		var line string
 		switch {
 		case intent != "" && approach != "":
-			fmt.Fprintf(b, "  - Intent: %s | Approach: %s\n", intent, approach)
+			line = fmt.Sprintf("  - Intent: %s | Approach: %s\n", intent, approach)
 		case intent != "":
-			fmt.Fprintf(b, "  - Intent: %s\n", intent)
+			line = fmt.Sprintf("  - Intent: %s\n", intent)
 		case approach != "":
-			fmt.Fprintf(b, "  - Approach: %s\n", approach)
+			line = fmt.Sprintf("  - Approach: %s\n", approach)
 		default:
 			msg := event.Message
 			if r := []rune(msg); len(r) > 200 {
 				msg = string(r[:200]) + "..."
 			}
-			fmt.Fprintf(b, "  - %s\n", msg)
+			line = fmt.Sprintf("  - %s\n", msg)
+		}
+		if header != "" {
+			line = header + line
+			header = ""
+		}
+		if !appendBudgetedLine(b, line, remainingBudget) {
+			break
 		}
 	}
 }
@@ -214,4 +248,21 @@ func extractReasoningFields(metadata json.RawMessage) (intent string, approach s
 	}
 
 	return fields.Intent, fields.Approach
+}
+
+// estimateTokens estimates the token count for a string using the chars/4 heuristic.
+func estimateTokens(s string) int {
+	return (utf8.RuneCountInString(s) + 3) / 4
+}
+
+// appendBudgetedLine writes line to b if it fits within remainingBudget.
+// Returns true if the line was written, false if budget exhausted.
+func appendBudgetedLine(b *strings.Builder, line string, remainingBudget *int) bool {
+	cost := estimateTokens(line)
+	if cost > *remainingBudget {
+		return false
+	}
+	b.WriteString(line)
+	*remainingBudget -= cost
+	return true
 }

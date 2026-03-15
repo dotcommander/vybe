@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -195,6 +196,15 @@ func GetMemory(db *sql.DB, key, scope, scopeID string) (*models.Memory, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get memory: %w", err)
 	}
+
+	// Best-effort access tracking — don't fail the read if the update fails.
+	if _, err := db.ExecContext(context.Background(),
+		`UPDATE memory SET access_count = access_count + 1, last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		mem.ID,
+	); err != nil {
+		slog.Warn("failed to update memory access count", "key", key, "error", err)
+	}
+
 	return &mem, nil
 }
 
