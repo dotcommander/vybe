@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -67,12 +66,4 @@ func TestRequireRequestID_EnvOverride(t *testing.T) {
 	rid, err := requireRequestID(cmd)
 	require.NoError(t, err)
 	assert.Equal(t, "env-id-123", rid)
-}
-
-func TestGenerateRequestID_Format(t *testing.T) {
-	id := generateRequestID()
-	assert.True(t, strings.HasPrefix(id, "req_"))
-	// Should have format: req_{digits}_{hex}
-	parts := strings.SplitN(id, "_", 3)
-	assert.Len(t, parts, 3)
 }

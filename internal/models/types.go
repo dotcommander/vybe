@@ -25,11 +25,6 @@ const (
 	TaskStatusBlocked    TaskStatus = "blocked"
 )
 
-// IsPending returns true if the task is pending execution.
-func (s TaskStatus) IsPending() bool {
-	return s == TaskStatusPending
-}
-
 // MemoryScope represents the visibility scope of a memory entry.
 type MemoryScope string
 
@@ -95,16 +90,6 @@ type Task struct {
 	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
-// IsBlocked returns true if the task status is blocked.
-func (t *Task) IsBlocked() bool {
-	return t.Status == TaskStatusBlocked
-}
-
-// IsBlockedByFailure returns true if the task is blocked due to an execution failure.
-func (t *Task) IsBlockedByFailure() bool {
-	return t.BlockedReason.IsFailure()
-}
-
 // AgentState tracks the last known state for an agent
 type AgentState struct {
 	AgentName       string    `json:"agent_name"`
@@ -117,43 +102,23 @@ type AgentState struct {
 
 // Memory represents a key-value storage entry with scoping
 type Memory struct {
-	ID        int64       `json:"id"`
-	Key       string      `json:"key"`
-	Value     string      `json:"value"`
-	ValueType string      `json:"value_type"`
-	Scope     MemoryScope `json:"scope"`
-	ScopeID   string      `json:"scope_id"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
-	CreatedAt time.Time `json:"created_at"`
-	AccessCount int `json:"access_count"`
-	LastAccessedAt *time.Time `json:"last_accessed_at,omitempty"`
-	Relevance float64 `json:"relevance,omitempty"`
+	ID             int64       `json:"id"`
+	Key            string      `json:"key"`
+	Value          string      `json:"value"`
+	ValueType      string      `json:"value_type"`
+	Scope          MemoryScope `json:"scope"`
+	ScopeID        string      `json:"scope_id"`
+	ExpiresAt      *time.Time  `json:"expires_at,omitempty"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+	CreatedAt      time.Time   `json:"created_at"`
+	AccessCount    int         `json:"access_count"`
+	LastAccessedAt *time.Time  `json:"last_accessed_at,omitempty"`
+	Relevance      float64     `json:"relevance,omitempty"`
 }
 
 // IsExpired returns true if the memory has an expiration time and it has passed.
 func (m *Memory) IsExpired(now time.Time) bool {
 	return m.ExpiresAt != nil && m.ExpiresAt.Before(now)
-}
-
-// IsGlobalScope returns true if the memory has global visibility.
-func (m *Memory) IsGlobalScope() bool {
-	return m.Scope == MemoryScopeGlobal
-}
-
-// IsProjectScope returns true if the memory is scoped to a specific project.
-func (m *Memory) IsProjectScope() bool {
-	return m.Scope == MemoryScopeProject
-}
-
-// IsTaskScope returns true if the memory is scoped to a specific task.
-func (m *Memory) IsTaskScope() bool {
-	return m.Scope == MemoryScopeTask
-}
-
-// IsAgentScope returns true if the memory is scoped to a specific agent.
-func (m *Memory) IsAgentScope() bool {
-	return m.Scope == MemoryScopeAgent
 }
 
 // Artifact represents a file or output artifact

@@ -1,11 +1,8 @@
 package commands
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -15,15 +12,6 @@ func resolveRequestID(cmd *cobra.Command) string {
 		return v
 	}
 	return os.Getenv("VYBE_REQUEST_ID")
-}
-
-func generateRequestID() string {
-	timestamp := time.Now().UnixNano()
-	var b [6]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("req_%d", timestamp)
-	}
-	return fmt.Sprintf("req_%d_%s", timestamp, hex.EncodeToString(b[:]))
 }
 
 // requireRequestID returns the request ID from flag/env, or errors if neither is set.

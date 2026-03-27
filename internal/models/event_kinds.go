@@ -22,25 +22,10 @@ const (
 
 // Agent event kinds with system significance.
 // These are emitted by agents but are also filtered or queried by system logic
-// (resume.go FetchSessionEvents, FetchRecentUserPrompts, FetchPriorReasoning;
-// session.go extractRuleBasedLessons).
+// (resume.go FetchSessionEvents, FetchRecentUserPrompts, FetchPriorReasoning).
 const (
 	EventKindUserPrompt  = "user_prompt"
 	EventKindReasoning   = "reasoning"
 	EventKindToolFailure = "tool_failure"
 	EventKindProgress    = "progress"
-)
-
-// Agent convention kinds — purely labels used at insertion time (e.g., hook.go).
-// These are never filtered or queried by system logic.
-// Agents may emit any kind string up to 128 characters; these constants exist
-// only to avoid typos at call sites.
-const (
-	EventKindToolSuccess    = "tool_success"
-	EventKindNote           = "note"
-	EventKindTaskCompleted  = "task_completed"
-	EventKindCommit         = "commit"
-	EventKindAgentSpawned   = "agent_spawned"
-	EventKindAgentCompleted = "agent_completed"
-	EventKindHeartbeat      = "heartbeat"
 )
