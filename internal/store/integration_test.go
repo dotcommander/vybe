@@ -58,21 +58,5 @@ func TestInitDBIntegration(t *testing.T) {
 		t.Errorf("Expected agent_name=test-agent, got %s", state.AgentName)
 	}
 
-	// Verify we can advance cursor
-	err = AdvanceAgentCursor(db, "test-agent", eventID)
-	if err != nil {
-		t.Fatalf("AdvanceAgentCursor failed: %v", err)
-	}
-
-	// Verify cursor was advanced
-	state, err = LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("LoadOrCreateAgentState (second) failed: %v", err)
-	}
-
-	if state.LastSeenEventID != eventID {
-		t.Errorf("Expected cursor=%d, got %d", eventID, state.LastSeenEventID)
-	}
-
 	t.Logf("Integration test passed. Database initialized at: %s", configPath)
 }

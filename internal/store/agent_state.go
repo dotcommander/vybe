@@ -60,26 +60,6 @@ func validateProjectExistsTx(tx *sql.Tx, projectID string) error {
 	return nil
 }
 
-func loadAgentStateTx(tx *sql.Tx, agentName string) (models.AgentState, error) {
-	var s models.AgentState
-	var focusTaskID, focusProjectID sql.NullString
-	if err := tx.QueryRowContext(context.Background(), `
-		SELECT agent_name, last_seen_event_id, focus_task_id, focus_project_id, version, last_active_at
-		FROM agent_state
-		WHERE agent_name = ?
-	`, agentName).Scan(&s.AgentName, &s.LastSeenEventID, &focusTaskID, &focusProjectID, &s.Version, &s.LastActiveAt); err != nil {
-		return models.AgentState{}, fmt.Errorf("failed to load agent state: %w", err)
-	}
-	if focusTaskID.Valid {
-		s.FocusTaskID = focusTaskID.String
-	}
-	if focusProjectID.Valid {
-		s.FocusProjectID = focusProjectID.String
-	}
-
-	return s, nil
-}
-
 // LoadAgentCursorAndFocusTx returns the persisted cursor and focus pointers for an agent.
 func LoadAgentCursorAndFocusTx(tx *sql.Tx, agentName string) (AgentCursorFocus, error) {
 	var out AgentCursorFocus
@@ -141,6 +121,41 @@ func runFocusEventIdempotent(db *sql.DB, agentName, requestID, command string, s
 	return r.EventID, nil
 }
 
+// GetAgentState loads an existing agent state without creating one.
+// Returns (nil, nil) when the agent has no state row.
+func GetAgentState(db *sql.DB, agentName string) (*models.AgentState, error) {
+	var state models.AgentState
+	var focusTaskID, focusProjectID sql.NullString
+
+	err := db.QueryRowContext(context.Background(), `
+		SELECT agent_name, last_seen_event_id, focus_task_id, focus_project_id, version, last_active_at
+		FROM agent_state
+		WHERE agent_name = ?
+	`, agentName).Scan(
+		&state.AgentName,
+		&state.LastSeenEventID,
+		&focusTaskID,
+		&focusProjectID,
+		&state.Version,
+		&state.LastActiveAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get agent state: %w", err)
+	}
+
+	if focusTaskID.Valid {
+		state.FocusTaskID = focusTaskID.String
+	}
+	if focusProjectID.Valid {
+		state.FocusProjectID = focusProjectID.String
+	}
+
+	return &state, nil
+}
+
 // LoadOrCreateAgentState loads the agent state or creates it if it doesn't exist
 func LoadOrCreateAgentState(db *sql.DB, agentName string) (*models.AgentState, error) {
 	var state models.AgentState
@@ -190,79 +205,6 @@ func LoadOrCreateAgentState(db *sql.DB, agentName string) (*models.AgentState, e
 	}
 
 	return &state, nil
-}
-
-// LoadOrCreateAgentStateIdempotent performs LoadOrCreateAgentState once per (agent_name, request_id).
-// On retries with the same request id, it returns the originally stored state.
-func LoadOrCreateAgentStateIdempotent(db *sql.DB, agentName, requestID string) (*models.AgentState, error) {
-	if agentName == "" {
-		return nil, errors.New("agent name is required")
-	}
-	if requestID == "" {
-		return nil, errors.New("request id is required")
-	}
-
-	s, err := RunIdempotent(context.Background(), db, agentName, requestID, "agent.init", func(tx *sql.Tx) (models.AgentState, error) {
-		if _, err := tx.ExecContext(context.Background(), `
-			INSERT OR IGNORE INTO agent_state (agent_name, last_seen_event_id, version, last_active_at)
-			VALUES (?, 0, 1, ?)
-		`, agentName, time.Now()); err != nil {
-			return models.AgentState{}, fmt.Errorf("failed to ensure agent state: %w", err)
-		}
-
-		return loadAgentStateTx(tx, agentName)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &s, nil
-}
-
-// AdvanceAgentCursor advances the agent's cursor position using monotonic advance.
-// The cursor will only move forward, never backward.
-// Updates last_active_at timestamp and uses optimistic concurrency via version column.
-func AdvanceAgentCursor(db *sql.DB, agentName string, newCursor int64) error {
-	return Transact(context.Background(), db, func(tx *sql.Tx) error {
-		// Load current state for version check
-		var currentVersion int
-		var currentCursor int64
-		err := tx.QueryRowContext(context.Background(), `
-			SELECT version, last_seen_event_id
-			FROM agent_state
-			WHERE agent_name = ?
-		`, agentName).Scan(&currentVersion, &currentCursor)
-
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("agent state not found: %s", agentName)
-		}
-		if err != nil {
-			return fmt.Errorf("failed to load agent state: %w", err)
-		}
-
-		// Monotonic advance: use MAX to ensure cursor never goes backward
-		result, err := tx.ExecContext(context.Background(), `
-			UPDATE agent_state
-			SET last_seen_event_id = MAX(last_seen_event_id, ?),
-			    last_active_at = ?,
-			    version = version + 1
-			WHERE agent_name = ? AND version = ?
-		`, newCursor, time.Now(), agentName, currentVersion)
-		if err != nil {
-			return fmt.Errorf("failed to update agent cursor: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed to check rows affected: %w", err)
-		}
-
-		if rowsAffected == 0 {
-			return ErrVersionConflict
-		}
-
-		return nil
-	})
 }
 
 // SetAgentFocusTaskWithEventIdempotent performs SetAgentFocusTaskWithEvent once per (agent_name, request_id).

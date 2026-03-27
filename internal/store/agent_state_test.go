@@ -2,111 +2,97 @@ package store
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadOrCreateAgentState(t *testing.T) {
+	t.Parallel()
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	// Load non-existent agent (should create)
 	state, err := LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("LoadOrCreateAgentState failed: %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "test-agent", state.AgentName)
+	require.Equal(t, int64(0), state.LastSeenEventID)
+	require.Equal(t, 1, state.Version)
 
-	if state.AgentName != "test-agent" {
-		t.Errorf("Expected agent_name=test-agent, got %s", state.AgentName)
-	}
-	if state.LastSeenEventID != 0 {
-		t.Errorf("Expected initial cursor=0, got %d", state.LastSeenEventID)
-	}
-	if state.Version != 1 {
-		t.Errorf("Expected initial version=1, got %d", state.Version)
-	}
-
-	// Load existing agent
 	state2, err := LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("LoadOrCreateAgentState (second call) failed: %v", err)
-	}
-
-	if state2.AgentName != state.AgentName {
-		t.Errorf("Agent name mismatch on second load")
-	}
+	require.NoError(t, err)
+	require.Equal(t, state.AgentName, state2.AgentName)
 }
 
-func TestAdvanceAgentCursor(t *testing.T) {
+func TestLoadOrCreateAgentState_FocusProjectIDEmpty(t *testing.T) {
+	t.Parallel()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	state, err := LoadOrCreateAgentState(db, "test-agent")
+	require.NoError(t, err)
+	require.Empty(t, state.FocusProjectID)
+}
+
+func TestUpdateAgentStateAtomic_CursorMonotonicity(t *testing.T) {
+	t.Parallel()
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Create agent state
-	_, err := LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("Failed to create agent state: %v", err)
-	}
+	_, err := LoadOrCreateAgentState(db, "mono-agent")
+	require.NoError(t, err)
 
-	// Advance cursor
-	err = AdvanceAgentCursor(db, "test-agent", 10)
-	if err != nil {
-		t.Fatalf("AdvanceAgentCursor failed: %v", err)
-	}
+	task, err := CreateTask(db, "mono task", "", "", 0)
+	require.NoError(t, err)
 
-	// Verify cursor was advanced
-	state, err := LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("Failed to load agent state: %v", err)
-	}
+	// Advance cursor to 100
+	require.NoError(t, UpdateAgentStateAtomic(db, "mono-agent", 100, task.ID))
 
-	if state.LastSeenEventID != 10 {
-		t.Errorf("Expected cursor=10, got %d", state.LastSeenEventID)
-	}
-	if state.Version != 2 {
-		t.Errorf("Expected version=2 after update, got %d", state.Version)
-	}
+	st, err := LoadOrCreateAgentState(db, "mono-agent")
+	require.NoError(t, err)
+	require.Equal(t, int64(100), st.LastSeenEventID)
+
+	// Attempt backward move to 50 — cursor must stay at 100 (MAX semantics)
+	require.NoError(t, UpdateAgentStateAtomic(db, "mono-agent", 50, task.ID))
+
+	st, err = LoadOrCreateAgentState(db, "mono-agent")
+	require.NoError(t, err)
+	require.Equal(t, int64(100), st.LastSeenEventID, "cursor must not move backward")
+
+	// Forward move to 200 — cursor advances
+	require.NoError(t, UpdateAgentStateAtomic(db, "mono-agent", 200, task.ID))
+
+	st, err = LoadOrCreateAgentState(db, "mono-agent")
+	require.NoError(t, err)
+	require.Equal(t, int64(200), st.LastSeenEventID)
 }
 
-func TestAdvanceAgentCursorMonotonic(t *testing.T) {
+func TestUpdateAgentStateAtomicWithProject_CursorMonotonicity(t *testing.T) {
+	t.Parallel()
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	// Create agent and advance to 10
-	_, err := LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("Failed to create agent state: %v", err)
-	}
+	_, err := LoadOrCreateAgentState(db, "mono-proj-agent")
+	require.NoError(t, err)
 
-	err = AdvanceAgentCursor(db, "test-agent", 10)
-	if err != nil {
-		t.Fatalf("AdvanceAgentCursor failed: %v", err)
-	}
+	task, err := CreateTask(db, "mono proj task", "", "", 0)
+	require.NoError(t, err)
 
-	// Try to advance backward (should not decrease)
-	err = AdvanceAgentCursor(db, "test-agent", 5)
-	if err != nil {
-		t.Fatalf("AdvanceAgentCursor (backward) failed: %v", err)
-	}
+	project, err := CreateProject(db, "Mono Project", "")
+	require.NoError(t, err)
 
-	// Verify cursor stayed at 10
-	state, err := LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("Failed to load agent state: %v", err)
-	}
+	// Advance to 100 with project
+	require.NoError(t, UpdateAgentStateAtomicWithProject(db, "mono-proj-agent", 100, task.ID, project.ID))
 
-	if state.LastSeenEventID != 10 {
-		t.Errorf("Expected cursor=10 (monotonic), got %d", state.LastSeenEventID)
-	}
-}
+	st, err := LoadOrCreateAgentState(db, "mono-proj-agent")
+	require.NoError(t, err)
+	require.Equal(t, int64(100), st.LastSeenEventID)
+	require.Equal(t, project.ID, st.FocusProjectID)
 
-func TestLoadOrCreateAgentState_FocusProjectIDEmpty(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
+	// Backward move — cursor stays, project clears (empty string = clear)
+	require.NoError(t, UpdateAgentStateAtomicWithProject(db, "mono-proj-agent", 50, task.ID, ""))
 
-	state, err := LoadOrCreateAgentState(db, "test-agent")
-	if err != nil {
-		t.Fatalf("Failed to create agent state: %v", err)
-	}
-
-	if state.FocusProjectID != "" {
-		t.Errorf("Expected empty focus_project_id, got %s", state.FocusProjectID)
-	}
+	st, err = LoadOrCreateAgentState(db, "mono-proj-agent")
+	require.NoError(t, err)
+	require.Equal(t, int64(100), st.LastSeenEventID, "cursor must not move backward")
+	require.Empty(t, st.FocusProjectID, "project should be cleared")
 }

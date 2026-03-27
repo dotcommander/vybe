@@ -307,7 +307,7 @@ func TestBrief_DoesNotAdvanceCursor(t *testing.T) {
 	}
 
 	// Check cursor is still at 0
-	state, err := store.GetAgentState(db, "agent1")
+	state, err := store.LoadOrCreateAgentState(db, "agent1")
 	if err != nil {
 		t.Fatalf("Failed to get agent state: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestResumeWithProjectScope_FirstUseAgent(t *testing.T) {
 		t.Fatalf("Expected focus task %s, got %s", projectTask.ID, response.FocusTaskID)
 	}
 
-	state, err := store.GetAgentState(db, "new-project-agent")
+	state, err := store.LoadOrCreateAgentState(db, "new-project-agent")
 	if err != nil {
 		t.Fatalf("Failed to get agent state: %v", err)
 	}

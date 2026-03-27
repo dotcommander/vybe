@@ -40,13 +40,13 @@ func TestStartTaskAndFocus_AndIdempotent(t *testing.T) {
 	require.Equal(t, focusEventID2, focusEventID3)
 }
 
-func TestAgentStateIdempotentAndCursorHelpers(t *testing.T) {
+func TestAgentStateLoadOrCreateAndCursorHelpers(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	state1, err := LoadOrCreateAgentStateIdempotent(db, "agent-a", "req-agent-1")
+	state1, err := LoadOrCreateAgentState(db, "agent-a")
 	require.NoError(t, err)
-	state2, err := LoadOrCreateAgentStateIdempotent(db, "agent-a", "req-agent-1")
+	state2, err := LoadOrCreateAgentState(db, "agent-a")
 	require.NoError(t, err)
 	require.Equal(t, state1.AgentName, state2.AgentName)
 
@@ -81,7 +81,7 @@ func TestAgentStateIdempotentAndCursorHelpers(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	st, err := GetAgentState(db, "agent-a")
+	st, err := LoadOrCreateAgentState(db, "agent-a")
 	require.NoError(t, err)
 	require.Equal(t, int64(50), st.LastSeenEventID)
 	require.Equal(t, task.ID, st.FocusTaskID)
