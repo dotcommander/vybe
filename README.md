@@ -64,7 +64,7 @@ If a session crashes, run `vybe resume` and keep going.
 |------------|-------------|
 | **Task lifecycle** | Create, begin, complete, and block tasks with priority and dependencies |
 | **Event log** | Append-only log of agent activity — what happened, in order |
-| **Scoped memory** | Key-value pairs stored per-project, per-task, or globally — with expiration |
+| **Scoped memory** | Key-value pairs stored per-project, per-task, or globally — with expiration. **Pins are sticky:** `memory set --pin` enables pinning; subsequent `memory set` calls without `--pin` preserve the pin. Only `memory pin --unpin` can clear it. This protects durable strategic memory from being unpinned by incidental writes |
 | **Resume** | Restores the agent's full working context from a single command |
 | **Safe retries** | Every write accepts a `--request-id`; sending it twice won't create duplicates |
 | **Multi-agent** | Multiple agents share the same database safely |

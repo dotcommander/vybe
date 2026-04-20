@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,14 +14,14 @@ import (
 )
 
 // MemorySetIdempotent stores a memory entry idempotently.
-func MemorySetIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time) (int64, error) { //nolint:revive // argument-limit: memory params are distinct; struct degrades call-site readability
+func MemorySetIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, pinned bool) (int64, error) { //nolint:revive // argument-limit: memory params are distinct; struct degrades call-site readability
 	if agentName == "" {
 		return 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
 		return 0, errors.New("request id is required")
 	}
-	return store.UpsertMemoryWithEventIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt)
+	return store.UpsertMemoryWithEventIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, pinned)
 }
 
 // MemoryGCResult holds the outcome of a memory garbage collection operation.
@@ -68,15 +69,26 @@ func MemoryList(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
 	return store.ListMemory(db, scope, scopeID)
 }
 
-// MemoryDeleteIdempotent deletes a memory entry idempotently.
-func MemoryDeleteIdempotent(db *sql.DB, agentName, requestID, key, scope, scopeID string) (int64, error) { //nolint:revive // argument-limit: all params are required and distinct
+// MemoryPinIdempotent sets or clears the pinned flag on an existing memory entry.
+func MemoryPinIdempotent(ctx context.Context, db *sql.DB, agentName, requestID, key, scope, scopeID string, pin bool) (int64, error) {
 	if agentName == "" {
 		return 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
 		return 0, errors.New("request id is required")
 	}
-	eventID, err := store.DeleteMemoryWithEventIdempotent(db, agentName, requestID, key, scope, scopeID)
+	return store.PinMemoryIdempotent(ctx, db, agentName, requestID, key, scope, scopeID, pin)
+}
+
+// MemoryDeleteIdempotent deletes a memory entry idempotently.
+func MemoryDeleteIdempotent(ctx context.Context, db *sql.DB, agentName, requestID, key, scope, scopeID string) (int64, error) { //nolint:revive // argument-limit: all params are required and distinct
+	if agentName == "" {
+		return 0, errors.New("agent name is required")
+	}
+	if requestID == "" {
+		return 0, errors.New("request id is required")
+	}
+	eventID, err := store.DeleteMemoryWithEventIdempotent(ctx, db, agentName, requestID, key, scope, scopeID)
 	if err != nil {
 		return 0, err
 	}

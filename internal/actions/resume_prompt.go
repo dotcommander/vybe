@@ -80,95 +80,83 @@ func appendDecisionProtocol(b *strings.Builder, task *models.Task) {
 	b.WriteString("  - Use DONE/STUCK commands below (set-status path)\n")
 }
 
-func appendMemoryContext(b *strings.Builder, brief *store.BriefPacket, remainingBudget *int) {
-	if brief == nil || len(brief.RelevantMemory) == 0 || *remainingBudget <= 0 {
+// appendBudgetedSection writes header + lines to b, one line at a time,
+// charging each against remainingBudget. Stops at the first line that exceeds budget.
+// The header is prepended onto the first line only.
+func appendBudgetedSection(b *strings.Builder, header string, lines []string, remainingBudget *int) {
+	if len(lines) == 0 || *remainingBudget <= 0 {
 		return
 	}
-
-	header := "\nSaved notes from previous sessions:\n"
-	for _, memory := range brief.RelevantMemory {
-		line := fmt.Sprintf("  %s = %s\n", memory.Key, memory.Value)
-		if header != "" {
+	for i, line := range lines {
+		if i == 0 {
 			line = header + line
-			header = ""
 		}
 		if !appendBudgetedLine(b, line, remainingBudget) {
-			break
+			return
 		}
 	}
+}
+
+func appendMemoryContext(b *strings.Builder, brief *store.BriefPacket, remainingBudget *int) {
+	if brief == nil || len(brief.RelevantMemory) == 0 {
+		return
+	}
+	lines := make([]string, len(brief.RelevantMemory))
+	for i, memory := range brief.RelevantMemory {
+		lines[i] = fmt.Sprintf("  %s = %s\n", memory.Key, memory.Value)
+	}
+	appendBudgetedSection(b, "\nSaved notes from previous sessions:\n", lines, remainingBudget)
 }
 
 func appendEventContext(b *strings.Builder, brief *store.BriefPacket, remainingBudget *int) {
-	if brief == nil || len(brief.RecentEvents) == 0 || *remainingBudget <= 0 {
+	if brief == nil || len(brief.RecentEvents) == 0 {
 		return
 	}
-
-	header := "\nRecent activity:\n"
-	for _, event := range brief.RecentEvents {
-		line := fmt.Sprintf("  [%s] %s\n", event.Kind, event.Message)
-		if header != "" {
-			line = header + line
-			header = ""
-		}
-		if !appendBudgetedLine(b, line, remainingBudget) {
-			break
-		}
+	lines := make([]string, len(brief.RecentEvents))
+	for i, event := range brief.RecentEvents {
+		lines[i] = fmt.Sprintf("  [%s] %s\n", event.Kind, event.Message)
 	}
+	appendBudgetedSection(b, "\nRecent activity:\n", lines, remainingBudget)
 }
 
 func appendRecentPromptsContext(b *strings.Builder, recentPrompts []*models.Event, remainingBudget *int) {
-	if len(recentPrompts) == 0 || *remainingBudget <= 0 {
+	if len(recentPrompts) == 0 {
 		return
 	}
-
-	header := "\nWhat the user was working on recently:\n"
-	for _, event := range recentPrompts {
+	lines := make([]string, len(recentPrompts))
+	for i, event := range recentPrompts {
 		msg := event.Message
 		if r := []rune(msg); len(r) > 120 {
 			msg = string(r[:120]) + "..."
 		}
-		line := fmt.Sprintf("  - %s\n", msg)
-		if header != "" {
-			line = header + line
-			header = ""
-		}
-		if !appendBudgetedLine(b, line, remainingBudget) {
-			break
-		}
+		lines[i] = fmt.Sprintf("  - %s\n", msg)
 	}
+	appendBudgetedSection(b, "\nWhat the user was working on recently:\n", lines, remainingBudget)
 }
 
 func appendReasoningContext(b *strings.Builder, brief *store.BriefPacket, remainingBudget *int) {
-	if brief == nil || len(brief.PriorReasoning) == 0 || *remainingBudget <= 0 {
+	if brief == nil || len(brief.PriorReasoning) == 0 {
 		return
 	}
-
-	header := "\nPrior reasoning from previous sessions:\n"
-	for _, event := range brief.PriorReasoning {
+	lines := make([]string, len(brief.PriorReasoning))
+	for i, event := range brief.PriorReasoning {
 		intent, approach := extractReasoningFields(event.Metadata)
-		var line string
 		switch {
 		case intent != "" && approach != "":
-			line = fmt.Sprintf("  - Intent: %s | Approach: %s\n", intent, approach)
+			lines[i] = fmt.Sprintf("  - Intent: %s | Approach: %s\n", intent, approach)
 		case intent != "":
-			line = fmt.Sprintf("  - Intent: %s\n", intent)
+			lines[i] = fmt.Sprintf("  - Intent: %s\n", intent)
 		case approach != "":
-			line = fmt.Sprintf("  - Approach: %s\n", approach)
+			lines[i] = fmt.Sprintf("  - Approach: %s\n", approach)
 		default:
 			msg := event.Message
 			if r := []rune(msg); len(r) > 200 {
 				msg = string(r[:200]) + "..."
 			}
-			line = fmt.Sprintf("  - %s\n", msg)
-		}
-		if header != "" {
-			line = header + line
-			header = ""
-		}
-		if !appendBudgetedLine(b, line, remainingBudget) {
-			break
+			lines[i] = fmt.Sprintf("  - %s\n", msg)
 		}
 	}
+	appendBudgetedSection(b, "\nPrior reasoning from previous sessions:\n", lines, remainingBudget)
 }
 
 func appendPipelineContext(b *strings.Builder, brief *store.BriefPacket) {

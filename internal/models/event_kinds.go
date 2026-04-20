@@ -14,6 +14,7 @@ const (
 	EventKindMemoryConflict    = "memory_conflict"
 	EventKindMemoryDelete      = "memory_delete"
 	EventKindMemoryGC          = "memory_gc"
+	EventKindMemoryPin         = "memory_pin"
 	EventKindEventsSummary     = "events_summary"
 	EventKindTaskClosed        = "task_closed"
 	EventKindRunCompleted      = "run_completed"

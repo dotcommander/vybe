@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -12,12 +13,12 @@ func TestMemoryDeleteIdempotent_ReplayWrapper(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-setup-1", "k2", "v2", "", "global", "", nil)
+	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-setup-1", "k2", "v2", "", "global", "", nil, false)
 	require.NoError(t, err)
 
-	first, err := MemoryDeleteIdempotent(db, "agent-a", "req-del-1", "k2", "global", "")
+	first, err := MemoryDeleteIdempotent(context.Background(), db, "agent-a", "req-del-1", "k2", "global", "")
 	require.NoError(t, err)
-	second, err := MemoryDeleteIdempotent(db, "agent-a", "req-del-1", "k2", "global", "")
+	second, err := MemoryDeleteIdempotent(context.Background(), db, "agent-a", "req-del-1", "k2", "global", "")
 	require.NoError(t, err)
 	require.Equal(t, first, second)
 }

@@ -12,6 +12,10 @@ import (
 
 const andProjectIDFilter = " AND project_id = ?"
 
+// memoryBriefLimit caps the number of memory entries returned in a brief packet.
+// Keep in sync with the LIMIT clause in fetchRelevantMemory SQL queries.
+const memoryBriefLimit = 50
+
 // PipelineTask is a lightweight task reference for discovery context.
 type PipelineTask struct {
 	ID       string `json:"id"`
@@ -244,7 +248,7 @@ func GetTaskStatusCounts(db *sql.DB, projectID string) (*TaskStatusCounts, error
 }
 
 // FetchPipelineTasks returns the next pending tasks in queue order, excluding the current focus task.
-func FetchPipelineTasks(db *sql.DB, excludeTaskID, agentName, projectID string, limit int) ([]PipelineTask, error) {
+func FetchPipelineTasks(db *sql.DB, excludeTaskID, _ /*agentName*/, projectID string, limit int) ([]PipelineTask, error) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -284,7 +288,6 @@ func FetchPipelineTasks(db *sql.DB, excludeTaskID, agentName, projectID string, 
 		return nil, err
 	}
 
-	_ = agentName
 	return tasks, nil
 }
 
@@ -313,29 +316,29 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 
 		if projectID != "" {
 			query = `
-				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, ` + relevanceExpr + `
+				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, ` + relevanceExpr + `
 				FROM memory
 				WHERE (
 					scope = 'global'
 					OR (scope = 'task' AND scope_id = ?)
 					OR (scope = 'project' AND scope_id = ?)
 				)
-				AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-				ORDER BY relevance DESC
+				AND (pinned = 1 OR expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+				ORDER BY pinned DESC, relevance DESC
 				LIMIT 50
 			`
 			args = []any{taskID, projectID}
 		} else {
 			query = `
-				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, ` + relevanceExpr + `
+				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, ` + relevanceExpr + `
 				FROM memory
 				WHERE (
 					scope = 'global'
 					OR (scope = 'task' AND scope_id = ?)
 					OR scope = 'project'
 				)
-				AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-				ORDER BY relevance DESC
+				AND (pinned = 1 OR expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+				ORDER BY pinned DESC, relevance DESC
 				LIMIT 50
 			`
 			args = []any{taskID}
@@ -347,14 +350,14 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 		}
 		defer func() { _ = rows.Close() }()
 
-		memories = make([]*models.Memory, 0, 50)
-		ids = make([]int64, 0, 50)
+		memories = make([]*models.Memory, 0, memoryBriefLimit)
+		ids = make([]int64, 0, memoryBriefLimit)
 		for rows.Next() {
 			var mem models.Memory
 			if err := rows.Scan(
 				&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID,
 				&mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.AccessCount, &mem.LastAccessedAt,
-				&mem.Relevance,
+				&mem.Pinned, &mem.Relevance,
 			); err != nil {
 				return fmt.Errorf("failed to scan memory: %w", err)
 			}

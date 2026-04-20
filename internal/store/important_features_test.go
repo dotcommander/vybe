@@ -136,11 +136,11 @@ func TestDeleteMemoryWithEventIdempotent_Replay(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	require.NoError(t, SetMemory(db, "key-x", "value-x", "string", "global", "", nil))
+	require.NoError(t, SetMemory(db, "key-x", "value-x", "string", "global", "", nil, false))
 
-	e1, err := DeleteMemoryWithEventIdempotent(db, "agent-a", "req-mem-del-1", "key-x", "global", "")
+	e1, err := DeleteMemoryWithEventIdempotent(context.Background(), db, "agent-a", "req-mem-del-1", "key-x", "global", "")
 	require.NoError(t, err)
-	e2, err := DeleteMemoryWithEventIdempotent(db, "agent-a", "req-mem-del-1", "key-x", "global", "")
+	e2, err := DeleteMemoryWithEventIdempotent(context.Background(), db, "agent-a", "req-mem-del-1", "key-x", "global", "")
 	require.NoError(t, err)
 	require.Equal(t, e1, e2)
 }

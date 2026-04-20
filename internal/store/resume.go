@@ -110,6 +110,14 @@ func FetchSessionEvents(db *sql.DB, sinceID int64, projectID string, limit int) 
 	return events, nil
 }
 
+type projectFocusUpdate int
+
+const (
+	projectFocusPreserve projectFocusUpdate = 0 // do not change focus_project_id
+	projectFocusSet      projectFocusUpdate = 1 // set to projectValue
+	projectFocusClear    projectFocusUpdate = 2 // set to NULL
+)
+
 func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focusTaskID string, focusProjectID *string) error {
 	var currentVersion int
 	err := tx.QueryRowContext(context.Background(), `
@@ -127,13 +135,13 @@ func applyAgentStateAtomicTx(tx *sql.Tx, agentName string, newCursor int64, focu
 		taskSetFlag = 1
 	}
 
-	projectMode := 0
+	projectMode := projectFocusPreserve
 	projectValue := ""
 	if focusProjectID != nil {
 		if *focusProjectID == "" {
-			projectMode = 2
+			projectMode = projectFocusClear
 		} else {
-			projectMode = 1
+			projectMode = projectFocusSet
 			projectValue = *focusProjectID
 		}
 	}

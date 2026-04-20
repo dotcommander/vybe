@@ -113,11 +113,16 @@ type Memory struct {
 	CreatedAt      time.Time   `json:"created_at"`
 	AccessCount    int         `json:"access_count"`
 	LastAccessedAt *time.Time  `json:"last_accessed_at,omitempty"`
+	Pinned         bool        `json:"pinned"`
 	Relevance      float64     `json:"relevance,omitempty"`
 }
 
 // IsExpired returns true if the memory has an expiration time and it has passed.
+// Pinned memories never expire.
 func (m *Memory) IsExpired(now time.Time) bool {
+	if m.Pinned {
+		return false // pinned memories never expire
+	}
 	return m.ExpiresAt != nil && m.ExpiresAt.Before(now)
 }
 

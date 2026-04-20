@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"testing"
@@ -26,7 +27,7 @@ func TestSetMemory_GlobalScope(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	err := SetMemory(db, "api_key", "secret123", "string", "global", "", nil)
+	err := SetMemory(db, "api_key", "secret123", "string", "global", "", nil, false)
 	assert.NoError(t, err)
 
 	// Verify it was stored
@@ -44,7 +45,7 @@ func TestSetMemory_ProjectScope(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	err := SetMemory(db, "config", "value1", "string", "project", "proj-123", nil)
+	err := SetMemory(db, "config", "value1", "string", "project", "proj-123", nil, false)
 	assert.NoError(t, err)
 
 	mem, err := GetMemory(db, "config", "project", "proj-123")
@@ -57,7 +58,7 @@ func TestSetMemory_TaskScope(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	err := SetMemory(db, "status", "running", "string", "task", "task-456", nil)
+	err := SetMemory(db, "status", "running", "string", "task", "task-456", nil, false)
 	assert.NoError(t, err)
 
 	mem, err := GetMemory(db, "status", "task", "task-456")
@@ -70,7 +71,7 @@ func TestSetMemory_AgentScope(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	err := SetMemory(db, "last_action", "compile", "string", "agent", "poet-agent", nil)
+	err := SetMemory(db, "last_action", "compile", "string", "agent", "poet-agent", nil, false)
 	assert.NoError(t, err)
 
 	mem, err := GetMemory(db, "last_action", "agent", "poet-agent")
@@ -84,11 +85,11 @@ func TestSetMemory_Upsert(t *testing.T) {
 	defer cleanup()
 
 	// Insert initial value
-	err := SetMemory(db, "counter", "1", "number", "global", "", nil)
+	err := SetMemory(db, "counter", "1", "number", "global", "", nil, false)
 	require.NoError(t, err)
 
 	// Update value
-	err = SetMemory(db, "counter", "2", "number", "global", "", nil)
+	err = SetMemory(db, "counter", "2", "number", "global", "", nil, false)
 	require.NoError(t, err)
 
 	// Verify update
@@ -102,7 +103,7 @@ func TestUpsertMemoryWithEventIdempotent_TaskScope(t *testing.T) {
 	defer cleanup()
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	eventID, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_task_scope_upsert", "checkpoint", "step_3", "", "task", "task-1", &expiresAt)
+	eventID, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_task_scope_upsert", "checkpoint", "step_3", "", "task", "task-1", &expiresAt, false)
 	require.NoError(t, err)
 	require.Greater(t, eventID, int64(0))
 
@@ -129,9 +130,9 @@ func TestDeleteMemoryWithEvent_GlobalScope(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	require.NoError(t, SetMemory(db, "temp", "value", "string", "global", "", nil))
+	require.NoError(t, SetMemory(db, "temp", "value", "string", "global", "", nil, false))
 
-	eventID, err := DeleteMemoryWithEvent(db, "agent1", "temp", "global", "")
+	eventID, err := DeleteMemoryWithEvent(context.Background(), db, "agent1", "temp", "global", "")
 	require.NoError(t, err)
 	require.Greater(t, eventID, int64(0))
 
@@ -160,9 +161,9 @@ func TestListMemory_GlobalScope(t *testing.T) {
 	defer cleanup()
 
 	// Insert multiple entries
-	require.NoError(t, SetMemory(db, "key1", "value1", "string", "global", "", nil))
-	require.NoError(t, SetMemory(db, "key2", "value2", "string", "global", "", nil))
-	require.NoError(t, SetMemory(db, "key3", "value3", "string", "global", "", nil))
+	require.NoError(t, SetMemory(db, "key1", "value1", "string", "global", "", nil, false))
+	require.NoError(t, SetMemory(db, "key2", "value2", "string", "global", "", nil, false))
+	require.NoError(t, SetMemory(db, "key3", "value3", "string", "global", "", nil, false))
 
 	memories, err := ListMemory(db, "global", "")
 	require.NoError(t, err)
@@ -174,9 +175,9 @@ func TestListMemory_ProjectScope_Isolated(t *testing.T) {
 	defer cleanup()
 
 	// Insert entries for different projects
-	require.NoError(t, SetMemory(db, "key1", "value1", "string", "project", "proj-a", nil))
-	require.NoError(t, SetMemory(db, "key2", "value2", "string", "project", "proj-a", nil))
-	require.NoError(t, SetMemory(db, "key3", "value3", "string", "project", "proj-b", nil))
+	require.NoError(t, SetMemory(db, "key1", "value1", "string", "project", "proj-a", nil, false))
+	require.NoError(t, SetMemory(db, "key2", "value2", "string", "project", "proj-a", nil, false))
+	require.NoError(t, SetMemory(db, "key3", "value3", "string", "project", "proj-b", nil, false))
 
 	// List for proj-a
 	memories, err := ListMemory(db, "project", "proj-a")
@@ -194,7 +195,7 @@ func TestSetMemory_WithExpiration(t *testing.T) {
 	defer cleanup()
 
 	expiresAt := time.Now().UTC().Add(1 * time.Hour)
-	err := SetMemory(db, "temp_key", "temp_value", "string", "global", "", &expiresAt)
+	err := SetMemory(db, "temp_key", "temp_value", "string", "global", "", &expiresAt, false)
 	require.NoError(t, err)
 
 	mem, err := GetMemory(db, "temp_key", "global", "")
@@ -209,7 +210,7 @@ func TestGetMemory_FilterExpired(t *testing.T) {
 
 	// Insert expired entry
 	expiresAt := time.Now().UTC().Add(-1 * time.Hour)
-	err := SetMemory(db, "expired", "value", "string", "global", "", &expiresAt)
+	err := SetMemory(db, "expired", "value", "string", "global", "", &expiresAt, false)
 	require.NoError(t, err)
 
 	// Should not be returned
@@ -226,9 +227,9 @@ func TestListMemory_FilterExpired(t *testing.T) {
 	expired := time.Now().UTC().Add(-1 * time.Hour)
 	valid := time.Now().UTC().Add(1 * time.Hour)
 
-	require.NoError(t, SetMemory(db, "key1", "value1", "string", "global", "", &expired))
-	require.NoError(t, SetMemory(db, "key2", "value2", "string", "global", "", &valid))
-	require.NoError(t, SetMemory(db, "key3", "value3", "string", "global", "", nil))
+	require.NoError(t, SetMemory(db, "key1", "value1", "string", "global", "", &expired, false))
+	require.NoError(t, SetMemory(db, "key2", "value2", "string", "global", "", &valid, false))
+	require.NoError(t, SetMemory(db, "key3", "value3", "string", "global", "", nil, false))
 
 	memories, err := ListMemory(db, "global", "")
 	require.NoError(t, err)
@@ -324,7 +325,7 @@ func TestSetMemory_TypeInference(t *testing.T) {
 
 	for i, tt := range tests {
 		key := fmt.Sprintf("key%d", i)
-		err := SetMemory(db, key, tt.value, "", "global", "", nil)
+		err := SetMemory(db, key, tt.value, "", "global", "", nil, false)
 		require.NoError(t, err)
 
 		mem, err := GetMemory(db, key, "global", "")
@@ -338,10 +339,10 @@ func TestMemory_UniqueConstraint(t *testing.T) {
 	defer cleanup()
 
 	// Same key, different scopes - should not conflict
-	err := SetMemory(db, "config", "value1", "string", "global", "", nil)
+	err := SetMemory(db, "config", "value1", "string", "global", "", nil, false)
 	require.NoError(t, err)
 
-	err = SetMemory(db, "config", "value2", "string", "project", "proj-123", nil)
+	err = SetMemory(db, "config", "value2", "string", "project", "proj-123", nil, false)
 	require.NoError(t, err)
 
 	// Verify both exist independently
@@ -371,6 +372,7 @@ func TestUpsertMemoryWithEventIdempotent_Replay(t *testing.T) {
 		"task",
 		"task-1",
 		nil,
+		false,
 	)
 	require.NoError(t, err)
 
@@ -384,6 +386,7 @@ func TestUpsertMemoryWithEventIdempotent_Replay(t *testing.T) {
 		"task",
 		"task-1",
 		nil,
+		false,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, eventID1, eventID2)
@@ -399,9 +402,9 @@ func TestGCMemoryWithEventIdempotent(t *testing.T) {
 	defer cleanup()
 
 	expired := time.Now().UTC().Add(-1 * time.Hour)
-	require.NoError(t, SetMemory(db, "expired_1", "v", "string", "global", "", &expired))
-	require.NoError(t, SetMemory(db, "expired_2", "v", "string", "global", "", &expired))
-	require.NoError(t, SetMemory(db, "active", "v", "string", "global", "", nil))
+	require.NoError(t, SetMemory(db, "expired_1", "v", "string", "global", "", &expired, false))
+	require.NoError(t, SetMemory(db, "expired_2", "v", "string", "global", "", &expired, false))
+	require.NoError(t, SetMemory(db, "active", "v", "string", "global", "", nil, false))
 
 	eventID, deleted, err := GCMemoryWithEventIdempotent(db, "agent1", "req_gc_1", 10)
 	require.NoError(t, err)
@@ -427,7 +430,7 @@ func TestSetMemory_RejectsInvalidValueType(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	err := SetMemory(db, "k", "v", "invalid_type", "global", "", nil)
+	err := SetMemory(db, "k", "v", "invalid_type", "global", "", nil, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid value_type")
 }
@@ -436,7 +439,7 @@ func TestUpsertMemory_RejectsInvalidValueType(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_vt_1", "k", "v", "invalid", "global", "", nil)
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_vt_1", "k", "v", "invalid", "global", "", nil, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid value_type")
 }
@@ -456,7 +459,7 @@ func TestMemoryEventMetadata_MarshalProducesValidJSON(t *testing.T) {
 				_, err := UpsertMemoryWithEventIdempotent(
 					db, "agent1", "req_meta_1",
 					"test-key", "test-value", "string",
-					"global", "", nil,
+					"global", "", nil, false,
 				)
 				return err
 			},
@@ -476,8 +479,8 @@ func TestMemoryEventMetadata_MarshalProducesValidJSON(t *testing.T) {
 			name: "DeleteMemoryWithEvent produces valid metadata",
 			op: func() error {
 				// Ensure the key exists before deleting
-				_ = SetMemory(db, "to-delete", "val", "string", "global", "", nil)
-				_, err := DeleteMemoryWithEvent(db, "agent1", "to-delete", "global", "")
+				_ = SetMemory(db, "to-delete", "val", "string", "global", "", nil, false)
+				_, err := DeleteMemoryWithEvent(context.Background(), db, "agent1", "to-delete", "global", "")
 				return err
 			},
 			eventKind: "memory_delete",
@@ -485,8 +488,8 @@ func TestMemoryEventMetadata_MarshalProducesValidJSON(t *testing.T) {
 		{
 			name: "DeleteMemoryWithEventIdempotent produces valid metadata",
 			op: func() error {
-				_ = SetMemory(db, "to-delete-idem", "val", "string", "global", "", nil)
-				_, err := DeleteMemoryWithEventIdempotent(db, "agent1", "req_meta_5", "to-delete-idem", "global", "")
+				_ = SetMemory(db, "to-delete-idem", "val", "string", "global", "", nil, false)
+				_, err := DeleteMemoryWithEventIdempotent(context.Background(), db, "agent1", "req_meta_5", "to-delete-idem", "global", "")
 				return err
 			},
 			eventKind: "memory_delete",
@@ -515,11 +518,11 @@ func TestUpsertMemoryTx_EmitsConflictEvent(t *testing.T) {
 	defer cleanup()
 
 	// First insert — no conflict
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_1", "key1", "value_old", "string", "global", "", nil)
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_1", "key1", "value_old", "string", "global", "", nil, false)
 	require.NoError(t, err)
 
 	// Overwrite with different value — should emit memory_conflict
-	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_2", "key1", "value_new", "string", "global", "", nil)
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_2", "key1", "value_new", "string", "global", "", nil, false)
 	require.NoError(t, err)
 
 	// Check that a memory_conflict event was emitted
@@ -540,10 +543,10 @@ func TestUpsertMemoryTx_NoConflictOnSameValue(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_1", "key1", "same_value", "string", "global", "", nil)
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_1", "key1", "same_value", "string", "global", "", nil, false)
 	require.NoError(t, err)
 
-	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_2", "key1", "same_value", "string", "global", "", nil)
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_2", "key1", "same_value", "string", "global", "", nil, false)
 	require.NoError(t, err)
 
 	var count int
@@ -556,7 +559,7 @@ func TestGetMemory_TracksAccess(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	require.NoError(t, SetMemory(db, "tracked", "value", "string", "global", "", nil))
+	require.NoError(t, SetMemory(db, "tracked", "value", "string", "global", "", nil, false))
 
 	// First access — returned struct has pre-update access_count (0),
 	// but DB is updated to 1 after the scan.

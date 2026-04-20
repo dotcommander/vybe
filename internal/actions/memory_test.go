@@ -65,7 +65,7 @@ func TestMemorySetIdempotent_RejectsInvalidValueType(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent1", "req_bad_vt", "k", "v", "invalid_type", "global", "", nil)
+	_, err := MemorySetIdempotent(db, "agent1", "req_bad_vt", "k", "v", "invalid_type", "global", "", nil, false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid value_type")
 }
@@ -82,7 +82,7 @@ func TestMemoryGet_Found(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-get-1", "k1", "v1", "", "global", "", nil)
+	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-get-1", "k1", "v1", "", "global", "", nil, false)
 	require.NoError(t, err)
 
 	mem, err := MemoryGet(db, "k1", "global", "")
@@ -94,9 +94,9 @@ func TestMemoryList_Basic(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-list-1", "x1", "v1", "", "global", "", nil)
+	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-list-1", "x1", "v1", "", "global", "", nil, false)
 	require.NoError(t, err)
-	_, err = MemorySetIdempotent(db, "agent-a", "req-mem-list-2", "x2", "v2", "", "global", "", nil)
+	_, err = MemorySetIdempotent(db, "agent-a", "req-mem-list-2", "x2", "v2", "", "global", "", nil, false)
 	require.NoError(t, err)
 
 	list, err := MemoryList(db, "global", "")
@@ -109,7 +109,7 @@ func TestMemoryGCIdempotent(t *testing.T) {
 	defer cleanup()
 
 	expired := time.Now().UTC().Add(-1 * time.Hour)
-	_, err := MemorySetIdempotent(db, "agent1", "req_expire_setup", "expired", "v", "string", "global", "", &expired)
+	_, err := MemorySetIdempotent(db, "agent1", "req_expire_setup", "expired", "v", "string", "global", "", &expired, false)
 	require.NoError(t, err)
 
 	gc, err := MemoryGCIdempotent(db, "agent1", "req_gc_action", 100)

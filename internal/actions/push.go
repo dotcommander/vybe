@@ -26,6 +26,7 @@ type PushMemoryInput struct {
 	Scope     string     `json:"scope"`
 	ScopeID   string     `json:"scope_id,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Pinned    bool       `json:"pinned,omitempty"` // omitempty OK for input — defaults to false
 }
 
 // PushArtifactInput describes one artifact to link.
@@ -145,7 +146,7 @@ func PushIdempotent(db *sql.DB, agentName, requestID string, input PushInput) (*
 				result.Memories = make([]PushMemoryResult, 0, len(input.Memories))
 				for _, mem := range input.Memories {
 					eventID, err := store.UpsertMemoryTx(
-						tx, agentName, mem.Key, mem.Value, mem.ValueType, mem.Scope, mem.ScopeID, mem.ExpiresAt,
+						tx, agentName, mem.Key, mem.Value, mem.ValueType, mem.Scope, mem.ScopeID, mem.ExpiresAt, mem.Pinned,
 					)
 					if err != nil {
 						return PushResult{}, fmt.Errorf("failed to upsert memory %q: %w", mem.Key, err)

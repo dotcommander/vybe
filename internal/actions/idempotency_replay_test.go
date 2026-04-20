@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,9 +41,9 @@ func TestMemorySetIdempotent_Replay(t *testing.T) {
 	agent := "agent1"
 	req := "req_mem_set"
 
-	eid1, err := MemorySetIdempotent(db, agent, req, "k", "v", "", "global", "", nil)
+	eid1, err := MemorySetIdempotent(db, agent, req, "k", "v", "", "global", "", nil, false)
 	require.NoError(t, err)
-	eid2, err := MemorySetIdempotent(db, agent, req, "k", "v", "", "global", "", nil)
+	eid2, err := MemorySetIdempotent(db, agent, req, "k", "v", "", "global", "", nil, false)
 	require.NoError(t, err)
 	require.Equal(t, eid1, eid2)
 
@@ -136,13 +137,13 @@ func TestMemoryDeleteIdempotent_Replay(t *testing.T) {
 	defer cleanup()
 
 	agent := "agent1"
-	_, err := MemorySetIdempotent(db, agent, "req_seed_memdel", "k", "v", "", "global", "", nil)
+	_, err := MemorySetIdempotent(db, agent, "req_seed_memdel", "k", "v", "", "global", "", nil, false)
 	require.NoError(t, err)
 
 	req := "req_mem_delete"
-	eid1, err := MemoryDeleteIdempotent(db, agent, req, "k", "global", "")
+	eid1, err := MemoryDeleteIdempotent(context.Background(), db, agent, req, "k", "global", "")
 	require.NoError(t, err)
-	eid2, err := MemoryDeleteIdempotent(db, agent, req, "k", "global", "")
+	eid2, err := MemoryDeleteIdempotent(context.Background(), db, agent, req, "k", "global", "")
 	require.NoError(t, err)
 	require.Equal(t, eid1, eid2)
 
