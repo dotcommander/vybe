@@ -74,6 +74,56 @@ vybe task create --agent "$VYBE_AGENT" --request-id "$(req_id)" \
   --project-id "$PROJECT_ID" --title "Example" --desc "Scoped task"
 ```
 
+## Driver loop
+
+`vybe loop` is the built-in autonomous driver. It runs the resume → claim → work → next-task cycle for you by spawning an external command (your assistant CLI) once per task, feeding it the resume brief, and classifying the outcome. It is a one-shot batch runner — not a daemon, not polling — so it exits cleanly when the queue drains, when the circuit breaker trips, or when `--max-tasks` is reached.
+
+```bash
+vybe loop --agent "$VYBE_AGENT" \
+  --command "claude --dangerously-skip-permissions" \
+  --project-dir "$(pwd)" \
+  --max-tasks 10 \
+  --max-fails 3 \
+  --task-timeout 10m \
+  --cooldown 5s
+```
+
+The spawned command receives `-p @<tempfile>` (the brief prompt — file form avoids the 256KB CLI argument limit) and `--project <dir>`. The wrapper injects autonomous-rules guidance into the prompt so the spawned agent knows there is no human to ask and must emit DONE or STUCK before exiting.
+
+Outcome classification per task:
+
+| Result | Trigger | Effect on circuit breaker |
+| --- | --- | --- |
+| `completed` | Spawned command exit 0 AND task status = completed | Resets fail counter |
+| `blocked` | Task left in `pending`/`in_progress` after agent exits, or task already `blocked` | Increments fails |
+| `timeout` | Spawned command exceeded `--task-timeout` | Increments fails |
+| `failed` | Non-zero exit not attributable to timeout | Increments fails |
+
+Safety rails:
+
+- `--max-tasks N` — stop after N completions (default 10)
+- `--max-fails N` — circuit breaker stops the loop after N CONSECUTIVE failures (default 3)
+- `--task-timeout DUR` — kill the spawned command after this duration (default 10m; SIGTERM, then SIGKILL after 2s grace)
+- `--cooldown DUR` — wait between tasks; signal-aware, so SIGINT/SIGTERM during cooldown exits cleanly (default 5s)
+- `--dry-run` — print what would run without spawning anything
+- `--spawn-disable-hooks` — for Claude command, injects `--settings '{"hooks":{}}'` and sets `VYBE_DISABLE_EXTERNAL_LLM=1` so the spawned agent does not recursively trigger vybe hooks
+
+Loop output (stdout JSON envelope):
+
+```json
+{
+  "completed": 7,
+  "failed": 1,
+  "total": 8,
+  "duration_sec": 412.3,
+  "results": [
+    {"task_id": "task_...", "task_title": "...", "status": "completed", "duration": "1m23s"}
+  ]
+}
+```
+
+Optional `--post-hook "<cmd>"` runs after the loop exits and receives the results JSON on stdin (30s timeout, non-fatal if the hook errors). Use it for notifications, summaries, or chaining into another tool.
+
 ## Day-2 recipes
 
 ### Create and start task
@@ -109,6 +159,24 @@ vybe memory set --agent "$VYBE_AGENT" --request-id "mem_set_1" \
 
 vybe memory get --key checkpoint --scope task --scope-id "$TASK_ID" | jq -r '.data.value'
 ```
+
+### Pin durable strategy
+
+Use `--kind=directive` and `--pin` for behavioral rules that must survive decay and never drop out of the resume brief. Directives render first in the brief under `=== Directives ===` as bare values, before any facts.
+
+```bash
+# Write a directive and pin it
+vybe memory set --agent "$VYBE_AGENT" --request-id "mem_dir_1" \
+  --key always_run_tests \
+  --value "Run go test ./... before reporting any task complete" \
+  --scope global --kind directive --pin
+
+# Unpin later if the directive no longer applies
+vybe memory pin --agent "$VYBE_AGENT" --request-id "mem_unpin_1" \
+  --key always_run_tests --scope global --unpin
+```
+
+A subsequent `memory set` for the same key WITHOUT `--pin` will not clear the pin — only `memory pin --unpin` can.
 
 ### Read events and artifacts
 

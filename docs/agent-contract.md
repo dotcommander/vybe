@@ -53,7 +53,7 @@ Top-level commands:
 Primary subcommands:
 
 - `hook install|uninstall`
-- `memory set|get|list|delete|gc`
+- `memory set|get|list|delete|gc|pin`
 - `task create|begin|get|list|set-status`
 
 ## Canonical flag semantics
@@ -96,6 +96,27 @@ vybe push --agent "$AGENT" --request-id "$REQ" \
 ```bash
 vybe memory set --agent "$AGENT" --request-id "$REQ" \
   --key ... --value ... --scope task --scope-id "$TASK_ID"
+```
+
+`memory set` accepts a `--kind` to classify the entry. The kind controls how the memory renders in the resume brief and how fast it decays:
+
+| Kind | Default half-life | Brief section | Use for |
+| --- | --- | --- | --- |
+| `directive` | never decays | `=== Directives ===` (first, value-only) | Imperative behavioral rules |
+| `fact` (default) | 90 days | `=== Facts ===` (key=value form) | Project state, decisions, identifiers |
+| `lesson` | 14 days | `=== Facts ===` (key=value form) | Tactical insights, post-incident notes |
+
+Override per-entry decay with `--half-life-days <n>`. Pin a memory with `--pin` (or via `vybe memory pin`) to force it to sort first in the brief regardless of decay.
+
+Pin semantics are sticky upward: `--pin` sets the flag, but a later `memory set` without `--pin` will NOT clear it. Only `vybe memory pin --unpin --key <k>` removes the pin. This protects durable strategic memory from incidental overwrites.
+
+```bash
+# Pin (or unpin) a memory entry
+vybe memory pin --agent "$AGENT" --request-id "$REQ" \
+  --key <k> --scope task --scope-id "$TASK_ID"
+
+vybe memory pin --agent "$AGENT" --request-id "$REQ" \
+  --key <k> --scope task --scope-id "$TASK_ID" --unpin
 ```
 
 ### Artifacts

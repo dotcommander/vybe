@@ -371,6 +371,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`
 - Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
-- Command surface: `artifacts`, `events`, `hook` (install, uninstall), `loop`, `memory` (set, get, list, delete, gc), `push`, `resume` (--peek, --focus, --project-dir, --limit), `schema`, `status` (--check), `task` (create, begin, complete, get, list, set-status), `upgrade`
+- Command surface: `artifacts`, `events`, `hook` (install, uninstall), `loop`, `memory` (set, get, list, delete, gc, pin), `push`, `resume` (--peek, --focus, --project-dir, --limit), `schema`, `status` (--check), `task` (create, begin, get, list, set-status), `upgrade`
 - Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`
 - **After code changes**: rebuild binary and update symlink: `go build -o vybe ./cmd/vybe && ln -sf "$(pwd)/vybe" ~/go/bin/vybe`
