@@ -6,12 +6,32 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/pressly/goose/v3"
 )
 
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
+
+// gooseInit guards the package-global goose configuration calls (SetBaseFS,
+// SetVerbose, SetLogger, SetDialect). All four calls use identical arguments
+// across every call site, so once-per-process is correct. Without this guard,
+// parallel tests that each call MigrateDB or SchemaVersion race on goose globals.
+var (
+	gooseInit    sync.Once
+	gooseInitErr error
+)
+
+func initGoose() error {
+	gooseInit.Do(func() {
+		goose.SetBaseFS(embedMigrations)
+		goose.SetVerbose(false)
+		goose.SetLogger(goose.NopLogger())
+		gooseInitErr = goose.SetDialect("sqlite3")
+	})
+	return gooseInitErr
+}
 
 // MigrateDB runs all pending migrations with a file lock to prevent concurrent
 // migration races. For in-memory databases (tests), the lock is skipped.
@@ -36,10 +56,7 @@ func MigrateDB(db *sql.DB, dbPath string) error {
 // current comes from goose_db_version; latest is the highest version
 // in the embedded migration files. Returns (0, latest, nil) for a fresh DB.
 func SchemaVersion(db *sql.DB) (current int64, latest int64, err error) {
-	goose.SetBaseFS(embedMigrations)
-	goose.SetVerbose(false)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("sqlite3"); err != nil {
+	if err := initGoose(); err != nil {
 		return 0, 0, fmt.Errorf("set dialect: %w", err)
 	}
 
@@ -90,17 +107,13 @@ func latestMigrationVersion() (int64, error) {
 
 // RunMigrations runs all pending migrations using goose.
 func RunMigrations(db *sql.DB) error {
-	goose.SetBaseFS(embedMigrations)
-	goose.SetVerbose(false) // Suppress migration logs for clean JSON output
-	goose.SetLogger(goose.NopLogger())
+	if err := initGoose(); err != nil {
+		return err
+	}
 
 	// goose uses "sqlite3" as its dialect name regardless of the underlying driver.
 	// We use modernc.org/sqlite (registered as "sqlite"), but goose's dialect
 	// controls SQL generation (e.g., CREATE TABLE syntax), not the driver name.
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		return err
-	}
-
 	if err := goose.Up(db, "migrations"); err != nil {
 		return err
 	}
