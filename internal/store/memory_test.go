@@ -103,7 +103,7 @@ func TestUpsertMemoryWithEventIdempotent_TaskScope(t *testing.T) {
 	defer cleanup()
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	eventID, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_task_scope_upsert", "checkpoint", "step_3", "", "task", "task-1", &expiresAt, false, "", nil)
+	eventID, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_task_scope_upsert", "checkpoint", "step_3", "", "task", "task-1", &expiresAt, false, "", nil, "")
 	require.NoError(t, err)
 	require.Greater(t, eventID, int64(0))
 
@@ -375,6 +375,7 @@ func TestUpsertMemoryWithEventIdempotent_Replay(t *testing.T) {
 		false,
 		"",
 		nil,
+		"",
 	)
 	require.NoError(t, err)
 
@@ -391,6 +392,7 @@ func TestUpsertMemoryWithEventIdempotent_Replay(t *testing.T) {
 		false,
 		"",
 		nil,
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, eventID1, eventID2)
@@ -443,7 +445,7 @@ func TestUpsertMemory_RejectsInvalidValueType(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_vt_1", "k", "v", "invalid", "global", "", nil, false, "", nil)
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_vt_1", "k", "v", "invalid", "global", "", nil, false, "", nil, "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid value_type")
 }
@@ -463,7 +465,7 @@ func TestMemoryEventMetadata_MarshalProducesValidJSON(t *testing.T) {
 				_, err := UpsertMemoryWithEventIdempotent(
 					db, "agent1", "req_meta_1",
 					"test-key", "test-value", "string",
-					"global", "", nil, false, "", nil,
+					"global", "", nil, false, "", nil, "",
 				)
 				return err
 			},
@@ -522,11 +524,11 @@ func TestUpsertMemoryTx_EmitsConflictEvent(t *testing.T) {
 	defer cleanup()
 
 	// First insert — no conflict
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_1", "key1", "value_old", "string", "global", "", nil, false, "", nil)
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_1", "key1", "value_old", "string", "global", "", nil, false, "", nil, "")
 	require.NoError(t, err)
 
 	// Overwrite with different value — should emit memory_conflict
-	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_2", "key1", "value_new", "string", "global", "", nil, false, "", nil)
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_conflict_2", "key1", "value_new", "string", "global", "", nil, false, "", nil, "")
 	require.NoError(t, err)
 
 	// Check that a memory_conflict event was emitted
@@ -547,10 +549,10 @@ func TestUpsertMemoryTx_NoConflictOnSameValue(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_1", "key1", "same_value", "string", "global", "", nil, false, "", nil)
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_1", "key1", "same_value", "string", "global", "", nil, false, "", nil, "")
 	require.NoError(t, err)
 
-	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_2", "key1", "same_value", "string", "global", "", nil, false, "", nil)
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent1", "req_same_2", "key1", "same_value", "string", "global", "", nil, false, "", nil, "")
 	require.NoError(t, err)
 
 	var count int
@@ -560,6 +562,7 @@ func TestUpsertMemoryTx_NoConflictOnSameValue(t *testing.T) {
 }
 
 func TestGetMemory_TracksAccess(t *testing.T) {
+	t.Parallel()
 	db, cleanup := setupMemoryTestDB(t)
 	defer cleanup()
 

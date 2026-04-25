@@ -28,7 +28,7 @@ func TestMemorySetPinFlag(t *testing.T) {
 
 	_, err = store.UpsertMemoryWithEventIdempotent(
 		db, "agent-pin-flag", "req-pin-set-flag-1",
-		"arch", "monolith", "string", "global", "", nil, true, "", nil,
+		"arch", "monolith", "string", "global", "", nil, true, "", nil, "",
 	)
 	require.NoError(t, err)
 

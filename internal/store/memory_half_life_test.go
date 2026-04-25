@@ -96,11 +96,11 @@ func TestMemoryHalfLife_StickyPreserve(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-hl-sticky-1", "sticky-key", "v1", "string", "global", "", nil, false, "lesson", ptr(7.0))
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-hl-sticky-1", "sticky-key", "v1", "string", "global", "", nil, false, "lesson", ptr(7.0), "")
 	require.NoError(t, err)
 
 	// Second upsert without half_life — nil must not clobber stored value
-	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-hl-sticky-2", "sticky-key", "v2", "string", "global", "", nil, false, "lesson", nil)
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-hl-sticky-2", "sticky-key", "v2", "string", "global", "", nil, false, "lesson", nil, "")
 	require.NoError(t, err)
 
 	var storedHL *float64

@@ -46,11 +46,11 @@ func TestUpsertMemoryWithEventIdempotent_ReplayPreservesKind(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-kind-replay-1", "rule", "be concise", "string", "global", "", nil, false, "directive", nil)
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-kind-replay-1", "rule", "be concise", "string", "global", "", nil, false, "directive", nil, "")
 	require.NoError(t, err)
 
 	// Replay must return same event and not alter kind
-	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-kind-replay-1", "rule", "be concise", "string", "global", "", nil, false, "directive", nil)
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-kind-replay-1", "rule", "be concise", "string", "global", "", nil, false, "directive", nil, "")
 	require.NoError(t, err)
 
 	var kind string
@@ -75,11 +75,11 @@ func TestUpsertMemoryWithEventIdempotent_LessonKind(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-lesson-kind-1", "lesson-key", "prefer table-driven tests", "string", "global", "", nil, false, "lesson", nil)
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-lesson-kind-1", "lesson-key", "prefer table-driven tests", "string", "global", "", nil, false, "lesson", nil, "")
 	require.NoError(t, err)
 
 	// Replay must return same event and not alter kind
-	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-lesson-kind-1", "lesson-key", "prefer table-driven tests", "string", "global", "", nil, false, "lesson", nil)
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-lesson-kind-1", "lesson-key", "prefer table-driven tests", "string", "global", "", nil, false, "lesson", nil, "")
 	require.NoError(t, err)
 
 	var kind string

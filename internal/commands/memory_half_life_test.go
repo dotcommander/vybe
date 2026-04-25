@@ -29,7 +29,7 @@ func TestMemorySetCmd_HalfLifeDaysFlag(t *testing.T) {
 	_, err = store.UpsertMemoryWithEventIdempotent(
 		db, "agent-hl", "req-hl-flag-1",
 		"lesson-key", "some insight", "string",
-		"global", "", nil, false, "lesson", &halfLife,
+		"global", "", nil, false, "lesson", &halfLife, "",
 	)
 	require.NoError(t, err)
 

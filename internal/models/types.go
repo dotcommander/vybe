@@ -141,6 +141,8 @@ type Memory struct {
 	Kind           string      `json:"kind,omitzero"`
 	HalfLifeDays   *float64    `json:"half_life_days,omitempty"`
 	Relevance      float64     `json:"relevance,omitempty"`
+	SourceEventID  *int64      `json:"source_event_id,omitempty"`
+	SourceTaskID   string      `json:"source_task_id,omitzero"`
 }
 
 // IsExpired returns true if the memory has an expiration time and it has passed.

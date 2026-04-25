@@ -16,7 +16,9 @@ import (
 // MemorySetIdempotent stores a memory entry idempotently.
 // kind must be "" (defaults to "fact"), "fact", "directive", or "lesson". Any other value returns a structured error.
 // halfLifeDays is nil to preserve any stored value, or a non-negative float to override decay rate.
-func MemorySetIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, pinned bool, kind string, halfLifeDays *float64) (int64, error) { //nolint:revive // argument-limit: memory params are distinct; struct degrades call-site readability
+// sourceTaskID is optional provenance; pass "" when not known. source_event_id is NOT auto-populated
+// here — doing so would be circular (memory → the event that created it).
+func MemorySetIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, pinned bool, kind string, halfLifeDays *float64, sourceTaskID string) (int64, error) { //nolint:revive // argument-limit: memory params are distinct; struct degrades call-site readability
 	if agentName == "" {
 		return 0, errors.New("agent name is required")
 	}
@@ -32,7 +34,7 @@ func MemorySetIdempotent(db *sql.DB, agentName, requestID, key, value, valueType
 	if halfLifeDays != nil && *halfLifeDays < 0 {
 		return 0, fmt.Errorf("half_life_days must be >= 0, got %g", *halfLifeDays)
 	}
-	return store.UpsertMemoryWithEventIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, halfLifeDays)
+	return store.UpsertMemoryWithEventIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, halfLifeDays, sourceTaskID)
 }
 
 // ValidateMemoryKind reports whether kind is valid. Returns a structured error whose Error()
@@ -108,11 +110,7 @@ func MemoryDeleteIdempotent(ctx context.Context, db *sql.DB, agentName, requestI
 	if requestID == "" {
 		return 0, errors.New("request id is required")
 	}
-	eventID, err := store.DeleteMemoryWithEventIdempotent(ctx, db, agentName, requestID, key, scope, scopeID)
-	if err != nil {
-		return 0, err
-	}
-	return eventID, nil
+	return store.DeleteMemoryWithEventIdempotent(ctx, db, agentName, requestID, key, scope, scopeID)
 }
 
 // ParseExpiresIn parses a duration string and returns the corresponding expiration time.

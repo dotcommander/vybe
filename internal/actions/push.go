@@ -36,15 +36,17 @@ type PushEventInput struct {
 
 // PushMemoryInput describes one memory upsert.
 type PushMemoryInput struct {
-	Key          string     `json:"key"`
-	Value        string     `json:"value"`
-	ValueType    string     `json:"value_type,omitempty"`
-	Scope        string     `json:"scope"`
-	ScopeID      string     `json:"scope_id,omitempty"`
-	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
-	Pinned       bool       `json:"pinned,omitempty"`         // omitempty OK for input — defaults to false
-	Kind         string     `json:"kind,omitempty"`           // "" | "fact" | "directive" | "lesson"; default "fact"
-	HalfLifeDays *float64   `json:"half_life_days,omitempty"` // nil = preserve stored value; >= 0 = override decay rate
+	Key           string     `json:"key"`
+	Value         string     `json:"value"`
+	ValueType     string     `json:"value_type,omitempty"`
+	Scope         string     `json:"scope"`
+	ScopeID       string     `json:"scope_id,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	Pinned        bool       `json:"pinned,omitempty"`          // omitempty OK for input — defaults to false
+	Kind          string     `json:"kind,omitempty"`            // "" | "fact" | "directive" | "lesson"; default "fact"
+	HalfLifeDays  *float64   `json:"half_life_days,omitempty"`  // nil = preserve stored value; >= 0 = override decay rate
+	SourceEventID *int64     `json:"source_event_id,omitempty"` // optional provenance; auto-populated from batch event if nil
+	SourceTaskID  string     `json:"source_task_id,omitempty"`  // optional task provenance; caller-supplied
 }
 
 // PushArtifactInput describes one artifact to link.
@@ -171,8 +173,17 @@ func PushIdempotent(db *sql.DB, agentName, requestID string, input PushInput) (*
 			if len(input.Memories) > 0 {
 				result.Memories = make([]PushMemoryResult, 0, len(input.Memories))
 				for _, mem := range input.Memories {
+					// Auto-populate source_event_id from the batch event when the caller hasn't set one.
+					// This links every memory in the batch to the event that produced them, without
+					// requiring callers to plumb the ID through explicitly.
+					sourceEventID := mem.SourceEventID
+					if sourceEventID == nil && result.EventID != 0 {
+						eid := result.EventID
+						sourceEventID = &eid
+					}
 					eventID, err := store.UpsertMemoryTx(
 						tx, agentName, mem.Key, mem.Value, mem.ValueType, mem.Scope, mem.ScopeID, mem.ExpiresAt, mem.Pinned, mem.Kind, mem.HalfLifeDays,
+						sourceEventID, mem.SourceTaskID,
 					)
 					if err != nil {
 						return PushResult{}, fmt.Errorf("failed to upsert memory %q: %w", mem.Key, err)

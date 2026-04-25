@@ -64,9 +64,11 @@ func SetMemory(db *sql.DB, key, value, valueType, scope, scopeID string, expires
 // Returns (eventID, error).
 // Exported for use by batch operations (e.g., push).
 // halfLifeDays is nil if the caller does not override decay; a stored value is then preserved.
+// sourceEventID and sourceTaskID are optional provenance links; pass nil/"" when unknown.
+// Provenance is sticky: the first non-null write wins; subsequent upserts do not overwrite.
 //
-//nolint:revive // argument-limit: all memory params (key, value, type, scope, scope_id, expires, pinned, kind, halfLifeDays) are required and distinct
-func UpsertMemoryTx(tx *sql.Tx, agentName, key, value, valueType, scope, scopeID string, expiresAt *time.Time, pinned bool, kind string, halfLifeDays *float64) (int64, error) {
+//nolint:revive // argument-limit: all memory params (key, value, type, scope, scope_id, expires, pinned, kind, halfLifeDays, sourceEventID, sourceTaskID) are required and distinct
+func UpsertMemoryTx(tx *sql.Tx, agentName, key, value, valueType, scope, scopeID string, expiresAt *time.Time, pinned bool, kind string, halfLifeDays *float64, sourceEventID *int64, sourceTaskID string) (int64, error) {
 	if key == "" {
 		return 0, errors.New("memory key is required")
 	}
@@ -116,8 +118,8 @@ func UpsertMemoryTx(tx *sql.Tx, agentName, key, value, valueType, scope, scopeID
 	}
 
 	_, err := tx.ExecContext(context.Background(), `
-		INSERT INTO memory (key, value, value_type, scope, scope_id, expires_at, pinned, kind, half_life_days, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		INSERT INTO memory (key, value, value_type, scope, scope_id, expires_at, pinned, kind, half_life_days, source_event_id, source_task_id, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(scope, scope_id, key) DO UPDATE SET
 			value = excluded.value,
 			value_type = excluded.value_type,
@@ -128,8 +130,11 @@ func UpsertMemoryTx(tx *sql.Tx, agentName, key, value, valueType, scope, scopeID
 			kind = excluded.kind,
 			-- Half-life sticky-preserve: NULL upsert does not clobber stored value; only explicit non-NULL replaces.
 			half_life_days = CASE WHEN excluded.half_life_days IS NOT NULL THEN excluded.half_life_days ELSE half_life_days END,
+			-- Provenance sticky: first non-null write wins; subsequent upserts do not overwrite.
+			source_event_id = CASE WHEN memory.source_event_id IS NULL THEN excluded.source_event_id ELSE memory.source_event_id END,
+			source_task_id  = CASE WHEN memory.source_task_id IS NULL OR memory.source_task_id = '' THEN excluded.source_task_id ELSE memory.source_task_id END,
 			updated_at = CURRENT_TIMESTAMP
-	`, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, halfLifeDays)
+	`, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, halfLifeDays, sourceEventID, sourceTaskID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to upsert memory: %w", err)
 	}
@@ -154,14 +159,16 @@ func UpsertMemoryTx(tx *sql.Tx, agentName, key, value, valueType, scope, scopeID
 }
 
 // UpsertMemoryWithEventIdempotent performs memory upsert once per (agent_name, request_id).
+// sourceTaskID is optional; pass "" when unknown. source_event_id is not auto-populated here
+// (standalone set would produce a circular reference — memory → the event that created memory).
 //
 //nolint:revive // argument-limit: all memory params are required and distinct
-func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, pinned bool, kind string, halfLifeDays *float64) (int64, error) {
+func UpsertMemoryWithEventIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, pinned bool, kind string, halfLifeDays *float64, sourceTaskID string) (int64, error) {
 	type idemResult struct {
 		EventID int64 `json:"event_id"`
 	}
 	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "memory.upsert", func(tx *sql.Tx) (idemResult, error) {
-		eid, txErr := UpsertMemoryTx(tx, agentName, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, halfLifeDays)
+		eid, txErr := UpsertMemoryTx(tx, agentName, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, halfLifeDays, nil, sourceTaskID)
 		if txErr != nil {
 			return idemResult{}, txErr
 		}
@@ -181,15 +188,21 @@ func GetMemory(db *sql.DB, key, scope, scopeID string) (*models.Memory, error) {
 	}
 	var mem models.Memory
 	err := RetryWithBackoff(context.Background(), func() error {
-		return db.QueryRowContext(context.Background(), `
-			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, kind, half_life_days
+		var sourceTaskID sql.NullString
+		if err := db.QueryRowContext(context.Background(), `
+			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, kind, half_life_days, source_event_id, source_task_id
 			FROM memory
 			WHERE key = ? AND scope = ? AND scope_id = ?
 			AND (pinned = 1 OR expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 		`, key, scope, scopeID).Scan(
 			&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID,
 			&mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.AccessCount, &mem.LastAccessedAt, &mem.Pinned, &mem.Kind, &mem.HalfLifeDays,
-		)
+			&mem.SourceEventID, &sourceTaskID,
+		); err != nil {
+			return err
+		}
+		mem.SourceTaskID = sourceTaskID.String
+		return nil
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -217,7 +230,7 @@ func ListMemory(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
 	var memories []*models.Memory
 	err := RetryWithBackoff(context.Background(), func() error {
 		rows, err := db.QueryContext(context.Background(), `
-			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, kind, half_life_days
+			SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, kind, half_life_days, source_event_id, source_task_id
 			FROM memory
 			WHERE scope = ? AND scope_id = ?
 			AND (pinned = 1 OR expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
@@ -230,9 +243,11 @@ func ListMemory(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
 		memories = make([]*models.Memory, 0)
 		for rows.Next() {
 			var mem models.Memory
-			if err := rows.Scan(&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID, &mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.AccessCount, &mem.LastAccessedAt, &mem.Pinned, &mem.Kind, &mem.HalfLifeDays); err != nil {
+			var sourceTaskID sql.NullString
+			if err := rows.Scan(&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID, &mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.AccessCount, &mem.LastAccessedAt, &mem.Pinned, &mem.Kind, &mem.HalfLifeDays, &mem.SourceEventID, &sourceTaskID); err != nil {
 				return fmt.Errorf("failed to scan memory: %w", err)
 			}
+			mem.SourceTaskID = sourceTaskID.String
 			memories = append(memories, &mem)
 		}
 		return rows.Err()
