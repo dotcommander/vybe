@@ -52,7 +52,7 @@ func TestDeleteProject_ClearsReferences(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add project-scoped memory
-	err = SetMemory(db, "proj-key", "proj-value", "string", "project", project.ID, nil, false)
+	err = SetMemory(db, "proj-key", "proj-value", "string", "project", project.ID, nil, false, "", nil)
 	require.NoError(t, err)
 
 	// Delete the project

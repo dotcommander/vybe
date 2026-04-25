@@ -278,4 +278,3 @@ func TestTaskSetStatusAtomicity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, eventMessage, "in_progress")
 }
-

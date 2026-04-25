@@ -51,6 +51,12 @@ func TestMemoryMutatingCommands_RequireIdentity(t *testing.T) {
 	})
 }
 
+func TestMemorySetCmd_KindFlagDefault(t *testing.T) {
+	set := newMemorySetCmd()
+	requireFlagExists(t, set, "kind")
+	require.Equal(t, "fact", set.Flag("kind").DefValue, "--kind default must be 'fact'")
+}
+
 func TestMemoryFlagSetup(t *testing.T) {
 	set := newMemorySetCmd()
 	requireFlagExists(t, set, "key")
@@ -59,6 +65,7 @@ func TestMemoryFlagSetup(t *testing.T) {
 	requireFlagExists(t, set, "scope")
 	requireFlagExists(t, set, "scope-id")
 	requireFlagExists(t, set, "expires-in")
+	requireFlagExists(t, set, "kind")
 	require.Equal(t, "true", set.Flag("key").Annotations[cobra.BashCompOneRequiredFlag][0])
 	require.Equal(t, "true", set.Flag("value").Annotations[cobra.BashCompOneRequiredFlag][0])
 

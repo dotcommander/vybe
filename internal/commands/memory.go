@@ -84,6 +84,15 @@ func newMemorySetCmd() *cobra.Command {
 			scopeID, _ := cmd.Flags().GetString("scope-id")
 			expiresIn, _ := cmd.Flags().GetString("expires-in")
 			pinned, _ := cmd.Flags().GetBool("pin")
+			kind, _ := cmd.Flags().GetString("kind")
+			if kind == "" {
+				kind = "fact"
+			}
+			halfLifeRaw, _ := cmd.Flags().GetFloat64("half-life-days")
+			var halfLifeDays *float64
+			if halfLifeRaw >= 0 {
+				halfLifeDays = &halfLifeRaw
+			}
 
 			expiresAt, err := actions.ParseExpiresIn(expiresIn)
 			if err != nil {
@@ -92,7 +101,7 @@ func newMemorySetCmd() *cobra.Command {
 
 			var eventID int64
 			if err := withDB(func(db *DB) error {
-				eid, err := actions.MemorySetIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, pinned)
+				eid, err := actions.MemorySetIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, halfLifeDays)
 				if err != nil {
 					return err
 				}
@@ -103,14 +112,16 @@ func newMemorySetCmd() *cobra.Command {
 			}
 
 			type resp struct {
-				EventID   int64      `json:"event_id"`
-				Key       string     `json:"key"`
-				Scope     string     `json:"scope"`
-				ScopeID   string     `json:"scope_id,omitempty"`
-				ExpiresAt *time.Time `json:"expires_at,omitempty"`
-				Pinned    bool       `json:"pinned"`
+				EventID      int64      `json:"event_id"`
+				Key          string     `json:"key"`
+				Scope        string     `json:"scope"`
+				ScopeID      string     `json:"scope_id,omitempty"`
+				ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+				Pinned       bool       `json:"pinned"`
+				Kind         string     `json:"kind"`
+				HalfLifeDays *float64   `json:"half_life_days,omitempty"`
 			}
-			return output.PrintSuccess(resp{EventID: eventID, Key: key, Scope: scope, ScopeID: scopeID, ExpiresAt: expiresAt, Pinned: pinned})
+			return output.PrintSuccess(resp{EventID: eventID, Key: key, Scope: scope, ScopeID: scopeID, ExpiresAt: expiresAt, Pinned: pinned, Kind: kind, HalfLifeDays: halfLifeDays})
 		},
 	}
 
@@ -121,6 +132,8 @@ func newMemorySetCmd() *cobra.Command {
 	cmd.Flags().String("scope-id", "", "Scope ID (required for non-global scopes)")
 	cmd.Flags().String("expires-in", "", "Expiration duration (e.g., 24h, 7d, 2w)")
 	cmd.Flags().Bool("pin", false, "Mark this memory as pinned (bypasses TTL and always appears in brief)")
+	cmd.Flags().String("kind", "fact", "Memory kind: fact (key=value claim), directive (imperative behavioral rule), or lesson (short-lived insight)")
+	cmd.Flags().Float64("half-life-days", -1, "Override decay half-life in days (-1 = use kind default)")
 
 	_ = cmd.MarkFlagRequired("key")
 	_ = cmd.MarkFlagRequired("value")

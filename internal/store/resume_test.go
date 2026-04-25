@@ -261,12 +261,12 @@ func TestBuildBrief_WithTask(t *testing.T) {
 	}
 
 	// Add some memory
-	err = SetMemory(db, "key1", "value1", "string", "global", "", nil, false)
+	err = SetMemory(db, "key1", "value1", "string", "global", "", nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set global memory: %v", err)
 	}
 
-	err = SetMemory(db, "key2", "value2", "string", "task", task.ID, nil, false)
+	err = SetMemory(db, "key2", "value2", "string", "task", task.ID, nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set task memory: %v", err)
 	}
@@ -405,19 +405,19 @@ func TestFetchRelevantMemory(t *testing.T) {
 	}
 
 	// Add global memory
-	err = SetMemory(db, "global_key", "global_value", "string", "global", "", nil, false)
+	err = SetMemory(db, "global_key", "global_value", "string", "global", "", nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set global memory: %v", err)
 	}
 
 	// Add task-specific memory
-	err = SetMemory(db, "task_key", "task_value", "string", "task", task.ID, nil, false)
+	err = SetMemory(db, "task_key", "task_value", "string", "task", task.ID, nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set task memory: %v", err)
 	}
 
 	// Add agent memory (should NOT be included)
-	err = SetMemory(db, "agent_key", "agent_value", "string", "agent", "agent1", nil, false)
+	err = SetMemory(db, "agent_key", "agent_value", "string", "agent", "agent1", nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set agent memory: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestBuildBrief_WithProject(t *testing.T) {
 	}
 
 	// Add project-scoped memory
-	err = SetMemory(db, "pkey", "pval", "string", "project", project.ID, nil, false)
+	err = SetMemory(db, "pkey", "pval", "string", "project", project.ID, nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set project memory: %v", err)
 	}
@@ -528,11 +528,11 @@ func TestFetchRelevantMemory_ProjectFiltered(t *testing.T) {
 	}
 
 	// Two projects
-	err = SetMemory(db, "p1key", "p1val", "string", "project", "proj_1", nil, false)
+	err = SetMemory(db, "p1key", "p1val", "string", "project", "proj_1", nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set project 1 memory: %v", err)
 	}
-	err = SetMemory(db, "p2key", "p2val", "string", "project", "proj_2", nil, false)
+	err = SetMemory(db, "p2key", "p2val", "string", "project", "proj_2", nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set project 2 memory: %v", err)
 	}
@@ -576,11 +576,11 @@ func TestFetchRelevantMemory_FiltersExpired(t *testing.T) {
 	}
 
 	// Active memory, should remain.
-	require.NoError(t, SetMemory(db, "active", "value", "string", "task", task.ID, nil, false))
+	require.NoError(t, SetMemory(db, "active", "value", "string", "task", task.ID, nil, false, "", nil))
 
 	// Expired memory, should be filtered out.
 	expired := time.Now().UTC().Add(-1 * time.Hour)
-	require.NoError(t, SetMemory(db, "expired", "value", "string", "task", task.ID, &expired, false))
+	require.NoError(t, SetMemory(db, "expired", "value", "string", "task", task.ID, &expired, false, "", nil))
 
 	memories, err := fetchRelevantMemory(db, task.ID, "")
 	if err != nil {
@@ -983,8 +983,8 @@ func TestFetchRelevantMemory_ACTRScoring(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	require.NoError(t, SetMemory(db, "rarely_used", "val1", "string", "global", "", nil, false))
-	require.NoError(t, SetMemory(db, "frequently_used", "val2", "string", "global", "", nil, false))
+	require.NoError(t, SetMemory(db, "rarely_used", "val1", "string", "global", "", nil, false, "", nil))
+	require.NoError(t, SetMemory(db, "frequently_used", "val2", "string", "global", "", nil, false, "", nil))
 
 	// Simulate high access for frequently_used
 	_, err := db.Exec(`UPDATE memory SET access_count = 10, last_accessed_at = CURRENT_TIMESTAMP WHERE key = 'frequently_used'`)
@@ -1017,7 +1017,7 @@ func TestFetchRelevantMemory_AccessCountIncrement(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	require.NoError(t, SetMemory(db, "counter_test", "val", "string", "global", "", nil, false))
+	require.NoError(t, SetMemory(db, "counter_test", "val", "string", "global", "", nil, false, "", nil))
 
 	// Fetch twice
 	_, err := fetchRelevantMemory(db, "", "")

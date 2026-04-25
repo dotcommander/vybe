@@ -8,8 +8,24 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 )
+
+// normalizePushMemories defaults empty Kind to "fact" and validates all kinds before
+// the transaction begins — fail-fast on a bad batch rather than half-committing.
+func normalizePushMemories(memories []PushMemoryInput) ([]PushMemoryInput, error) {
+	for i, mem := range memories {
+		if mem.Kind == "" {
+			memories[i].Kind = string(models.MemoryKindFact)
+			continue
+		}
+		if err := ValidateMemoryKind(mem.Kind); err != nil {
+			return nil, fmt.Errorf("memories[%d]: %w", i, err)
+		}
+	}
+	return memories, nil
+}
 
 // PushEventInput describes the optional event to insert.
 type PushEventInput struct {
@@ -20,13 +36,15 @@ type PushEventInput struct {
 
 // PushMemoryInput describes one memory upsert.
 type PushMemoryInput struct {
-	Key       string     `json:"key"`
-	Value     string     `json:"value"`
-	ValueType string     `json:"value_type,omitempty"`
-	Scope     string     `json:"scope"`
-	ScopeID   string     `json:"scope_id,omitempty"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	Pinned    bool       `json:"pinned,omitempty"` // omitempty OK for input — defaults to false
+	Key          string     `json:"key"`
+	Value        string     `json:"value"`
+	ValueType    string     `json:"value_type,omitempty"`
+	Scope        string     `json:"scope"`
+	ScopeID      string     `json:"scope_id,omitempty"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	Pinned       bool       `json:"pinned,omitempty"`         // omitempty OK for input — defaults to false
+	Kind         string     `json:"kind,omitempty"`           // "" | "fact" | "directive" | "lesson"; default "fact"
+	HalfLifeDays *float64   `json:"half_life_days,omitempty"` // nil = preserve stored value; >= 0 = override decay rate
 }
 
 // PushArtifactInput describes one artifact to link.
@@ -125,6 +143,14 @@ func PushIdempotent(db *sql.DB, agentName, requestID string, input PushInput) (*
 		return nil, fmt.Errorf("push exceeds maximum artifacts (%d > %d)", len(input.Artifacts), maxPushArtifacts)
 	}
 
+	// Normalize and validate memory kinds before entering the transaction — fail-fast
+	// on an invalid batch rather than half-committing inside the idempotent tx.
+	var normErr error
+	input.Memories, normErr = normalizePushMemories(input.Memories)
+	if normErr != nil {
+		return nil, normErr
+	}
+
 	r, _, err := store.RunIdempotentWithRetry(
 		context.Background(), db, agentName, requestID, "push",
 		3,
@@ -146,7 +172,7 @@ func PushIdempotent(db *sql.DB, agentName, requestID string, input PushInput) (*
 				result.Memories = make([]PushMemoryResult, 0, len(input.Memories))
 				for _, mem := range input.Memories {
 					eventID, err := store.UpsertMemoryTx(
-						tx, agentName, mem.Key, mem.Value, mem.ValueType, mem.Scope, mem.ScopeID, mem.ExpiresAt, mem.Pinned,
+						tx, agentName, mem.Key, mem.Value, mem.ValueType, mem.Scope, mem.ScopeID, mem.ExpiresAt, mem.Pinned, mem.Kind, mem.HalfLifeDays,
 					)
 					if err != nil {
 						return PushResult{}, fmt.Errorf("failed to upsert memory %q: %w", mem.Key, err)

@@ -36,6 +36,30 @@ const (
 	MemoryScopeAgent   MemoryScope = "agent"
 )
 
+// MemoryKind classifies a memory entry as either a factual claim or a behavioral directive.
+type MemoryKind string
+
+// Memory kind constants. Default is MemoryKindFact; MemoryKindDirective is an imperative rule
+// that renders as a bullet in the brief (e.g., "never mock the database in integration tests").
+// MemoryKindLesson captures retrospective insights with a shorter default half-life (14 days).
+//
+// Brief relevance decay (SQL CASE): directive→1e9d (≈ never), lesson→14d, fact→90d.
+// A per-entry half_life_days overrides the kind default; 0 and NULL both use the CASE default.
+const (
+	MemoryKindFact      MemoryKind = "fact"
+	MemoryKindDirective MemoryKind = "directive"
+	MemoryKindLesson    MemoryKind = "lesson"
+)
+
+// IsValid reports whether k is a recognized memory kind.
+func (k MemoryKind) IsValid() bool {
+	switch k {
+	case MemoryKindFact, MemoryKindDirective, MemoryKindLesson:
+		return true
+	}
+	return false
+}
+
 // Event represents a single event in the continuity log
 type Event struct {
 	ID int64 `json:"id"`
@@ -114,6 +138,8 @@ type Memory struct {
 	AccessCount    int         `json:"access_count"`
 	LastAccessedAt *time.Time  `json:"last_accessed_at,omitempty"`
 	Pinned         bool        `json:"pinned"`
+	Kind           string      `json:"kind,omitzero"`
+	HalfLifeDays   *float64    `json:"half_life_days,omitempty"`
 	Relevance      float64     `json:"relevance,omitempty"`
 }
 

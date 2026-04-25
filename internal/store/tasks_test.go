@@ -316,4 +316,3 @@ func TestUpdateTaskStatusWithEventTx_BlockedReasonTransitions(t *testing.T) {
 	assert.Equal(t, "pending", string(after4.Status))
 	assert.Empty(t, after4.BlockedReason, "blocked_reason must be cleared when transitioning out of blocked")
 }
-

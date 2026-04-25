@@ -162,19 +162,19 @@ func TestResumeWithMemoryContext(t *testing.T) {
 	}
 
 	// Add global memory
-	err = store.SetMemory(db, "api_url", "https://api.example.com", "string", "global", "", nil, false)
+	err = store.SetMemory(db, "api_url", "https://api.example.com", "string", "global", "", nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set global memory: %v", err)
 	}
 
 	// Add task-specific memory
-	err = store.SetMemory(db, "checkpoint", "step_3", "string", "task", task.ID, nil, false)
+	err = store.SetMemory(db, "checkpoint", "step_3", "string", "task", task.ID, nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set task memory: %v", err)
 	}
 
 	// Add agent-specific memory (should NOT be included in brief)
-	err = store.SetMemory(db, "local_cache", "/tmp/cache", "string", "agent", agentName, nil, false)
+	err = store.SetMemory(db, "local_cache", "/tmp/cache", "string", "agent", agentName, nil, false, "", nil)
 	if err != nil {
 		t.Fatalf("Failed to set agent memory: %v", err)
 	}

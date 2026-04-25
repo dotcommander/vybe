@@ -312,11 +312,25 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 		var query string
 		var args []any
 
-		relevanceExpr := `(1.0 + access_count) / (1.0 + MAX(julianday('now') - julianday(COALESCE(last_accessed_at, updated_at)), 0.0)) AS relevance`
+		// Half-life decay formula: relevance halves every half_life_days days.
+		// Per-entry half_life_days overrides kind defaults (directive→∞, lesson→14d, fact→90d).
+		// Pinned entries sort first; formula is tiebreaker only.
+		relevanceExpr := `(1.0 + access_count) / (1.0 + MAX(
+  (julianday('now') - julianday(COALESCE(last_accessed_at, updated_at)))
+  / COALESCE(
+      NULLIF(half_life_days, 0),
+      CASE kind
+        WHEN 'directive' THEN 1e9
+        WHEN 'lesson'    THEN 14.0
+        ELSE                  90.0
+      END
+    ),
+  0.0
+)) AS relevance`
 
 		if projectID != "" {
 			query = `
-				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, ` + relevanceExpr + `
+				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, kind, half_life_days, ` + relevanceExpr + `
 				FROM memory
 				WHERE (
 					scope = 'global'
@@ -330,7 +344,7 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 			args = []any{taskID, projectID}
 		} else {
 			query = `
-				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, ` + relevanceExpr + `
+				SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, kind, half_life_days, ` + relevanceExpr + `
 				FROM memory
 				WHERE (
 					scope = 'global'
@@ -357,7 +371,7 @@ func fetchRelevantMemory(db *sql.DB, taskID, projectID string) ([]*models.Memory
 			if err := rows.Scan(
 				&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID,
 				&mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.AccessCount, &mem.LastAccessedAt,
-				&mem.Pinned, &mem.Relevance,
+				&mem.Pinned, &mem.Kind, &mem.HalfLifeDays, &mem.Relevance,
 			); err != nil {
 				return fmt.Errorf("failed to scan memory: %w", err)
 			}

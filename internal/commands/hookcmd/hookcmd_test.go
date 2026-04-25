@@ -71,7 +71,7 @@ func TestHasVybeHook(t *testing.T) {
 func TestIsVybeHookCommand(t *testing.T) {
 	require.True(t, IsVybeHookCommand("vybe hook session-start"))
 	require.True(t, IsVybeHookCommand("/usr/local/bin/vybe hook checkpoint"))
-	require.True(t, IsVybeHookCommand(`"/Users/someone/go/bin/vybe" hook task-completed`))
+	require.True(t, IsVybeHookCommand(`"/path/to/vybe" hook task-completed`))
 	require.True(t, IsVybeHookCommand(`"/Users/my user/go/bin/vybe" hook session-start`))
 
 	require.False(t, IsVybeHookCommand("echo vybe hook session-start"))
@@ -317,7 +317,7 @@ func TestRegisterOpencodePlugin_PreservesExistingPlugins(t *testing.T) {
 	// Write a config with existing plugins
 	configPath := filepath.Join(ocDir, "opencode.json")
 	existing := map[string]any{
-		"plugin": []any{"./plugins/blog.ts", "./plugins/safety.ts"},
+		"plugin":   []any{"./plugins/blog.ts", "./plugins/safety.ts"},
 		"provider": map[string]any{"name": "anthropic"},
 	}
 	require.NoError(t, writeSettings(configPath, existing))

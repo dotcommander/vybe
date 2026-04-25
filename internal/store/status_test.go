@@ -45,7 +45,7 @@ func TestGetStatusCounts_SingleAtomicQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create memory
-	err = SetMemory(db, "key1", "val1", "string", "global", "", nil, false)
+	err = SetMemory(db, "key1", "val1", "string", "global", "", nil, false, "", nil)
 	require.NoError(t, err)
 
 	// Log an event

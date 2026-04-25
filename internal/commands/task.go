@@ -239,4 +239,3 @@ func newTaskGetCmd() *cobra.Command {
 
 	return cmd
 }
-

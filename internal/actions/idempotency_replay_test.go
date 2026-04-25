@@ -41,9 +41,9 @@ func TestMemorySetIdempotent_Replay(t *testing.T) {
 	agent := "agent1"
 	req := "req_mem_set"
 
-	eid1, err := MemorySetIdempotent(db, agent, req, "k", "v", "", "global", "", nil, false)
+	eid1, err := MemorySetIdempotent(db, agent, req, "k", "v", "", "global", "", nil, false, "", nil)
 	require.NoError(t, err)
-	eid2, err := MemorySetIdempotent(db, agent, req, "k", "v", "", "global", "", nil, false)
+	eid2, err := MemorySetIdempotent(db, agent, req, "k", "v", "", "global", "", nil, false, "", nil)
 	require.NoError(t, err)
 	require.Equal(t, eid1, eid2)
 
@@ -137,7 +137,7 @@ func TestMemoryDeleteIdempotent_Replay(t *testing.T) {
 	defer cleanup()
 
 	agent := "agent1"
-	_, err := MemorySetIdempotent(db, agent, "req_seed_memdel", "k", "v", "", "global", "", nil, false)
+	_, err := MemorySetIdempotent(db, agent, "req_seed_memdel", "k", "v", "", "global", "", nil, false, "", nil)
 	require.NoError(t, err)
 
 	req := "req_mem_delete"

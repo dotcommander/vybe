@@ -3,18 +3,72 @@ package actions
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 )
 
+// scopePriority returns a sort key for scope: global(0) → project(1) → task(2) → agent(3).
+// Lower value = higher priority in the brief.
+func scopePriority(s models.MemoryScope) int {
+	switch s {
+	case models.MemoryScopeGlobal:
+		return 0
+	case models.MemoryScopeProject:
+		return 1
+	case models.MemoryScopeTask:
+		return 2
+	case models.MemoryScopeAgent:
+		return 3
+	}
+	return 4
+}
+
+// sortMemoryByScope sorts memory entries by scope priority: global → project → task → agent.
+// Stable — preserves the store-level ordering (pinned/relevance) within each scope bucket.
+func sortMemoryByScope(ms []*models.Memory) {
+	sort.SliceStable(ms, func(i, j int) bool {
+		return scopePriority(ms[i].Scope) < scopePriority(ms[j].Scope)
+	})
+}
+
 const (
 	// defaultContextBudget is the token budget for variable prompt sections
 	// (memory, recent prompts, events, reasoning). Fixed sections always included.
 	defaultContextBudget = 1500
+
+	// staleSoftDays: memory older than this gets a soft age marker; agent
+	// should treat it as possibly drifted.
+	staleSoftDays = 30
+	// staleHardDays: memory older than this gets a hard "verify" marker.
+	staleHardDays = 90
 )
+
+// memoryCaveat is appended once after the memory section when any entries were
+// rendered. Reminds the agent to trust observed code over recalled facts.
+const memoryCaveat = "\nNote: recalled memory may be out of date. If a fact contradicts current code, trust what you observe and update the memory.\n"
+
+// staleTag returns an age marker for memory entries that warrant verification.
+// Pinned and TTL'd entries return "" — they self-manage freshness.
+// now is injected for testability; never call time.Now() inside.
+func staleTag(updatedAt time.Time, pinned bool, expiresAt *time.Time, now time.Time) string {
+	if pinned || expiresAt != nil {
+		return ""
+	}
+	days := int(now.Sub(updatedAt).Hours() / 24)
+	switch {
+	case days >= staleHardDays:
+		return fmt.Sprintf(" [stale: %dd — verify]", days)
+	case days >= staleSoftDays:
+		return fmt.Sprintf(" [%dd old]", days)
+	default:
+		return ""
+	}
+}
 
 // buildPrompt generates the context prompt injected into agent sessions.
 func buildPrompt(agentName string, brief *store.BriefPacket, recentPrompts []*models.Event) string {
@@ -97,15 +151,58 @@ func appendBudgetedSection(b *strings.Builder, header string, lines []string, re
 	}
 }
 
+// appendMemoryContext renders memory in two sections: directives (imperative rules,
+// bulleted) first, then facts (key=value, less salient). Staleness tags applied per entry.
+// The caveat block appears once after the memory section if ANY entry rendered.
+//
+// Sort order: kind primary (directives before facts), scope secondary
+// (global → project → task → agent) for determinism. The store returns entries
+// sorted by pinned DESC, relevance DESC; we re-sort by (kind, scope) here to
+// produce the shape the renderer expects.
 func appendMemoryContext(b *strings.Builder, brief *store.BriefPacket, remainingBudget *int) {
 	if brief == nil || len(brief.RelevantMemory) == 0 {
 		return
 	}
-	lines := make([]string, len(brief.RelevantMemory))
-	for i, memory := range brief.RelevantMemory {
-		lines[i] = fmt.Sprintf("  %s = %s\n", memory.Key, memory.Value)
+	now := time.Now()
+
+	var directives, facts []*models.Memory
+	for _, m := range brief.RelevantMemory {
+		if m.Kind == string(models.MemoryKindDirective) {
+			directives = append(directives, m)
+		} else {
+			// Includes "fact" and (defensively) any unrecognized value;
+			// store CHECK constraint prevents unknown kinds from ever persisting.
+			facts = append(facts, m)
+		}
 	}
-	appendBudgetedSection(b, "\nSaved notes from previous sessions:\n", lines, remainingBudget)
+	sortMemoryByScope(directives)
+	sortMemoryByScope(facts)
+
+	beforeLen := b.Len()
+
+	if len(directives) > 0 {
+		lines := make([]string, len(directives))
+		for i, m := range directives {
+			tag := staleTag(m.UpdatedAt, m.Pinned, m.ExpiresAt, now)
+			lines[i] = fmt.Sprintf("  - %s%s\n", m.Value, tag)
+		}
+		appendBudgetedSection(b, "\n=== Directives ===\n", lines, remainingBudget)
+	}
+
+	if len(facts) > 0 {
+		lines := make([]string, len(facts))
+		for i, m := range facts {
+			tag := staleTag(m.UpdatedAt, m.Pinned, m.ExpiresAt, now)
+			lines[i] = fmt.Sprintf("  %s = %s%s\n", m.Key, m.Value, tag)
+		}
+		appendBudgetedSection(b, "\n=== Facts ===\n", lines, remainingBudget)
+	}
+
+	if b.Len() > beforeLen {
+		// Caveat appears once when ANY memory line rendered (either section).
+		// Budget-gated; silently skipped if exhausted.
+		_ = appendBudgetedLine(b, memoryCaveat, remainingBudget)
+	}
 }
 
 func appendEventContext(b *strings.Builder, brief *store.BriefPacket, remainingBudget *int) {

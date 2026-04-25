@@ -17,7 +17,7 @@ func TestPinSurvivesTTL(t *testing.T) {
 
 	// Write with a past expires_at and pinned=true
 	past := time.Now().Add(-1 * time.Hour)
-	require.NoError(t, SetMemory(db, "arch", "monolith", "string", "global", "", &past, true))
+	require.NoError(t, SetMemory(db, "arch", "monolith", "string", "global", "", &past, true, "", nil))
 
 	// Should still be returned despite expired TTL
 	mem, err := GetMemory(db, "arch", "global", "")
@@ -35,8 +35,8 @@ func TestGCSkipsPinned(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour)
 
 	// One pinned-expired row, one unpinned-expired row
-	require.NoError(t, SetMemory(db, "pinned-expired", "v1", "string", "global", "", &past, true))
-	require.NoError(t, SetMemory(db, "unpinned-expired", "v2", "string", "global", "", &past, false))
+	require.NoError(t, SetMemory(db, "pinned-expired", "v1", "string", "global", "", &past, true, "", nil))
+	require.NoError(t, SetMemory(db, "unpinned-expired", "v2", "string", "global", "", &past, false, "", nil))
 
 	_, deleted, err := GCMemoryWithEventIdempotent(db, "agent-gc", "req-gc-skip-pinned", 100)
 	require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestPinIdempotentReplay(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	require.NoError(t, SetMemory(db, "replay-key", "val", "string", "global", "", nil, false))
+	require.NoError(t, SetMemory(db, "replay-key", "val", "string", "global", "", nil, false, "", nil))
 
 	eid1, err := PinMemoryIdempotent(context.Background(), db, "agent", "req-pin-replay-1", "replay-key", "global", "", true)
 	require.NoError(t, err)

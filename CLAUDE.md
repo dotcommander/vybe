@@ -194,6 +194,8 @@ internal/testutil/     # CLI test helpers for integration tests
 | **Test the inverse of fixes** | After fixing an edge case, verify the happy path still works; most regressions break the normal path |
 | **No mutable package globals** | Pass shared state explicitly or embed in a struct; package globals couple tests and concurrent callers |
 | **Boundary validation** | Cap inputs (string length, array size, numeric range) at the store/action boundary; trust internally |
+| **Memory kind classification** | Use `--kind=directive` for imperative behavioral rules (rendered first in brief under `=== Directives ===`, value-only). Use `--kind=fact` (default) for key=value claims (rendered under `=== Facts ===`). Kind is non-sticky on upsert — a new write overwrites it; only `--pin` is sticky-upward |
+| **Per-kind half-life decay** | `memory.half_life_days` nullable; brief formula falls back to kind defaults (directive→1e9, lesson→14, fact→90); pinned sorts first so formula is only tiebreaker |
 
 ## Focus Selection Algorithm
 

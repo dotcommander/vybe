@@ -188,4 +188,3 @@ func TestPushIdempotent_EmptyPush(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one operation")
 }
-

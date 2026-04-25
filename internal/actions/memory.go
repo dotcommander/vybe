@@ -14,14 +14,34 @@ import (
 )
 
 // MemorySetIdempotent stores a memory entry idempotently.
-func MemorySetIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, pinned bool) (int64, error) { //nolint:revive // argument-limit: memory params are distinct; struct degrades call-site readability
+// kind must be "" (defaults to "fact"), "fact", "directive", or "lesson". Any other value returns a structured error.
+// halfLifeDays is nil to preserve any stored value, or a non-negative float to override decay rate.
+func MemorySetIdempotent(db *sql.DB, agentName, requestID, key, value, valueType, scope, scopeID string, expiresAt *time.Time, pinned bool, kind string, halfLifeDays *float64) (int64, error) { //nolint:revive // argument-limit: memory params are distinct; struct degrades call-site readability
 	if agentName == "" {
 		return 0, errors.New("agent name is required")
 	}
 	if requestID == "" {
 		return 0, errors.New("request id is required")
 	}
-	return store.UpsertMemoryWithEventIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, pinned)
+	if kind == "" {
+		kind = string(models.MemoryKindFact)
+	}
+	if err := ValidateMemoryKind(kind); err != nil {
+		return 0, err
+	}
+	if halfLifeDays != nil && *halfLifeDays < 0 {
+		return 0, fmt.Errorf("half_life_days must be >= 0, got %g", *halfLifeDays)
+	}
+	return store.UpsertMemoryWithEventIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, halfLifeDays)
+}
+
+// ValidateMemoryKind reports whether kind is valid. Returns a structured error whose Error()
+// names the field and the accepted values so CLI output is self-describing.
+func ValidateMemoryKind(kind string) error {
+	if models.MemoryKind(kind).IsValid() {
+		return nil
+	}
+	return fmt.Errorf("invalid kind: %q (must be one of: fact, directive, lesson)", kind)
 }
 
 // MemoryGCResult holds the outcome of a memory garbage collection operation.

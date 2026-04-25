@@ -14,10 +14,10 @@ func TestFetchRelevantMemoryPinnedRanksFirst(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	// Write pinned entry with access_count=0 (freshly inserted, never read)
-	require.NoError(t, SetMemory(db, "pinned-arch", "decision", "string", "global", "", nil, true))
+	require.NoError(t, SetMemory(db, "pinned-arch", "decision", "string", "global", "", nil, true, "", nil))
 
 	// Write unpinned entry then simulate high access_count via direct SQL
-	require.NoError(t, SetMemory(db, "hot-key", "frequent", "string", "global", "", nil, false))
+	require.NoError(t, SetMemory(db, "hot-key", "frequent", "string", "global", "", nil, false, "", nil))
 	_, err := db.Exec(`UPDATE memory SET access_count = 100 WHERE key = 'hot-key'`)
 	require.NoError(t, err)
 
@@ -48,9 +48,9 @@ func TestFetchRelevantMemoryPinnedBypassesTTL(t *testing.T) {
 	past := time.Now().Add(-2 * time.Hour)
 
 	// Pinned entry with past expires_at
-	require.NoError(t, SetMemory(db, "pinned-expired", "value", "string", "global", "", &past, true))
+	require.NoError(t, SetMemory(db, "pinned-expired", "value", "string", "global", "", &past, true, "", nil))
 	// Unpinned entry with past expires_at — should NOT appear
-	require.NoError(t, SetMemory(db, "unpinned-expired", "value", "string", "global", "", &past, false))
+	require.NoError(t, SetMemory(db, "unpinned-expired", "value", "string", "global", "", &past, false, "", nil))
 
 	mems, err := fetchRelevantMemory(db, "", "")
 	require.NoError(t, err)

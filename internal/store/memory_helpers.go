@@ -6,7 +6,18 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/dotcommander/vybe/internal/models"
 )
+
+// validateMemoryKind checks that kind is one of the allowed memory kinds.
+// Empty string is NOT allowed here — callers must default to "fact" before calling.
+func validateMemoryKind(kind string) error {
+	if models.MemoryKind(kind).IsValid() {
+		return nil
+	}
+	return fmt.Errorf("invalid kind: %q (must be one of: fact, directive, lesson)", kind)
+}
 
 // inferValueType attempts to detect the value type from the input string.
 func inferValueType(value string) string {
