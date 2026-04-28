@@ -2,6 +2,8 @@ package commands
 
 import (
 	"errors"
+	"path/filepath"
+	"slices"
 
 	"github.com/dotcommander/vybe/internal/actions"
 	"github.com/dotcommander/vybe/internal/models"
@@ -175,11 +177,23 @@ func newTaskBeginCmd() *cobra.Command {
 func newTaskListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List all tasks (status filter supports pending|in_progress|completed|blocked)",
+		Short: "List tasks (default: summary with status counts + recent pending)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			statusFilter, _ := cmd.Flags().GetString("status")
 			projectFilter, _ := cmd.Flags().GetString("project-id")
+			projectDir, _ := cmd.Flags().GetString("project-dir")
 			priorityFilter, _ := cmd.Flags().GetInt("priority")
+			full, _ := cmd.Flags().GetBool("full")
+			limit, _ := cmd.Flags().GetInt("limit")
+
+			// --project-dir takes precedence over --project-id.
+			// It resolves the directory path to the project_id stored in the DB.
+			if projectDir != "" && projectFilter == "" {
+				absDir, err := filepath.Abs(projectDir)
+				if err == nil {
+					projectFilter = absDir
+				}
+			}
 
 			var tasks []*models.Task
 			if err := withDB(func(db *DB) error {
@@ -193,19 +207,83 @@ func newTaskListCmd() *cobra.Command {
 				return err
 			}
 
-			type resp struct {
-				Count int            `json:"count"`
-				Tasks []*models.Task `json:"tasks"`
+			if full {
+				type fullResp struct {
+					Count int            `json:"count"`
+					Tasks []*models.Task `json:"tasks"`
+				}
+				return output.PrintSuccess(fullResp{Count: len(tasks), Tasks: tasks})
 			}
-			return output.PrintSuccess(resp{Count: len(tasks), Tasks: tasks})
+
+			return printTaskSummary(tasks, limit)
 		},
 	}
 
 	cmd.Flags().String("status", "", "Filter by status: pending|in_progress|completed|blocked")
 	cmd.Flags().String("project-id", "", "Filter by project ID")
+	cmd.Flags().String("project-dir", "", "Filter by project directory path (resolves to project_id)")
 	cmd.Flags().Int("priority", -1, "Filter by exact priority (default -1 = no filter)")
+	cmd.Flags().Bool("full", false, "Output full task objects (warning: can be very large)")
+	cmd.Flags().Int("limit", 20, "Max pending/in_progress tasks to include in summary")
 
 	return cmd
+}
+
+// taskSummaryItem is a lightweight task representation for summary mode.
+type taskSummaryItem struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Status    string `json:"status"`
+	Priority  int    `json:"priority"`
+	ProjectID string `json:"project_id,omitempty"`
+}
+
+// printTaskSummary outputs a compact summary: status counts + recent non-completed tasks.
+func printTaskSummary(tasks []*models.Task, limit int) error {
+	counts := make(map[string]int)
+	var active []*models.Task
+	for _, t := range tasks {
+		counts[string(t.Status)]++
+		if t.Status != models.TaskStatusCompleted {
+			active = append(active, t)
+		}
+	}
+
+	// Sort active by priority desc, then created_at asc.
+	slices.SortFunc(active, func(a, b *models.Task) int {
+		if a.Priority != b.Priority {
+			return b.Priority - a.Priority // higher priority first
+		}
+		return a.CreatedAt.Compare(b.CreatedAt) // earlier first
+	})
+
+	if len(active) > limit {
+		active = active[:limit]
+	}
+
+	items := make([]taskSummaryItem, len(active))
+	for i, t := range active {
+		items[i] = taskSummaryItem{
+			ID:        t.ID,
+			Title:     t.Title,
+			Status:    string(t.Status),
+			Priority:  t.Priority,
+			ProjectID: t.ProjectID,
+		}
+	}
+
+	type summaryResp struct {
+		Total   int              `json:"total"`
+		Counts  map[string]int   `json:"counts"`
+		Shown   int              `json:"shown"`
+		Tasks   []taskSummaryItem `json:"tasks"`
+	}
+	return output.PrintSuccess(summaryResp{
+		Total:  len(tasks),
+		Counts: counts,
+		Shown:  len(items),
+		Tasks:  items,
+	})
 }
 
 func newTaskGetCmd() *cobra.Command {
