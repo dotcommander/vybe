@@ -566,7 +566,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 			require.Equal(t, true, queryOK, "status check must pass after all crash cycles")
 
 			// Verify task counts via task list
-			tasksOut := h.vybe("task", "list")
+			tasksOut := h.vybe("task", "list", "--full")
 			tasksM := requireSuccess(t, tasksOut)
 			tasksList := tasksM["data"].(map[string]any)["tasks"].([]any)
 
@@ -593,7 +593,7 @@ func TestCrashRecovery_OOM(t *testing.T) {
 
 		// Step 33: Verify all tasks are in expected final states
 		t.Run("step33_final_task_states", func(t *testing.T) {
-			tasksOut := h.vybe("task", "list")
+			tasksOut := h.vybe("task", "list", "--full")
 			tasksM := requireSuccess(t, tasksOut)
 			tasksList := tasksM["data"].(map[string]any)["tasks"].([]any)
 
