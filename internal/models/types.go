@@ -86,6 +86,14 @@ const BlockedReasonDependency BlockedReason = "dependency"
 // Resume Rule 1.5 skips failure-blocked tasks and falls through to find new work.
 const BlockedReasonFailurePrefix = "failure:"
 
+// NewFailureBlockedReason builds a BlockedReason with the canonical
+// "failure:<detail>" wire format. Use this instead of string concatenation so
+// the prefix can only originate in one place — typos cannot silently break
+// resume Rule 1.5 detection.
+func NewFailureBlockedReason(detail string) BlockedReason {
+	return BlockedReason(BlockedReasonFailurePrefix + detail)
+}
+
 // IsFailure returns true if the blocked reason indicates an execution failure.
 func (br BlockedReason) IsFailure() bool {
 	return strings.HasPrefix(string(br), BlockedReasonFailurePrefix)

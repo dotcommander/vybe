@@ -216,7 +216,10 @@ Register via 'vybe hook install'.`,
 				if err != nil {
 					return err
 				}
-				if brief == nil || brief.Task == nil {
+				// BuildBrief is documented (internal/store/brief.go) to always
+				// return a non-nil *BriefPacket on err==nil; the only meaningful
+				// gate is whether the focus task was resolved.
+				if brief.Task == nil {
 					return nil
 				}
 

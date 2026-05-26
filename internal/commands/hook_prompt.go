@@ -78,7 +78,8 @@ func emitRichBrief(db *DB, agentName, focusTaskID, projectID string) error {
 	// Add memory if available
 	if focusTaskID != "" {
 		brief, err := store.BuildBrief(db, focusTaskID, projectID, agentName)
-		if err == nil && brief != nil && len(brief.RelevantMemory) > 0 {
+		// BuildBrief returns non-nil on err==nil (see internal/store/brief.go).
+		if err == nil && len(brief.RelevantMemory) > 0 {
 			b.WriteString("\nSaved notes:\n")
 			for _, m := range brief.RelevantMemory {
 				fmt.Fprintf(&b, "  %s = %s\n", m.Key, m.Value)

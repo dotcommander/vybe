@@ -374,7 +374,9 @@ func killCommandProcess(cmd *exec.Cmd) error {
 		slog.Default().Warn("SIGTERM failed, escalating to SIGKILL", "error", err)
 	}
 	// Wait up to processExitWaitTime for a clean exit.
-	exited := make(chan struct{})
+	// exit conditions for the goroutine: cmd.Wait returns (process reaped)
+	// OR the function returns after the post-SIGKILL bounded drain below.
+	exited := make(chan struct{}, 1)
 	go func() {
 		cmd.Wait() //nolint:errcheck // we only care whether the process exited
 		close(exited)
@@ -387,6 +389,13 @@ func killCommandProcess(cmd *exec.Cmd) error {
 	// Grace period elapsed — escalate to SIGKILL.
 	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
+	}
+	// After SIGKILL, drain the goroutine with a bounded budget so it cannot
+	// outlive this function. If cmd.Wait still hasn't returned by then (e.g.
+	// the kernel hasn't reaped the process yet) we accept the bounded leak.
+	select {
+	case <-exited:
+	case <-time.After(processExitWaitTime):
 	}
 	return nil
 }
@@ -516,7 +525,7 @@ func markTaskBlocked(agentName, taskID, reason string) {
 		_, _ = store.AppendEventIdempotent(db, agentName, requestID+"_log", "task_blocked", taskID, reason)
 
 		// Set status + blocked_reason atomically
-		_, _, err := actions.TaskSetStatusIdempotent(db, agentName, requestID, taskID, "blocked", models.BlockedReasonFailurePrefix+reason)
+		_, _, err := actions.TaskSetStatusIdempotent(db, agentName, requestID, taskID, "blocked", string(models.NewFailureBlockedReason(reason)))
 		return err
 	})
 }
