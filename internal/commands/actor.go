@@ -8,14 +8,17 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/store"
 )
 
 // resolveActorName resolves the agent used for event attribution and agent_state identity.
 // Precedence:
-// 1) per-command flag override (when a command defines one)
-// 2) global flag --agent
-// 3) env var VYBE_AGENT
+//  1. per-command flag override (when a command defines one)
+//  2. global flag --agent
+//  3. env var VYBE_AGENT
+//  4. config.default_agent (persistent fallback; best-effort — a config read error
+//     is treated as no value, never as a hard failure here)
 func resolveActorName(cmd *cobra.Command, perCmdFlag string) string {
 	raw := ""
 	if perCmdFlag != "" {
@@ -30,6 +33,11 @@ func resolveActorName(cmd *cobra.Command, perCmdFlag string) string {
 	}
 	if raw == "" {
 		raw = os.Getenv("VYBE_AGENT")
+	}
+	if raw == "" {
+		if s, err := app.LoadSettings(); err == nil {
+			raw = s.DefaultAgent
+		}
 	}
 	return strings.ToLower(strings.TrimSpace(raw))
 }

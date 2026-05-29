@@ -40,7 +40,7 @@ func newMemoryGCCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Int("limit", 500, "Maximum rows to delete in one run")
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
+	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }
 
@@ -86,7 +86,7 @@ func newMemoryDeleteCmd() *cobra.Command {
 
 	_ = cmd.MarkFlagRequired("key")
 
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
+	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }
 
@@ -135,6 +135,6 @@ func newMemoryPinCmd() *cobra.Command {
 	cmd.Flags().Bool("unpin", false, "Remove pin (restore normal ACT-R decay)")
 
 	_ = cmd.MarkFlagRequired("key")
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
+	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }

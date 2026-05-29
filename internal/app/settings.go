@@ -13,6 +13,7 @@ import (
 // Field names match snake_case YAML keys.
 type Settings struct {
 	DBPath                    string `yaml:"db_path"`
+	DefaultAgent              string `yaml:"default_agent"`
 	PostRunHook               string `yaml:"post_run_hook"`
 	EventsRetentionDays       int    `yaml:"events_retention_days"`
 	EventsPruneBatch          int    `yaml:"events_prune_batch"`

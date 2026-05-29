@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 func TestParseExpiresIn_Valid(t *testing.T) {
@@ -74,7 +76,7 @@ func TestMemoryGet_NotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemoryGet(db, "nonexistent", "global", "")
+	_, err := MemoryGet(db, "", "nonexistent", "global", "")
 	require.ErrorContains(t, err, "not found")
 }
 
@@ -85,7 +87,7 @@ func TestMemoryGet_Found(t *testing.T) {
 	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-get-1", "k1", "v1", "", "global", "", nil, false, "", nil, "")
 	require.NoError(t, err)
 
-	mem, err := MemoryGet(db, "k1", "global", "")
+	mem, err := MemoryGet(db, "", "k1", "global", "")
 	require.NoError(t, err)
 	require.Equal(t, "v1", mem.Value)
 }
@@ -99,7 +101,7 @@ func TestMemoryList_Basic(t *testing.T) {
 	_, err = MemorySetIdempotent(db, "agent-a", "req-mem-list-2", "x2", "v2", "", "global", "", nil, false, "", nil, "")
 	require.NoError(t, err)
 
-	list, err := MemoryList(db, "global", "")
+	list, err := MemoryList(db, "", "global", "")
 	require.NoError(t, err)
 	require.Len(t, list, 2)
 }
@@ -121,7 +123,7 @@ func TestMemorySetIdempotent_DefaultsKindToFact(t *testing.T) {
 	_, err := MemorySetIdempotent(db, "agent1", "req-kind-default-1", "k", "v", "", "global", "", nil, false, "", nil, "")
 	require.NoError(t, err)
 
-	mem, err := MemoryGet(db, "k", "global", "")
+	mem, err := MemoryGet(db, "", "k", "global", "")
 	require.NoError(t, err)
 	assert.Equal(t, "fact", mem.Kind, "omitted kind must default to 'fact'")
 }
@@ -148,4 +150,80 @@ func TestMemoryGCIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, gc)
 	assert.GreaterOrEqual(t, gc.Deleted, 1)
+}
+
+// TestMemory_TaskScopeInfersFocusTaskID verifies that scope="task" with no scope-id resolves
+// to the agent's focus task id.
+func TestMemory_TaskScopeInfersFocusTaskID(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	const agent = "agent-infer-task"
+
+	task, err := store.CreateTask(db, "Infer Task", "desc", "", 0)
+	require.NoError(t, err)
+
+	state, err := store.LoadOrCreateAgentState(db, agent)
+	require.NoError(t, err)
+	require.NoError(t, store.UpdateAgentStateAtomic(db, state.AgentName, 0, task.ID))
+
+	_, err = MemorySetIdempotent(db, agent, "req-infer-task-set", "mykey", "myval", "", "task", "", nil, false, "", nil, "")
+	require.NoError(t, err)
+
+	mem, err := MemoryGet(db, agent, "mykey", "task", "")
+	require.NoError(t, err)
+	require.Equal(t, task.ID, mem.ScopeID)
+	require.Equal(t, "myval", mem.Value)
+}
+
+// TestMemory_TaskScopeNoFocusErrors verifies that scope="task" with no scope-id and no focus
+// returns an actionable error containing "scope-id".
+func TestMemory_TaskScopeNoFocusErrors(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	const agent = "agent-no-focus"
+
+	_, err := MemorySetIdempotent(db, agent, "req-infer-nofocus", "k", "v", "", "task", "", nil, false, "", nil, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "scope-id")
+}
+
+// TestMemory_ProjectScopeInfersFocusProjectID verifies that scope="project" with no scope-id
+// resolves to the agent's focus project id.
+func TestMemory_ProjectScopeInfersFocusProjectID(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	const agent = "agent-infer-project"
+
+	project, err := store.CreateProject(db, "Infer Project", "")
+	require.NoError(t, err)
+
+	state, err := store.LoadOrCreateAgentState(db, agent)
+	require.NoError(t, err)
+	require.NoError(t, store.UpdateAgentStateAtomicWithProject(db, state.AgentName, 0, "", project.ID))
+
+	_, err = MemorySetIdempotent(db, agent, "req-infer-proj-set", "projkey", "projval", "", "project", "", nil, false, "", nil, "")
+	require.NoError(t, err)
+
+	mem, err := MemoryGet(db, agent, "projkey", "project", "")
+	require.NoError(t, err)
+	require.Equal(t, project.ID, mem.ScopeID)
+	require.Equal(t, "projval", mem.Value)
+}
+
+// TestMemory_GlobalScopeIgnoresFocus verifies that scope="global" with an empty scope-id
+// succeeds regardless of focus state (no inference needed, ScopeID stays empty).
+func TestMemory_GlobalScopeIgnoresFocus(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	_, err := MemorySetIdempotent(db, "agent-global", "req-global-infer", "gkey", "gval", "", "global", "", nil, false, "", nil, "")
+	require.NoError(t, err)
+
+	mem, err := MemoryGet(db, "", "gkey", "global", "")
+	require.NoError(t, err)
+	require.Equal(t, "", mem.ScopeID)
+	require.Equal(t, "gval", mem.Value)
 }

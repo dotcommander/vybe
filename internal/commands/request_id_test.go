@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -32,13 +33,18 @@ func TestResolveRequestID_UsesEnvWhenFlagEmpty(t *testing.T) {
 	require.Equal(t, "env-req", rid)
 }
 
-func TestRequireRequestID_ErrorsWhenMissing(t *testing.T) {
+func TestRequireRequestID_AutoGeneratesWhenMissing(t *testing.T) {
 	cmd := newRequestIDTestCmd(t)
 	t.Setenv("VYBE_REQUEST_ID", "")
 
-	_, err := requireRequestID(cmd)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--request-id")
+	rid1, err := requireRequestID(cmd)
+	require.NoError(t, err)
+	require.NotEmpty(t, rid1)
+	require.True(t, strings.HasPrefix(rid1, "req_"), "auto-generated id must use req_ prefix, got %q", rid1)
+
+	rid2, err := requireRequestID(cmd)
+	require.NoError(t, err)
+	require.NotEqual(t, rid1, rid2, "omitted request-id must yield a fresh key per call")
 }
 
 func TestRequireRequestID_ReturnsValue(t *testing.T) {

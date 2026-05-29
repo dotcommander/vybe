@@ -38,6 +38,9 @@ const defaultConfig = `# vybe configuration
 # Can also be set via VYBE_DB_PATH or --db-path.
 # db_path: ~/.config/vybe/vybe.db
 
+# Optional: default agent identity when --agent and VYBE_AGENT are unset.
+# default_agent: claude
+
 # Optional: internal event maintenance controls (used by hook checkpoint/session-end).
 # events_retention_days: 30
 # events_prune_batch: 500

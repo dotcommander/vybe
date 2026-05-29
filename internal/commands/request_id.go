@@ -1,10 +1,11 @@
 package commands
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/dotcommander/vybe/internal/store"
 )
 
 func resolveRequestID(cmd *cobra.Command) string {
@@ -14,12 +15,15 @@ func resolveRequestID(cmd *cobra.Command) string {
 	return os.Getenv("VYBE_REQUEST_ID")
 }
 
-// requireRequestID returns the request ID from flag/env, or errors if neither is set.
-// Callers must supply deterministic IDs for idempotency (retries with the same ID are deduplicated).
+// requireRequestID returns the request ID from flag/env, or auto-generates a
+// fresh one when neither is set. An explicit ID (flag or VYBE_REQUEST_ID) keeps
+// exactly-once dedup semantics; an auto-generated ID is unique per call, so
+// omitting request-id means at-least-once (no dedup). The error return is kept
+// for signature stability with requireMutationParams; it is currently always nil.
 func requireRequestID(cmd *cobra.Command) (string, error) {
 	rid := resolveRequestID(cmd)
 	if rid == "" {
-		return "", fmt.Errorf("--request-id or VYBE_REQUEST_ID is required for idempotent operations")
+		rid = store.NewRequestID()
 	}
 	return rid, nil
 }

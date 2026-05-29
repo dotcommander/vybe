@@ -13,6 +13,41 @@ import (
 	"github.com/dotcommander/vybe/internal/store"
 )
 
+// resolveScopeID fills an empty scope_id for task/project scopes from the
+// agent's focus state. global and agent scopes are returned unchanged.
+// When scope is task|project, scope_id is empty, and no focus exists, it returns
+// an actionable error rather than writing under an empty scope_id (which would
+// silently land in the wrong bucket). Single source of truth for focus-based
+// scope inference across set/get/list/delete/pin.
+func resolveScopeID(db *sql.DB, agentName, scope, scopeID string) (string, error) {
+	if scopeID != "" || scope == "global" || scope == "agent" {
+		return scopeID, nil
+	}
+	if scope != "task" && scope != "project" {
+		return scopeID, nil // unknown scope: let validateScope report it
+	}
+	if agentName == "" {
+		return "", fmt.Errorf("%s scope requires --scope-id (no agent set to infer focus from; pass --agent or --scope-id)", scope)
+	}
+	state, err := store.GetAgentState(db, agentName)
+	if err != nil {
+		return "", fmt.Errorf("resolve focus for %s scope: %w", scope, err)
+	}
+	if state == nil {
+		return "", fmt.Errorf("%s scope requires --scope-id (agent %q has no focus state; run `vybe task begin` or pass --scope-id)", scope, agentName)
+	}
+	var focus string
+	if scope == "task" {
+		focus = state.FocusTaskID
+	} else {
+		focus = state.FocusProjectID
+	}
+	if focus == "" {
+		return "", fmt.Errorf("%s scope requires --scope-id (agent %q has no focus %s; pass --scope-id)", scope, agentName, scope)
+	}
+	return focus, nil
+}
+
 // MemorySetIdempotent stores a memory entry idempotently.
 // kind must be "" (defaults to "fact"), "fact", "directive", or "lesson". Any other value returns a structured error.
 // halfLifeDays is nil to preserve any stored value, or a non-negative float to override decay rate.
@@ -24,6 +59,11 @@ func MemorySetIdempotent(db *sql.DB, agentName, requestID, key, value, valueType
 	}
 	if requestID == "" {
 		return 0, errors.New("request id is required")
+	}
+	var err error
+	scopeID, err = resolveScopeID(db, agentName, scope, scopeID)
+	if err != nil {
+		return 0, err
 	}
 	if kind == "" {
 		kind = string(models.MemoryKindFact)
@@ -73,7 +113,13 @@ func MemoryGCIdempotent(db *sql.DB, agentName, requestID string, limit int) (*Me
 }
 
 // MemoryGet retrieves a memory entry by key, scope, and scope_id.
-func MemoryGet(db *sql.DB, key, scope, scopeID string) (*models.Memory, error) {
+// When scope is task|project and scopeID is empty, it infers scope_id from agentName's focus state.
+func MemoryGet(db *sql.DB, agentName, key, scope, scopeID string) (*models.Memory, error) {
+	var err error
+	scopeID, err = resolveScopeID(db, agentName, scope, scopeID)
+	if err != nil {
+		return nil, err
+	}
 	mem, err := store.GetMemory(db, key, scope, scopeID)
 	if err != nil {
 		return nil, err
@@ -87,7 +133,13 @@ func MemoryGet(db *sql.DB, key, scope, scopeID string) (*models.Memory, error) {
 }
 
 // MemoryList retrieves all memory entries for a scope and scope_id.
-func MemoryList(db *sql.DB, scope, scopeID string) ([]*models.Memory, error) {
+// When scope is task|project and scopeID is empty, it infers scope_id from agentName's focus state.
+func MemoryList(db *sql.DB, agentName, scope, scopeID string) ([]*models.Memory, error) {
+	var err error
+	scopeID, err = resolveScopeID(db, agentName, scope, scopeID)
+	if err != nil {
+		return nil, err
+	}
 	return store.ListMemory(db, scope, scopeID)
 }
 
@@ -99,6 +151,11 @@ func MemoryPinIdempotent(ctx context.Context, db *sql.DB, agentName, requestID, 
 	if requestID == "" {
 		return 0, errors.New("request id is required")
 	}
+	var err error
+	scopeID, err = resolveScopeID(db, agentName, scope, scopeID)
+	if err != nil {
+		return 0, err
+	}
 	return store.PinMemoryIdempotent(ctx, db, agentName, requestID, key, scope, scopeID, pin)
 }
 
@@ -109,6 +166,11 @@ func MemoryDeleteIdempotent(ctx context.Context, db *sql.DB, agentName, requestI
 	}
 	if requestID == "" {
 		return 0, errors.New("request id is required")
+	}
+	var err error
+	scopeID, err = resolveScopeID(db, agentName, scope, scopeID)
+	if err != nil {
+		return 0, err
 	}
 	return store.DeleteMemoryWithEventIdempotent(ctx, db, agentName, requestID, key, scope, scopeID)
 }

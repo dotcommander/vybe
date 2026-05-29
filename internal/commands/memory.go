@@ -109,7 +109,7 @@ func newMemorySetCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("key")
 	_ = cmd.MarkFlagRequired("value")
 
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
+	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }
 
@@ -118,13 +118,14 @@ func newMemoryGetCmd() *cobra.Command {
 		Use:   "get",
 		Short: "Get a memory value",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			agentName := resolveActorName(cmd, "")
 			key, _ := cmd.Flags().GetString("key")
 			scope, _ := cmd.Flags().GetString("scope")
 			scopeID, _ := cmd.Flags().GetString("scope-id")
 
 			var mem *models.Memory
 			if err := withDB(func(db *DB) error {
-				m, err := actions.MemoryGet(db, key, scope, scopeID)
+				m, err := actions.MemoryGet(db, agentName, key, scope, scopeID)
 				if err != nil {
 					return err
 				}
@@ -152,12 +153,13 @@ func newMemoryListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List all memory entries for a scope",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			agentName := resolveActorName(cmd, "")
 			scope, _ := cmd.Flags().GetString("scope")
 			scopeID, _ := cmd.Flags().GetString("scope-id")
 
 			var memories []*models.Memory
 			if err := withDB(func(db *DB) error {
-				m, err := actions.MemoryList(db, scope, scopeID)
+				m, err := actions.MemoryList(db, agentName, scope, scopeID)
 				if err != nil {
 					return err
 				}

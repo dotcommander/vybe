@@ -7,7 +7,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
+
+func TestSettings_DefaultAgentYAMLKey(t *testing.T) {
+	t.Parallel()
+	var s Settings
+	require.NoError(t, yaml.Unmarshal([]byte("default_agent: poet-agent\n"), &s))
+	require.Equal(t, "poet-agent", s.DefaultAgent)
+}
 
 func TestLoadSettings_PrefersUserConfigOverLocal(t *testing.T) {
 	resetSettingsStateForTest()

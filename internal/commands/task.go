@@ -99,7 +99,7 @@ func newTaskCreateCmd() *cobra.Command {
 	cmd.Flags().String("project-id", "", "Project ID to associate task with")
 	cmd.Flags().Int("priority", 0, "Task priority (higher = more urgent, default 0)")
 
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
+	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }
 
@@ -132,7 +132,7 @@ func newTaskSetStatusCmd() *cobra.Command {
 	cmd.Flags().String("status", "", "New status (required): pending|in_progress|completed|blocked")
 	cmd.Flags().String("blocked-reason", "", "Reason for blocking (used with --status=blocked)")
 
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
+	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }
 
@@ -170,7 +170,7 @@ func newTaskBeginCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("id", "", "Task ID (required)")
-	cmd.Annotations = map[string]string{"mutates": "true", "request_id": "true"}
+	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }
 
@@ -273,10 +273,10 @@ func printTaskSummary(tasks []*models.Task, limit int) error {
 	}
 
 	type summaryResp struct {
-		Total   int              `json:"total"`
-		Counts  map[string]int   `json:"counts"`
-		Shown   int              `json:"shown"`
-		Tasks   []taskSummaryItem `json:"tasks"`
+		Total  int               `json:"total"`
+		Counts map[string]int    `json:"counts"`
+		Shown  int               `json:"shown"`
+		Tasks  []taskSummaryItem `json:"tasks"`
 	}
 	return output.PrintSuccess(summaryResp{
 		Total:  len(tasks),

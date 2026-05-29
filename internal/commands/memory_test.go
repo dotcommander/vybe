@@ -34,8 +34,10 @@ func TestMemorySetCmd_InvalidExpiresInReturnsPrintedError(t *testing.T) {
 	require.IsType(t, printedError{}, err)
 }
 
-func TestMemoryMutatingCommands_RequireIdentity(t *testing.T) {
+func TestMemoryMutatingCommands_RequireAgent(t *testing.T) {
 	t.Run("gc without agent/request-id", func(t *testing.T) {
+		t.Setenv("VYBE_AGENT", "")
+		t.Setenv("VYBE_REQUEST_ID", "")
 		cmd := newMemoryGCCmd()
 		err := cmd.RunE(cmd, nil)
 		require.Error(t, err)
@@ -43,6 +45,8 @@ func TestMemoryMutatingCommands_RequireIdentity(t *testing.T) {
 	})
 
 	t.Run("delete without agent/request-id", func(t *testing.T) {
+		t.Setenv("VYBE_AGENT", "")
+		t.Setenv("VYBE_REQUEST_ID", "")
 		cmd := newMemoryDeleteCmd()
 		require.NoError(t, cmd.Flags().Set("key", "k"))
 		err := cmd.RunE(cmd, nil)

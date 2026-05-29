@@ -82,3 +82,20 @@ func TestResolveActorName_EnvNormalized(t *testing.T) {
 	got := resolveActorName(cmd, "")
 	assert.Equal(t, "claude", got)
 }
+
+func TestResolveActorName_FlagOverridesConfig(t *testing.T) {
+	cmd := newActorTestCmd(t)
+	t.Setenv("VYBE_AGENT", "")
+	require.NoError(t, cmd.Flags().Set("agent", "flag-agent"))
+
+	got := resolveActorName(cmd, "")
+	require.Equal(t, "flag-agent", got)
+}
+
+func TestResolveActorName_EnvOverridesWhenNoFlag(t *testing.T) {
+	cmd := newActorTestCmd(t)
+	t.Setenv("VYBE_AGENT", "env-agent")
+
+	got := resolveActorName(cmd, "")
+	require.Equal(t, "env-agent", got)
+}

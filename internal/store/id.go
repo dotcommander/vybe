@@ -25,3 +25,11 @@ func generatePrefixedID(prefix string) string {
 
 	return fmt.Sprintf("%s_%d_%s", prefix, timestamp, hex.EncodeToString(b[:]))
 }
+
+// NewRequestID returns a fresh idempotency key in the canonical project ID
+// format (req_{unix_nano}_{hex}). Used when a caller omits an explicit
+// request-id: each call returns a unique key, giving at-least-once semantics
+// (no dedup). Callers that need exactly-once must pass their own stable key.
+func NewRequestID() string {
+	return generatePrefixedID("req")
+}

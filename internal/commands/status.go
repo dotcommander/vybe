@@ -100,11 +100,11 @@ func runSchemaMode(root *cobra.Command) error {
 	collectCommandSchemas(root, &schemas)
 
 	protocol := agentProtocol{
-		ResumeCommand:           "vybe resume --agent <AGENT> --request-id <REQ>",
+		ResumeCommand:           "vybe resume --agent <AGENT>",
 		FocusTaskField:          "data.focus_task_id",
-		TerminalStatusCommand:   "vybe task set-status --agent <AGENT> --request-id <REQ> --id <TASK_ID> --status <STATUS>",
+		TerminalStatusCommand:   "vybe task set-status --agent <AGENT> --id <TASK_ID> --status <STATUS>",
 		TerminalStatuses:        []string{"completed", "blocked"},
-		OptionalProgressCommand: "vybe push --agent <AGENT> --request-id <REQ> --json '{\"task_id\":\"<TASK_ID>\",\"event\":{\"kind\":\"progress\",\"message\":\"...\"}}'",
+		OptionalProgressCommand: "vybe push --agent <AGENT> --json '{\"task_id\":\"<TASK_ID>\",\"event\":{\"kind\":\"progress\",\"message\":\"...\"}}'",
 		Rule:                    "Per loop step, close the focus task with exactly one terminal status: completed or blocked.",
 	}
 
