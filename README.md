@@ -47,14 +47,16 @@ If `vybe status --check` returns `query_ok=true`, setup is done.
 
 ```bash
 # create work
-vybe task create --request-id task_1 --title "Ship feature" --desc "Implement X"
+vybe task create --title "Ship feature" --desc "Implement X"
 
 # get current focus + context
-vybe resume --request-id resume_1
+vybe resume
 
 # close when done (task ID is returned by create)
-vybe task set-status --request-id done_1 --id <TASK_ID> --status completed
+vybe task set-status --id <TASK_ID> --status completed
 ```
+
+`--request-id` is optional — it's auto-generated when omitted. Pass an explicit one only for exactly-once dedup across retries of the same operation.
 
 If a session crashes, run `vybe resume` and keep going.
 
@@ -66,7 +68,7 @@ If a session crashes, run `vybe resume` and keep going.
 | **Event log** | Append-only log of agent activity — what happened, in order |
 | **Scoped memory** | Key-value pairs stored per-project, per-task, or globally — with expiration. **Pins are sticky:** `memory set --pin` enables pinning; subsequent `memory set` calls without `--pin` preserve the pin. Only `memory pin --unpin` can clear it. This protects durable strategic memory from being unpinned by incidental writes |
 | **Resume** | Restores the agent's full working context from a single command |
-| **Safe retries** | Every write accepts a `--request-id`; sending it twice won't create duplicates |
+| **Safe retries** | `--request-id` is optional — auto-generated when omitted (at-least-once); pass the same one across retries of an operation for exactly-once dedup |
 | **Multi-agent** | Multiple agents share the same database safely |
 | **Hook integration** | One-command install for Claude Code and OpenCode |
 | **Project scoping** | Group tasks and memory under named projects |

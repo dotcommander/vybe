@@ -33,7 +33,7 @@ The skill teaches Claude Code to:
 
 - `vybe` installed and on PATH (`go install github.com/dotcommander/vybe/cmd/vybe@latest`)
 - Claude Code hooks installed (`vybe hook install --claude`)
-- `VYBE_AGENT` environment variable set
+- `VYBE_AGENT` environment variable set (or `default_agent` in `~/.config/vybe/config.yaml`)
 
 ## Verify
 
