@@ -1,7 +1,12 @@
 package commands
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/actions"
 	"github.com/stretchr/testify/assert"
@@ -55,4 +60,32 @@ func TestBuildAgentPrompt_WithProjectDir(t *testing.T) {
 	require.Contains(t, got, "== VYBE CONTEXT ==")
 	require.Contains(t, got, "== AUTONOMOUS MODE ==")
 	assert.NotContains(t, got, "PROJECT MEMORY")
+}
+
+func TestKillCommandProcessEscalatesAfterIgnoredSIGTERM(t *testing.T) {
+	readyFile := filepath.Join(t.TempDir(), "ready")
+	cmd := exec.Command("sh", "-c", "trap '' TERM; : > \"$READY_FILE\"; while :; do :; done")
+	cmd.Env = append(os.Environ(), "READY_FILE="+readyFile)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+		}
+	})
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(readyFile)
+		return err == nil
+	}, time.Second, 10*time.Millisecond)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	require.NoError(t, killCommandProcess(cmd, done))
+	require.NotNil(t, cmd.ProcessState)
+	status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
+	require.True(t, ok)
+	require.True(t, status.Signaled())
+	require.Equal(t, syscall.SIGKILL, status.Signal())
 }

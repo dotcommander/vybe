@@ -355,15 +355,14 @@ func execPostRunHook(command string, resultsJSON []byte) error {
 		}
 		return nil
 	case <-ctx.Done():
-		if killErr := killCommandProcess(cmd); killErr != nil {
+		if killErr := killCommandProcess(cmd, done); killErr != nil {
 			slog.Default().Warn("failed to kill timed out post-run hook", "error", killErr, "hook", command)
 		}
-		waitForProcessExit(done)
 		return fmt.Errorf("post-run hook %q timed out after %s", command, postRunHookTimeout)
 	}
 }
 
-func killCommandProcess(cmd *exec.Cmd) error {
+func killCommandProcess(cmd *exec.Cmd, done <-chan error) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
@@ -373,37 +372,25 @@ func killCommandProcess(cmd *exec.Cmd) error {
 		// fall through to SIGKILL below.
 		slog.Default().Warn("SIGTERM failed, escalating to SIGKILL", "error", err)
 	}
-	// Wait up to processExitWaitTime for a clean exit.
-	// exit conditions for the goroutine: cmd.Wait returns (process reaped)
-	// OR the function returns after the post-SIGKILL bounded drain below.
-	exited := make(chan struct{}, 1)
-	go func() {
-		cmd.Wait() //nolint:errcheck // we only care whether the process exited
-		close(exited)
-	}()
-	select {
-	case <-exited:
+
+	if waitForProcessExit(done) {
 		return nil
-	case <-time.After(processExitWaitTime):
 	}
+
 	// Grace period elapsed — escalate to SIGKILL.
 	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
-	// After SIGKILL, drain the goroutine with a bounded budget so it cannot
-	// outlive this function. If cmd.Wait still hasn't returned by then (e.g.
-	// the kernel hasn't reaped the process yet) we accept the bounded leak.
-	select {
-	case <-exited:
-	case <-time.After(processExitWaitTime):
-	}
+	_ = waitForProcessExit(done)
 	return nil
 }
 
-func waitForProcessExit(done <-chan error) {
+func waitForProcessExit(done <-chan error) bool {
 	select {
 	case <-done:
+		return true
 	case <-time.After(processExitWaitTime):
+		return false
 	}
 }
 
@@ -500,10 +487,9 @@ func spawnAgent(command, prompt, project string, timeout time.Duration, disableH
 		}
 		return 0
 	case <-time.After(timeout):
-		if err := killCommandProcess(cmd); err != nil {
+		if err := killCommandProcess(cmd, done); err != nil {
 			slog.Default().Warn("failed to kill timed out command", "command", command, "error", err)
 		}
-		waitForProcessExit(done)
 		slog.Default().Warn("command timed out, killed", "timeout", timeout)
 		return 124 // standard timeout exit code
 	}
