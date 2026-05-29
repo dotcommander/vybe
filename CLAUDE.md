@@ -36,6 +36,7 @@ Relevant keys:
 - `db_path` (in config.yaml)
 - `VYBE_DB_PATH` (env override)
 - `--db-path` (CLI override; highest priority)
+- `default_agent` (in config.yaml) — persistent agent identity fallback; resolution order: `--agent` flag → `VYBE_AGENT` env → `config.yaml: default_agent`
 
 ### State Persistence
 
@@ -172,7 +173,7 @@ internal/testutil/     # CLI test helpers for integration tests
 | Pattern | Implementation |
 |---------|----------------|
 | **ID generation** | `{type}_{unix_nano}_{random_hex}` (e.g., `task_1234567890_a3f9`) |
-| **Idempotency** | `--request-id` + `idempotency` table; replay original result on duplicates |
+| **Idempotency** | `--request-id` (optional; auto-generated `req_<nano>_<hex>` when omitted) + `idempotency` table; replay original result on duplicate request-ids |
 | **Optimistic concurrency** | `version` columns on tasks/agent_state; CAS updates with retry |
 | **Monotonic cursor** | `UPDATE agent_state SET last_seen_event_id = MAX(last_seen_event_id, ?)` |
 | **Retry logic** | `RetryWithBackoff()` for all DB ops; exponential backoff on SQLITE_BUSY |
@@ -355,7 +356,7 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `VYBE_DB_PATH` | `~/.config/vybe/vybe.db` | Override database file location |
-| `VYBE_AGENT` | (none) | Default agent identity for commands |
+| `VYBE_AGENT` | (none) | Default agent identity for commands (persistent fallback below it: `config.yaml: default_agent`) |
 | `VYBE_REQUEST_ID` | (none) | Default idempotency key for mutations |
 | `VYBE_BUSY_TIMEOUT_MS` | `5000` | SQLite busy_timeout override (ms) |
 | `VYBE_DISABLE_EXTERNAL_LLM` | unset | Blocks LLM CLI subprocess execution in hooks |
@@ -364,8 +365,8 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 ## Contributor Notes
 
 - DB path precedence: `--db-path` > `VYBE_DB_PATH` > `config.yaml: db_path` > `~/.config/vybe/vybe.db`
-- Agent identity: `--agent` flag or `VYBE_AGENT` env (required for most commands)
-- Idempotency: `--request-id` or `VYBE_REQUEST_ID` for safe retries
+- Agent identity: `--agent` flag → `VYBE_AGENT` env → `config.yaml: default_agent` (required for most commands; resolve via this precedence)
+- Idempotency: `--request-id` or `VYBE_REQUEST_ID` for safe retries (optional; auto-generated as `req_<nano>_<hex>` when omitted, giving at-least-once)
 - New features follow the idempotent action pattern: `store.*Tx` → `actions.RunIdempotent` → `commands`
 - In `RunIdempotent*` closures, use `tx.Query*` not `db.Query*` — SQLite single-connection tests deadlock silently
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns

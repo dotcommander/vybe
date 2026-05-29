@@ -11,7 +11,7 @@ This guide covers running `vybe` in autonomous loops. For integration contracts 
 
 Your agent needs a stable identity. Pick a name, set it in `VYBE_AGENT`, and keep it across every call.
 
-Every mutation — `push`, `resume` (non-`--peek`), `task *`, `memory set|delete|gc` — requires a `--request-id`. Without it, retries create duplicate state. Generate a fresh ID per call.
+`--request-id` is optional on every mutation — `push`, `resume` (non-`--peek`), `task *`, `memory set|delete|gc`. When omitted, vybe auto-generates one (`req_<nano>_<hex>`), giving at-least-once semantics. Pass an explicit, stable `--request-id` only when you want exactly-once dedup across retries of the *same* logical operation.
 
 All output comes from `stdout` as a JSON envelope. `stderr` is diagnostics only — do not parse it.
 
@@ -159,6 +159,8 @@ vybe memory set --agent "$VYBE_AGENT" --request-id "mem_set_1" \
 
 vybe memory get --key checkpoint --scope task --scope-id "$TASK_ID" | jq -r '.data.value'
 ```
+
+For `--scope task` (and `--scope project`), `--scope-id` can be omitted when the agent has a focus task (or project) set via `vybe task begin` — vybe infers the scope-id from the agent's focus. Pass `--scope-id` explicitly only for `--scope agent`, or for task/project when no focus is set.
 
 ### Pin durable strategy
 

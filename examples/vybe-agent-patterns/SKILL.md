@@ -20,7 +20,7 @@ Patterns and commands for using vybe as the durable state layer in autonomous ag
 | Resume after crash/restart | `vybe resume --request-id R` | Session start, after interruption |
 | Create work items | `vybe task create --request-id R --title T --desc D` | Planning phase, decomposing work |
 | Log progress | `vybe push --request-id R --json '{"event":{"kind":"progress","message":"M"},"task_id":"T"}'` | Meaningful checkpoints |
-| Save cross-session facts | `vybe memory set --request-id R --key K --value V --scope S --scope-id SI` | Discoveries that must survive restarts |
+| Save cross-session facts | `vybe memory set --request-id R --key K --value V --scope S --scope-id SI` | Discoveries that must survive restarts (`--scope-id` optional for `task`/`project` when a focus is set) |
 | Attach output files | `vybe push --request-id R --json '{"artifacts":[{"file_path":"P"}],"task_id":"T"}'` | Generated files linked to tasks |
 | Read-only context snapshot | `vybe resume --peek` | Inspect state without advancing cursor |
 | Run autonomous work loop | `vybe loop --max-tasks N --max-fails M` | Continuous agent execution |
@@ -28,7 +28,7 @@ Patterns and commands for using vybe as the durable state layer in autonomous ag
 | Focus on project | `vybe resume --focus T --project-dir P` | Filtering brief to project scope |
 
 **MUST (BLOCKING):**
-- Every write command MUST include `--request-id` (enables idempotent retries)
+- `--request-id` is optional; pass a stable one to get exactly-once dedup across retries of the same operation (omitted → auto-generated, at-least-once)
 - Agent MUST set `VYBE_AGENT` env var or `--agent` flag (stable identity)
 - Resume MUST be called at session start before accessing focus task
 - Task closure in autonomous loops MUST use `vybe task set-status --status completed|blocked`
@@ -68,7 +68,7 @@ vybe task create --request-id "plan_step1_$(date +%s)_$$" \
   --title "Implement auth" --desc "Add JWT middleware"
 ```
 
-**Note:** `--agent` flag is the explicit alternative, but `VYBE_AGENT` env var is preferred — set once, no repetition.
+**Note:** `--agent` flag is the explicit alternative, but `VYBE_AGENT` env var (or `config.yaml: default_agent`) is preferred — set once, no repetition. Resolution order: `--agent` → `VYBE_AGENT` → `config.yaml: default_agent`.
 
 ### Resume Cycle (MUST Follow)
 
@@ -430,7 +430,7 @@ vybe push --request-id R --json '{"task_id":"T","event":{"kind":"K","message":"M
 # Events (read-only, no --request-id)
 vybe events --task-id T
 
-# Memory
+# Memory (--scope-id optional for task/project when a focus is set; required for agent scope)
 vybe memory set  --request-id R --key K --value V --scope S --scope-id SI
 vybe memory get  --key K --scope S --scope-id SI
 vybe memory list --scope S --scope-id SI
@@ -449,8 +449,8 @@ vybe status --check                         # fast health gate (exit code)
 
 | Anti-Pattern | Problem | Fix |
 |-------------|---------|-----|
-| Missing `--request-id` | Duplicate events/tasks on retry, no idempotency | `--request-id "push_$(date +%s)_$$"` for every write |
-| Reused request-id | Second call returns cached first response | Generate a new unique ID per operation |
+| Expecting dedup without a stable `--request-id` | Omitting it auto-generates a unique key per call (at-least-once) — retries of the same op land twice | Pass the *same* stable `--request-id` across retries of one logical operation when you need exactly-once |
+| Reusing a non-unique request-id across *different* operations | Second op returns the first op's cached response | Use a distinct stable ID per logical operation |
 | Volatile agent names | Cursor/state lost between sessions, no continuity | `export VYBE_AGENT=stable_name` at shell init |
 | Storing large blobs in memory | Memory is size-limited KV store, not file storage | Use `vybe push --json '{"artifacts":[...]}'` for files |
 | Polling `resume --peek` in tight loop | DB lock contention, no cursor advancement | Call `vybe resume` once per session start, cache brief |
@@ -471,9 +471,8 @@ vybe status --check                         # fast health gate (exit code)
 
 | Error | Fix |
 |-------|-----|
-| `agent is required` | Set `VYBE_AGENT` env var (preferred) or `--agent` flag |
-| `request-id is required` | Set unique `--request-id` (not needed for `--peek` or read-only ops) |
+| `agent is required` | Set `VYBE_AGENT` env var or `config.yaml: default_agent` (preferred) or `--agent` flag |
 | `task not found` | Verify with `vybe task list` |
 | `database is locked` | Auto-retry (5s timeout built-in) |
-| `idempotency replay` | Use a fresh unique request-id per operation |
-| `scope_id is required` | Task/project/agent scopes require `--scope-id` |
+| `idempotency replay` | Reusing a stable request-id replays the original result; use a distinct ID for a distinct operation |
+| `scope_id is required` | `agent` scope always requires `--scope-id`; `task`/`project` scopes infer it from focus when set, else pass `--scope-id` |

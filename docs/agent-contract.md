@@ -5,7 +5,7 @@ The canonical machine-facing contract for assistants, plugins, and autonomous wo
 ## Fast checklist
 
 1. Set stable `--agent` identity.
-2. Use `--request-id` on continuity mutations.
+2. Pass a stable `--request-id` when you need exactly-once dedup (optional; auto-generated otherwise).
 3. Parse `stdout` JSON envelope only.
 4. Parse `stderr` logs as diagnostics only.
 5. Discover command/flag schemas via `vybe schema commands`.
@@ -14,11 +14,11 @@ The canonical machine-facing contract for assistants, plugins, and autonomous wo
 
 ### Identity
 
-Every call that touches agent state needs `--agent`. Without it, vybe can't scope memory, cursor, or focus to your session. Use `--agent` or `VYBE_AGENT` on all agent-scoped calls. Format: `<assistant>-<workspace-or-session-prefix>`.
+Every call that touches agent state needs `--agent`. Without it, vybe can't scope memory, cursor, or focus to your session. Identity resolves in precedence order: `--agent` flag → `VYBE_AGENT` env → `config.yaml: default_agent`. Set `default_agent` (or `VYBE_AGENT`) once to avoid passing `--agent` on every call. Format: `<assistant>-<workspace-or-session-prefix>`.
 
 ### Idempotency
 
-Without a `--request-id`, duplicate calls produce duplicate writes. Include `--request-id` on every continuity mutation: `resume` without `--peek`, `push`, `task *`, `memory set|delete|gc`. When you retry, send the same `--request-id`. Vybe replays the original result — no duplicate write, no side effect. Never mint a new request ID while replaying the same logical write.
+`--request-id` is optional. When omitted, vybe auto-generates a unique one (`req_<nano>_<hex>`), giving at-least-once semantics — separate calls each get a distinct key and never collide. Pass an explicit, stable `--request-id` only when you want exactly-once dedup across retries of the *same* logical operation: `resume` without `--peek`, `push`, `task *`, `memory set|delete|gc`. When you retry, send the same `--request-id`. Vybe replays the original result — no duplicate write, no side effect. Never mint a new request ID while replaying the same logical write.
 
 ### Machine I/O
 
@@ -97,6 +97,8 @@ vybe push --agent "$AGENT" --request-id "$REQ" \
 vybe memory set --agent "$AGENT" --request-id "$REQ" \
   --key ... --value ... --scope task --scope-id "$TASK_ID"
 ```
+
+For `--scope task` or `--scope project`, `--scope-id` is inferred from the agent's focus (set via `vybe task begin`) when omitted. It is required for `--scope agent`, and for task/project when no focus is set.
 
 `memory set` accepts a `--kind` to classify the entry. The kind controls how the memory renders in the resume brief and how fast it decays:
 
