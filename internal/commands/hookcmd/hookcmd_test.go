@@ -89,7 +89,7 @@ func TestIsVybeHookCommand(t *testing.T) {
 }
 
 func TestVybeHookEventNames_ContainsAllEvents(t *testing.T) {
-	events := vybeHookEventNames()
+	events := VybeHookEventNames()
 	expected := []string{
 		"SessionStart",
 		"UserPromptSubmit",
@@ -391,7 +391,7 @@ func TestInstallCmd_Claude_ProjectScoped(t *testing.T) {
 	// with a hook subcommand. We can't use HasVybeHook here because the test binary
 	// is not named "vybe", so IsVybeHookCommand rejects the generated command.
 	// Instead we verify the structural shape directly.
-	for _, eventName := range vybeHookEventNames() {
+	for _, eventName := range VybeHookEventNames() {
 		entries, ok := hooksObj[eventName].([]any)
 		require.True(t, ok, "missing hook event: %s", eventName)
 		require.NotEmpty(t, entries, "hook event %s has no entries", eventName)
@@ -441,7 +441,7 @@ func TestInstallCmd_Claude_ProjectScoped(t *testing.T) {
 
 	hooksObj2, ok := settings2["hooks"].(map[string]any)
 	require.True(t, ok, "settings should still have hooks key after second install")
-	require.Len(t, hooksObj2, len(vybeHookEventNames()), "hook count should be unchanged after second install")
+	require.Len(t, hooksObj2, len(VybeHookEventNames()), "hook count should be unchanged after second install")
 }
 
 func TestInstallCmd_OpenCode(t *testing.T) {

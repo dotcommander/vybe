@@ -2,12 +2,67 @@ package commands
 
 import (
 	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
-	"time"
 
+	"github.com/dotcommander/vybe/internal/actions"
+	"github.com/dotcommander/vybe/internal/commands/hookcmd"
+	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 	"github.com/stretchr/testify/require"
 )
+
+// hookTestStdinMu serializes tests that replace os.Stdin. Parallel tests may
+// otherwise race when two swap stdin concurrently on the same process.
+var hookTestStdinMu sync.Mutex //nolint:gochecknoglobals // test-only mutex; cannot be avoided with global os.Stdin
+
+// withHookStdin replaces os.Stdin with a pipe that provides payload, runs fn,
+// then restores the original stdin. The caller must hold hookTestStdinMu.
+func withHookStdin(t *testing.T, payload string, fn func()) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	_, writeErr := io.WriteString(w, payload)
+	require.NoError(t, writeErr)
+	require.NoError(t, w.Close())
+
+	orig := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = orig
+		_ = r.Close()
+	})
+
+	fn()
+}
+
+// hookStdinPayload builds the JSON stdin payload for a prompt hook invocation.
+func hookStdinPayload(sessionID, cwd, prompt string) string {
+	p := map[string]any{
+		"cwd":             cwd,
+		"session_id":      sessionID,
+		"hook_event_name": "UserPromptSubmit",
+		"prompt":          prompt,
+	}
+	b, _ := json.Marshal(p)
+	return string(b)
+}
+
+// initTestDB creates a temp SQLite database and returns it along with its path.
+// DB is the type alias defined in dbutil.go (= sql.DB).
+func initTestDB(t *testing.T) (*DB, string) {
+	t.Helper()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	db, err := store.InitDBWithPath(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	return db, dbPath
+}
 
 func TestTruncateString(t *testing.T) {
 	// Within limit — passthrough
@@ -148,12 +203,12 @@ func TestBuildToolSuccessMetadata(t *testing.T) {
 }
 
 func TestReadAutoMemory_EmptyCWD(t *testing.T) {
-	got := readAutoMemory("", maxAutoMemoryChars)
+	got := hookcmd.ReadAutoMemory("", maxAutoMemoryChars)
 	require.Empty(t, got)
 }
 
 func TestReadAutoMemory_NonexistentPath(t *testing.T) {
-	got := readAutoMemory("/nonexistent/path/for/test", maxAutoMemoryChars)
+	got := hookcmd.ReadAutoMemory("/nonexistent/path/for/test", maxAutoMemoryChars)
 	require.Empty(t, got)
 }
 
@@ -166,29 +221,179 @@ func TestSessionStartCompactSourceField(t *testing.T) {
 	require.Equal(t, "/tmp/test", input.CWD)
 }
 
-func TestPrevSessionCacheVariables(t *testing.T) {
-	// Save and restore cache state so this test is order-independent.
-	savedPath := prevSessionCachePath
-	savedMod := prevSessionCacheModTime
-	savedResult := prevSessionCacheResult
-	t.Cleanup(func() {
-		prevSessionCachePath = savedPath
-		prevSessionCacheModTime = savedMod
-		prevSessionCacheResult = savedResult
+// --- Phase A: Hook deduplication tests ---
+// These verify CURRENT behavior and must pass before Phase D refactors the code.
+
+// TestCheckpointAndSessionEndSharePath verifies that runCheckpoint is the shared
+// execution path for both the checkpoint and session-end hook handlers.
+// A real DB is used; success means runCheckpoint ran without panic for both.
+func TestCheckpointAndSessionEndSharePath(t *testing.T) {
+	_, dbPath := initTestDB(t)
+	t.Setenv("VYBE_DB_PATH", dbPath)
+
+	hctx := hookContext{
+		Input:     hookInput{SessionID: "sess-share-path", HookEventName: "PreCompact"},
+		AgentName: "test-agent-share",
+		CWD:       t.TempDir(),
+	}
+
+	// Checkpoint path: random request ID.
+	checkpointReqID := hookRequestID("checkpoint", hctx.AgentName)
+	{
+		db, closeDB, err := openDB()
+		require.NoError(t, err, "openDB must succeed for checkpoint path")
+		defer closeDB()
+		runCheckpoint(db, hctx, checkpointReqID) // must not panic
+	}
+
+	// Session-end path: stable (session-scoped) request ID.
+	sessionEndReqID := stableHookRequestID("session_end", hctx.AgentName, hctx.Input.SessionID)
+	{
+		db, closeDB, err := openDB()
+		require.NoError(t, err, "openDB must succeed for session-end path")
+		defer closeDB()
+		runCheckpoint(db, hctx, sessionEndReqID) // must not panic
+	}
+
+	// The two strategies must produce different IDs for the same invocation context.
+	require.NotEqual(t, checkpointReqID, sessionEndReqID,
+		"checkpoint (random) and session-end (stable) request IDs must differ")
+}
+
+// TestCheckpointUsesRandomReqID verifies the checkpoint request-ID strategy produces
+// different IDs on each invocation — no idempotency collision across separate runs.
+func TestCheckpointUsesRandomReqID(t *testing.T) {
+	t.Parallel()
+
+	id1 := hookRequestID("checkpoint", "claude")
+	id2 := hookRequestID("checkpoint", "claude")
+
+	require.Contains(t, id1, "hook_checkpoint_claude_",
+		"checkpoint request ID must include expected prefix")
+	require.NotEqual(t, id1, id2,
+		"two checkpoint invocations must produce different request IDs (random suffix)")
+}
+
+// TestSessionEndUsesStableReqID verifies the session-end request-ID strategy produces
+// the same ID for the same session — retried session-end hooks are idempotent.
+func TestSessionEndUsesStableReqID(t *testing.T) {
+	t.Parallel()
+
+	sessionID := "sess-stable-test-abc123"
+
+	id1 := stableHookRequestID("session_end", "claude", sessionID)
+	id2 := stableHookRequestID("session_end", "claude", sessionID)
+
+	require.Equal(t, id1, id2,
+		"two session-end invocations with the same session_id must produce identical request IDs")
+	require.Contains(t, id1, "hook_session_end_claude_",
+		"session-end request ID must include expected prefix")
+	require.Contains(t, id1, "sess-stable-test-abc123",
+		"session-end request ID must embed the session ID")
+}
+
+// --- Phase A: UserPromptSubmit reminder tests ---
+
+// TestPromptNonTriggerNoStdout asserts that a non-trigger prompt produces no stdout.
+// EXPECTED TO FAIL in Phase A: per-turn reminder at hook.go:211-239 still emits stdout.
+// Passes after Phase D-2 removes the reminder block.
+func TestPromptNonTriggerNoStdout(t *testing.T) {
+	db, dbPath := initTestDB(t)
+	t.Setenv("VYBE_DB_PATH", dbPath)
+	t.Setenv("VYBE_AGENT", "test-agent-nontrigger")
+
+	// Create a task and set it as the agent's focus so the reminder fires.
+	task, _, err := actions.TaskCreateIdempotent(db, "test-agent-nontrigger",
+		"req-nontrigger-task-1", "Focus task for reminder test", "", "", 0)
+	require.NoError(t, err)
+	require.NotEmpty(t, task.ID)
+
+	_, err = store.LoadOrCreateAgentState(db, "test-agent-nontrigger")
+	require.NoError(t, err)
+	_, err = store.SetAgentFocusTaskWithEventIdempotent(db,
+		"test-agent-nontrigger", "req-nontrigger-focus-1", task.ID)
+	require.NoError(t, err)
+
+	payload := hookStdinPayload("sess-nontrigger", t.TempDir(), "what is the weather today?")
+	cmd := newHookPromptCmd()
+
+	hookTestStdinMu.Lock()
+	out := captureStdout(t, func() {
+		withHookStdin(t, payload, func() {
+			_ = cmd.RunE(cmd, nil)
+		})
 	})
+	hookTestStdinMu.Unlock()
 
-	// Reset to known-empty state for this test.
-	prevSessionCachePath = ""
-	prevSessionCacheModTime = time.Time{}
-	prevSessionCacheResult = ""
+	// EXPECTED TO FAIL in Phase A: reminder still emits stdout.
+	// After Phase D-2 removes hook.go:211-239, this assertion passes.
+	require.Empty(t, strings.TrimSpace(out),
+		"non-trigger prompt must not emit stdout (Phase D-2: remove per-turn reminder)")
+}
 
-	// Verify cache variables are accessible and start empty after reset.
-	require.Empty(t, prevSessionCachePath)
-	require.True(t, prevSessionCacheModTime.IsZero())
-	require.Empty(t, prevSessionCacheResult)
+// TestPromptEventLogged asserts that a non-trigger prompt causes a user_prompt event
+// to be recorded in the DB. Must PASS in Phase A — event logging is already present.
+func TestPromptEventLogged(t *testing.T) {
+	_, dbPath := initTestDB(t)
+	t.Setenv("VYBE_DB_PATH", dbPath)
+	t.Setenv("VYBE_AGENT", "test-agent-eventlog")
 
-	// Verify readPreviousSessionContext returns empty for nonexistent path
-	// (doesn't panic on cache operations).
-	result := readPreviousSessionContext("/nonexistent/path/for/cache/test", "sess_test")
-	require.Empty(t, result)
+	payload := hookStdinPayload("sess-eventlog", t.TempDir(), "just a regular question")
+	cmd := newHookPromptCmd()
+
+	hookTestStdinMu.Lock()
+	withHookStdin(t, payload, func() {
+		_ = cmd.RunE(cmd, nil)
+	})
+	hookTestStdinMu.Unlock()
+
+	// Open the DB independently to verify the event was written.
+	db2, err := store.InitDBWithPath(dbPath)
+	require.NoError(t, err)
+	defer func() { _ = db2.Close() }()
+
+	events, err := store.ListEvents(db2, store.ListEventsParams{
+		AgentName: "test-agent-eventlog",
+		Kind:      models.EventKindUserPrompt,
+		Limit:     10,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, events,
+		"user_prompt event must be recorded in DB after hook prompt runs")
+}
+
+// TestPromptTriggerEmitsRichBrief asserts that the trigger word "brief me" causes
+// the hook to emit non-empty JSON hookOutput on stdout. Must PASS in Phase A.
+func TestPromptTriggerEmitsRichBrief(t *testing.T) {
+	db, dbPath := initTestDB(t)
+	t.Setenv("VYBE_DB_PATH", dbPath)
+	t.Setenv("VYBE_AGENT", "test-agent-trigger")
+
+	// Create a task so the brief has content.
+	_, _, err := actions.TaskCreateIdempotent(db, "test-agent-trigger",
+		"req-trigger-task-1", "Task for trigger brief test", "", "", 0)
+	require.NoError(t, err)
+
+	payload := hookStdinPayload("sess-trigger", t.TempDir(), "brief me")
+	cmd := newHookPromptCmd()
+
+	var out string
+	hookTestStdinMu.Lock()
+	out = captureStdout(t, func() {
+		withHookStdin(t, payload, func() {
+			_ = cmd.RunE(cmd, nil)
+		})
+	})
+	hookTestStdinMu.Unlock()
+
+	trimmed := strings.TrimSpace(out)
+	require.NotEmpty(t, trimmed,
+		"trigger prompt 'brief me' must emit non-empty output on stdout")
+
+	var hookOut map[string]any
+	require.NoError(t, json.Unmarshal([]byte(trimmed), &hookOut),
+		"trigger prompt output must be valid JSON: %s", trimmed)
+	_, hasHookSpecific := hookOut["hookSpecificOutput"]
+	require.True(t, hasHookSpecific,
+		"trigger output must contain hookSpecificOutput field: %s", trimmed)
 }

@@ -2,16 +2,13 @@ package app
 
 import (
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func resetSettingsStateForTest() {
-	settingsOnce = sync.Once{}
-	settings = Settings{}
-	settingsErr = nil
+	ResetSettingsForTest()
 	SetDBPathOverride("")
 }
 
