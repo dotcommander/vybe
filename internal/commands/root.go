@@ -68,6 +68,8 @@ func Execute(version string) error {
 	root.PersistentFlags().String("request-id", "", "Idempotency key for mutating operations (default: $VYBE_REQUEST_ID)")
 	root.Flags().BoolP("version", "v", false, "version for vybe")
 
+	root.AddCommand(NewInitCmd())
+	root.AddCommand(NewDoctorCmd())
 	root.AddCommand(NewTaskCmd())
 	root.AddCommand(NewMemoryCmd())
 	root.AddCommand(NewResumeCmd())

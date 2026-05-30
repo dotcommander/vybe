@@ -2,10 +2,13 @@ package hookcmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/dotcommander/vybe/internal/app"
 )
 
 const vybeCommandFallback = "vybe"
@@ -27,67 +30,31 @@ type hookEntry struct {
 	Hooks   []hookHandler `json:"hooks"`
 }
 
+// vybeHooks returns the hook manifest, loading from ~/.config/vybe/hooks.json
+// on first call and caching for the process lifetime. Falls back to built-in
+// defaults when the config dir is unavailable.
 func vybeHooks() map[string]hookEntry {
 	vybeHooksOnce.Do(func() {
-		vybeHooksCache = buildVybeHooks()
+		configDir, err := app.ConfigDir()
+		if err != nil {
+			slog.Default().Warn("hook registry: config dir unavailable, using defaults", "error", err)
+			vybeHooksCache = buildVybeHooks()
+			return
+		}
+		manifest, loadErr := LoadHookManifest(configDir)
+		if loadErr != nil {
+			slog.Default().Warn("hook registry: manifest load failed, using defaults", "error", loadErr)
+			vybeHooksCache = buildVybeHooks()
+			return
+		}
+		vybeHooksCache = manifest
 	})
 	return vybeHooksCache
 }
 
-func buildVybeHooks() map[string]hookEntry {
-	return map[string]hookEntry{
-		"SessionStart": {
-			Matcher: "startup|resume|clear|compact",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("session-start"),
-				Timeout: 3000,
-			}},
-		},
-		"UserPromptSubmit": {
-			Matcher: "",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("prompt"),
-				Timeout: 2000,
-			}},
-		},
-		"PostToolUseFailure": {
-			Matcher: "",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("tool-failure"),
-				Timeout: 2000,
-			}},
-		},
-		"PreCompact": {
-			Matcher: "",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("checkpoint"),
-				Timeout: 4000,
-			}},
-		},
-		"SessionEnd": {
-			Matcher: "",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("session-end"),
-				Timeout: 5000,
-			}},
-		},
-		"TaskCompleted": {
-			Matcher: "",
-			Hooks: []hookHandler{{
-				Type:    "command",
-				Command: buildVybeHookCommand("task-completed"),
-				Timeout: 2000,
-			}},
-		},
-	}
-}
-
-func vybeHookEventNames() []string {
+// VybeHookEventNames returns the sorted list of Claude hook event names vybe installs.
+// Exported so commands outside this package (e.g. vybe doctor) can check hook coverage.
+func VybeHookEventNames() []string {
 	hooks := vybeHooks()
 	events := make([]string, 0, len(hooks))
 	for name := range hooks {

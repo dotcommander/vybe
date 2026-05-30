@@ -32,6 +32,8 @@ const (
 var hookSeqCounter uint64 //nolint:gochecknoglobals // atomic counter shared across hook invocations; required for fallback entropy
 
 // hookInput is the JSON Claude Code sends on stdin to hooks.
+// Field names use snake_case to match Claude Code's payload format —
+// this struct is Claude Code-specific; other hosts use different schemas.
 type hookInput struct {
 	CWD           string          `json:"cwd"`
 	SessionID     string          `json:"session_id"`

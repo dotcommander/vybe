@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dotcommander/vybe/internal/actions"
+	"github.com/dotcommander/vybe/internal/commands/hookcmd"
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/output"
 	"github.com/dotcommander/vybe/internal/store"
@@ -26,6 +27,7 @@ import (
 const (
 	postRunHookTimeout  = 30 * time.Second
 	processExitWaitTime = 2 * time.Second
+	maxAutoMemoryChars  = 2000
 )
 
 // NewLoopCmd creates the autonomous driver command.
@@ -406,7 +408,7 @@ func buildAgentPrompt(r *actions.ResumeResponse, projectDir string) string {
 
 	// Inject Claude Code auto memory for project context
 	if projectDir != "" {
-		if autoMem := readAutoMemory(projectDir, maxAutoMemoryChars); autoMem != "" {
+		if autoMem := hookcmd.ReadAutoMemory(projectDir, maxAutoMemoryChars); autoMem != "" {
 			b.WriteString("\n== PROJECT MEMORY ==\n")
 			b.WriteString(autoMem)
 			b.WriteString("\n")

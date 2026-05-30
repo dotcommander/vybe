@@ -1,4 +1,8 @@
-package commands
+package hookcmd
+
+// claude_adapter.go — all "reach into ~/.claude/projects/*.jsonl" knowledge lives here.
+// Parallel to opencode.go: Claude Code-specific transcript reading in one place.
+// TODO(spec-link): evaluate removal — reads ~/.claude internals; isolate first, then measure.
 
 import (
 	"encoding/json"
@@ -10,7 +14,7 @@ import (
 	"time"
 )
 
-// prevSessionCache caches readPreviousSessionContext results to avoid redundant disk I/O
+// prevSessionCache caches ReadPreviousSessionContext results to avoid redundant disk I/O
 // across multiple SessionStart invocations within the same process.
 //
 //nolint:gochecknoglobals // cache shared across hook invocations; same pattern as hookSeqCounter
@@ -19,8 +23,6 @@ var (
 	prevSessionCacheModTime time.Time
 	prevSessionCacheResult  string
 )
-
-const maxAutoMemoryChars = 2000
 
 type transcriptContentItem struct {
 	Type string `json:"type"`
@@ -183,12 +185,12 @@ func parseTranscriptExchanges(lines []string, maxMsgLen, maxTotalLen int) string
 	return result
 }
 
-// readPreviousSessionContext finds the most recent Claude Code session transcript
+// ReadPreviousSessionContext finds the most recent Claude Code session transcript
 // for the given working directory (excluding the current session) and returns a
 // formatted string of the last few user/assistant exchanges.
 //
 // All errors are silently swallowed - hooks must never block Claude Code.
-func readPreviousSessionContext(cwd, currentSessionID string) string {
+func ReadPreviousSessionContext(cwd, currentSessionID string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -217,7 +219,10 @@ func readPreviousSessionContext(cwd, currentSessionID string) string {
 	return result
 }
 
-func readAutoMemory(cwd string, maxChars int) string {
+// ReadAutoMemory reads the Claude Code auto-memory file for the given working
+// directory, returning its contents truncated to maxChars runes.
+// Returns empty string when the file is absent or cwd is empty.
+func ReadAutoMemory(cwd string, maxChars int) string {
 	if cwd == "" {
 		return ""
 	}

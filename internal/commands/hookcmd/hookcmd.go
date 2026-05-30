@@ -72,7 +72,7 @@ func ResolveTargetFlags(cmd *cobra.Command) (claude bool, opencode bool, err err
 }
 
 // buildInstallMessage assembles a human-readable summary of the install operation.
-func buildInstallMessage(claude *claudeInstallResult, opencode *opencodeInstallResult) string {
+func buildInstallMessage(claude *ClaudeInstallResult, opencode *opencodeInstallResult) string {
 	var parts []string
 	if claude != nil {
 		if len(claude.Installed) > 0 {
@@ -117,14 +117,14 @@ func NewInstallCmd() *cobra.Command {
 
 			type result struct {
 				Message  string                 `json:"message"`
-				Claude   *claudeInstallResult   `json:"claude,omitempty"`
+				Claude   *ClaudeInstallResult   `json:"claude,omitempty"`
 				OpenCode *opencodeInstallResult `json:"opencode,omitempty"`
 			}
 
 			resp := result{}
 
 			if installClaude {
-				resp.Claude, err = installClaudeHooks(projectScoped)
+				resp.Claude, err = InstallClaudeHooks(projectScoped)
 				if err != nil {
 					return err
 				}
@@ -198,16 +198,34 @@ func NewUninstallCmd() *cobra.Command {
 	return cmd
 }
 
-// NewHookCmd creates the hook parent command with install and uninstall subcommands.
-func NewHookCmd() *cobra.Command {
+// NewExportCmd creates the hook export command: prints the active manifest JSON to stdout.
+// --default bypasses hooks.json and always emits the built-in defaults.
+func NewExportCmd() *cobra.Command {
+	var useDefaults bool
+
 	cmd := &cobra.Command{
-		Use:   "hook",
-		Short: "Hook installation and management for Claude/OpenCode",
-		Args:  cobra.NoArgs,
+		Use:   "export",
+		Short: "Print the hook manifest JSON to stdout",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var hooks map[string]hookEntry
+			if useDefaults {
+				hooks = buildVybeHooks()
+			} else {
+				configDir, err := app.ConfigDir()
+				if err != nil {
+					// Fall back to built-in defaults when config dir is unavailable.
+					hooks = buildVybeHooks()
+				} else {
+					hooks, err = LoadHookManifest(configDir)
+					if err != nil {
+						hooks = buildVybeHooks()
+					}
+				}
+			}
+			return output.PrintSuccess(hooks)
+		},
 	}
 
-	cmd.AddCommand(NewInstallCmd())
-	cmd.AddCommand(NewUninstallCmd())
-
+	cmd.Flags().BoolVar(&useDefaults, "default", false, "Emit built-in defaults even when hooks.json exists")
 	return cmd
 }

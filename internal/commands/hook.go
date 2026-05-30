@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/dotcommander/vybe/internal/actions"
+	"github.com/dotcommander/vybe/internal/commands/hookcmd"
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 	"github.com/spf13/cobra"
@@ -24,6 +25,7 @@ func NewHookCmd() *cobra.Command {
 
 	cmd.AddCommand(newHookInstallCmd())
 	cmd.AddCommand(newHookUninstallCmd())
+	cmd.AddCommand(hookcmd.NewExportCmd())
 
 	// Hook handler subcommands — called by the hook system, not agents directly.
 	// Hidden from help output to reduce command surface noise.
@@ -31,9 +33,13 @@ func NewHookCmd() *cobra.Command {
 		newHookSessionStartCmd(),
 		newHookPromptCmd(),
 		newHookToolFailureCmd(),
-		newHookCheckpointCmd(),
+		newHookMaintenanceCmd("checkpoint", "PreCompact hook — checkpoint maintenance",
+			func(agentName, _ string) string { return hookRequestID("checkpoint", agentName) }),
 		newHookTaskCompletedCmd(),
-		newHookSessionEndCmd(),
+		newHookMaintenanceCmd("session-end", "SessionEnd hook — best-effort checkpoint",
+			func(agentName, sessionID string) string {
+				return stableHookRequestID("session_end", agentName, sessionID)
+			}),
 	} {
 		sub.Hidden = true
 		cmd.AddCommand(sub)
@@ -130,7 +136,7 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 				return nil
 			}
 
-			prevContext := readPreviousSessionContext(hctx.CWD, hctx.Input.SessionID)
+			prevContext := hookcmd.ReadPreviousSessionContext(hctx.CWD, hctx.Input.SessionID)
 			if prevContext != "" {
 				prompt += "\n" + prevContext
 			}
@@ -207,36 +213,7 @@ Register via 'vybe hook install'.`,
 					return emitRichBrief(db, hctx.AgentName, state.FocusTaskID, focusProjectID)
 				}
 
-				// Non-trigger: lightweight reminder if focus task exists
-				if state.FocusTaskID == "" {
-					return nil
-				}
-
-				brief, err := store.BuildBrief(db, state.FocusTaskID, focusProjectID, hctx.AgentName)
-				if err != nil {
-					return err
-				}
-				// BuildBrief is documented (internal/store/brief.go) to always
-				// return a non-nil *BriefPacket on err==nil; the only meaningful
-				// gate is whether the focus task was resolved.
-				if brief.Task == nil {
-					return nil
-				}
-
-				actionable := 1
-				if brief.Counts != nil {
-					actionable = brief.Counts.Pending + brief.Counts.InProgress
-				}
-
-				var reminder strings.Builder
-				fmt.Fprintf(&reminder, "TASK REMINDER: You have %d task(s) awaiting action.\n", actionable)
-				fmt.Fprintf(&reminder, "Current: %s — %s\n", brief.Task.ID, brief.Task.Title)
-				if brief.Task.Description != "" {
-					fmt.Fprintf(&reminder, "Description: %s\n", brief.Task.Description)
-				}
-				reminder.WriteString("Ask the user if they'd like to address pending tasks before proceeding.\n")
-
-				return emitHookJSON("UserPromptSubmit", reminder.String())
+				return nil
 			})
 
 			return nil
@@ -279,10 +256,13 @@ func newHookToolFailureCmd() *cobra.Command {
 	}
 }
 
-func newHookCheckpointCmd() *cobra.Command {
+// Single source of truth for maintenance hooks (PreCompact, SessionEnd).
+// buildReqID is the only asymmetry: checkpoint uses a random per-invocation ID;
+// session-end uses a stable per-session ID for idempotency across retries.
+func newHookMaintenanceCmd(use, short string, buildReqID func(agentName, sessionID string) string) *cobra.Command {
 	return &cobra.Command{
-		Use:           "checkpoint",
-		Short:         "PreCompact hook — checkpoint maintenance",
+		Use:           use,
+		Short:         short,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -290,13 +270,13 @@ func newHookCheckpointCmd() *cobra.Command {
 			slog.Default().Debug("LLM subprocess execution disabled for hook", "env", disableExternalLLMEnv)
 
 			hctx := resolveHookContext(cmd)
-			requestIDPrefix := hookRequestID("checkpoint", hctx.AgentName)
+			requestIDPrefix := buildReqID(hctx.AgentName, hctx.Input.SessionID)
 
 			if err := withDB(func(db *DB) error {
 				runCheckpoint(db, hctx, requestIDPrefix)
 				return nil
 			}); err != nil {
-				slog.Default().Error("checkpoint hook failed", "error", err, "hook_event", hctx.Input.HookEventName)
+				slog.Default().Error("maintenance hook failed", "error", err, "use", use)
 			}
 
 			return nil
@@ -363,33 +343,6 @@ func newHookTaskCompletedCmd() *cobra.Command {
 				return err
 			}); err != nil {
 				slog.Default().Error("task-completed hook failed", "error", err)
-			}
-
-			return nil
-		},
-	}
-}
-
-// newHookSessionEndCmd creates a SessionEnd hook that runs checkpoint only.
-func newHookSessionEndCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:           "session-end",
-		Short:         "SessionEnd hook — best-effort checkpoint",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = os.Setenv(disableExternalLLMEnv, "1")
-			slog.Default().Debug("LLM subprocess execution disabled for hook", "env", disableExternalLLMEnv)
-
-			hctx := resolveHookContext(cmd)
-			sessionID := hctx.Input.SessionID
-			requestIDPrefix := stableHookRequestID("session_end", hctx.AgentName, sessionID)
-
-			if err := withDB(func(db *DB) error {
-				runCheckpoint(db, hctx, requestIDPrefix)
-				return nil
-			}); err != nil {
-				slog.Default().Error("session-end checkpoint failed", "error", err)
 			}
 
 			return nil

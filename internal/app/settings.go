@@ -90,6 +90,14 @@ var (
 	dbPathOverride   string
 )
 
+// ResetSettingsForTest resets the settings singleton so the next LoadSettings call
+// re-reads config from disk. Call only in tests via t.Cleanup — never in production.
+func ResetSettingsForTest() {
+	settingsOnce = sync.Once{}
+	settings = Settings{}
+	settingsErr = nil
+}
+
 // SetDBPathOverride sets a process-wide database path override.
 // Intended for CLI flag support (e.g. --db-path).
 func SetDBPathOverride(path string) {

@@ -5,8 +5,12 @@ import (
 	"path/filepath"
 )
 
-// ConfigDir returns ~/.config/vybe/ on all platforms.
+// ConfigDir returns the vybe config directory.
+// Respects the XDG base directory spec; falls back to ~/.config/vybe.
 func ConfigDir() (string, error) {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "vybe"), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -39,7 +43,7 @@ const defaultConfig = `# vybe configuration
 # db_path: ~/.config/vybe/vybe.db
 
 # Optional: default agent identity when --agent and VYBE_AGENT are unset.
-# default_agent: claude
+default_agent: claude
 
 # Optional: internal event maintenance controls (used by hook checkpoint/session-end).
 # events_retention_days: 30

@@ -10,9 +10,16 @@ import (
 )
 
 func claudeSettingsPath() string {
+	if p := os.Getenv("CLAUDE_SETTINGS_PATH"); p != "" {
+		return p
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".claude", "settings.json")
 }
+
+// ClaudeSettingsPath returns the resolved Claude settings.json path.
+// Checks CLAUDE_SETTINGS_PATH env var first, then falls back to ~/.claude/settings.json.
+func ClaudeSettingsPath() string { return claudeSettingsPath() }
 
 func projectClaudeSettingsPath() string {
 	wd, err := os.Getwd()
@@ -195,20 +202,18 @@ func upsertVybeHookEntry(existing []any, newEntry map[string]any) ([]any, instal
 	return entries, hookInstalled
 }
 
-type claudeInstallResult struct {
+// ClaudeInstallResult reports the outcome of a Claude hook install operation.
+// Exported so callers outside this package (e.g. vybe init) can use the type.
+type ClaudeInstallResult struct {
 	Path      string   `json:"path"`
 	Installed []string `json:"installed"`
 	Updated   []string `json:"updated,omitempty"`
 	Skipped   []string `json:"skipped"`
 }
 
-type claudeUninstallResult struct {
-	Path    string   `json:"path"`
-	Removed []string `json:"removed"`
-}
-
-// installClaudeHooks installs vybe hooks into the Claude Code settings file.
-func installClaudeHooks(projectScoped bool) (*claudeInstallResult, error) {
+// InstallClaudeHooks installs vybe hooks into the Claude Code settings file.
+// Exported so commands outside this package (e.g. vybe init) can call it directly.
+func InstallClaudeHooks(projectScoped bool) (*ClaudeInstallResult, error) {
 	path := resolveClaudeSettingsPath(projectScoped)
 
 	var installed []string
@@ -252,50 +257,5 @@ func installClaudeHooks(projectScoped bool) (*claudeInstallResult, error) {
 	sort.Strings(installed)
 	sort.Strings(updated)
 	sort.Strings(skipped)
-	return &claudeInstallResult{Path: path, Installed: installed, Updated: updated, Skipped: skipped}, nil
-}
-
-// uninstallClaudeHooks removes vybe hook entries from the Claude Code settings file.
-func uninstallClaudeHooks(projectScoped bool) (*claudeUninstallResult, error) {
-	path := resolveClaudeSettingsPath(projectScoped)
-
-	var removed []string
-	noHooks := false
-
-	if err := withLockedSettings(path, func(settings map[string]any) error {
-		hooksObj, _ := settings["hooks"].(map[string]any)
-		if hooksObj == nil {
-			noHooks = true
-			return errSkipWrite
-		}
-
-		for _, eventName := range vybeHookEventNames() {
-			entries, ok := hooksObj[eventName].([]any)
-			if !ok {
-				continue
-			}
-
-			kept, removedAny := filterVybeEntries(entries)
-
-			if removedAny {
-				removed = append(removed, eventName)
-			}
-
-			if len(kept) == 0 {
-				delete(hooksObj, eventName)
-			} else {
-				hooksObj[eventName] = kept
-			}
-		}
-
-		settings["hooks"] = hooksObj
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	if noHooks {
-		return &claudeUninstallResult{Path: path, Removed: []string{}}, nil
-	}
-	return &claudeUninstallResult{Path: path, Removed: removed}, nil
+	return &ClaudeInstallResult{Path: path, Installed: installed, Updated: updated, Skipped: skipped}, nil
 }
