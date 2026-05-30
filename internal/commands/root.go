@@ -79,6 +79,11 @@ func Execute(version string) error {
 	root.AddCommand(NewEventsCmd())
 	root.AddCommand(NewArtifactsCmd())
 	root.AddCommand(NewSchemaCmd(root))
+	root.AddCommand(newDoneCmd())
+	root.AddCommand(newBlockCmd())
+	root.AddCommand(newNoteCmd())
+	root.AddCommand(newRememberCmd())
+	root.AddCommand(newFocusCmd())
 
 	err := root.Execute()
 	if err != nil {

@@ -87,9 +87,12 @@ func runSchemaMode(root *cobra.Command) error {
 	type agentProtocol struct {
 		ResumeCommand           string   `json:"resume_command"`
 		FocusTaskField          string   `json:"focus_task_field"`
+		FocusCommand            string   `json:"focus_command"`
 		TerminalStatusCommand   string   `json:"terminal_status_command"`
+		BlockCommand            string   `json:"block_command"`
 		TerminalStatuses        []string `json:"terminal_statuses"`
 		OptionalProgressCommand string   `json:"optional_progress_command"`
+		RememberCommand         string   `json:"remember_command"`
 		Rule                    string   `json:"rule"`
 	}
 	type resp struct {
@@ -102,10 +105,13 @@ func runSchemaMode(root *cobra.Command) error {
 	protocol := agentProtocol{
 		ResumeCommand:           "vybe resume --agent <AGENT>",
 		FocusTaskField:          "data.focus_task_id",
-		TerminalStatusCommand:   "vybe task set-status --agent <AGENT> --id <TASK_ID> --status <STATUS>",
+		FocusCommand:            "vybe focus --agent <AGENT>",
+		TerminalStatusCommand:   "vybe done <TASK_ID> --note \"<summary>\"",
+		BlockCommand:            "vybe block <TASK_ID> --reason \"<why>\" [--failure]",
 		TerminalStatuses:        []string{"completed", "blocked"},
-		OptionalProgressCommand: "vybe push --agent <AGENT> --json '{\"task_id\":\"<TASK_ID>\",\"event\":{\"kind\":\"progress\",\"message\":\"...\"}}'",
-		Rule:                    "Per loop step, close the focus task with exactly one terminal status: completed or blocked.",
+		OptionalProgressCommand: "vybe note <TASK_ID> \"<message>\"",
+		RememberCommand:         "vybe remember \"<key>=<value>\" [--scope task --scope-id <TASK_ID>]",
+		Rule:                    "Per loop step, close the focus task with exactly one terminal: `vybe done <id>` (completed) or `vybe block <id> --reason ...` (blocked). Omit --request-id unless deliberately retrying.",
 	}
 
 	return output.PrintSuccess(resp{Commands: schemas, AgentProtocol: protocol})
