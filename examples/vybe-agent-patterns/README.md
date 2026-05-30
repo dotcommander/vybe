@@ -25,7 +25,7 @@ The skill teaches Claude Code to:
 - Log progress events at meaningful checkpoints
 - Persist cross-session memory (facts, decisions, checkpoints)
 - Link artifacts to tasks
-- Use idempotent writes with `--request-id` for safe retries
+- Use idempotent writes for safe retries — `--request-id` is optional (auto-generated when omitted); pass the same STABLE id only when retrying the exact same operation. Don't generate a fresh one per call.
 - Run autonomous worker loops
 - Decompose work into dependent subtasks
 

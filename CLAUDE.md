@@ -318,21 +318,26 @@ Claude Code is integrated with vybe via hooks. The system automatically:
 When working on multi-step tasks, proactively use vybe for durable state:
 
 ```bash
-#-Atomic batch push (preferred — combines event, memory, artifacts, status in one call)
-vybe push --agent=claude --request-id=push_$(date +%s) --json '{
-  "task_id": "<task_id>",
-  "event": {"kind": "progress", "message": "<what happened>"},
-  "memories": [{"key": "<key>", "value": "<value>", "scope": "task", "scope_id": "<task_id>"}],
-  "artifacts": [{"file_path": "<path>"}],
-  "task_status": {"status": "completed", "summary": "<summary>"}
-}'
+# Close the focus task (status + optional note) in one atomic call
+vybe done <task_id> --note "<summary>"
 
-#-Store a single memory when push is overkill
-vybe memory set --agent=claude --key=<key> --value=<value> --scope=task --scope-id=<task_id> --request-id=mem_$(date +%s)
+# Block on failure (resume skips failure-blocked tasks)
+vybe block <task_id> --reason "<why>" --failure
 
-#-Read current state without advancing cursor
-vybe resume --agent=claude --peek
+# Log progress
+vybe note <task_id> "<message>"
+
+# Store a memory (omit --request-id; auto-generated)
+vybe remember "<key>=<value>" --scope task --scope-id <task_id>
+
+# Read current focus without advancing the cursor
+vybe focus
+
+# Atomic multi-op batch still available when you need it
+vybe push --json '{"task_id":"<id>","event":{"kind":"progress","message":"..."},"task_status":{"status":"completed"}}'
 ```
+
+Omit `--request-id` — vybe auto-generates one. Pass a stable id only when retrying the same logical op.
 
 ### After Plan Approval
 
@@ -372,6 +377,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`
 - Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
-- Command surface: `artifacts`, `events`, `hook` (install, uninstall), `loop`, `memory` (set, get, list, delete, gc, pin), `push`, `resume` (--peek, --focus, --project-dir, --limit), `schema`, `status` (--check), `task` (create, begin, get, list, set-status), `upgrade`
+- Command surface: `artifacts`, `block`, `done`, `events`, `focus`, `hook` (install, uninstall), `loop`, `memory` (set, get, list, delete, gc, pin), `note`, `push`, `remember`, `resume` (--peek, --focus, --project-dir, --limit), `schema`, `status` (--check), `task` (create, begin, get, list, set-status), `upgrade`
 - Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`
 - **After code changes**: rebuild binary and update symlink: `go build -o vybe ./cmd/vybe && ln -sf "$(pwd)/vybe" ~/go/bin/vybe`

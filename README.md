@@ -45,6 +45,12 @@ If `vybe status --check` returns `query_ok=true`, setup is done.
 
 ## First Task
 
+Set your agent identity once — export `VYBE_AGENT` (or set `default_agent` in `~/.config/vybe/config.yaml`) so you never pass `--agent` again:
+
+```bash
+export VYBE_AGENT=claude
+```
+
 ```bash
 # create work
 vybe task create --title "Ship feature" --desc "Implement X"
@@ -53,10 +59,12 @@ vybe task create --title "Ship feature" --desc "Implement X"
 vybe resume
 
 # close when done (task ID is returned by create)
-vybe task set-status --id <TASK_ID> --status completed
+vybe done <TASK_ID> --note "<summary>"
 ```
 
-`--request-id` is optional — it's auto-generated when omitted. Pass an explicit one only for exactly-once dedup across retries of the same operation.
+Sugar verbs cover the common path: `vybe done <id>` (complete), `vybe block <id> --reason "..."` (block), `vybe note <id> "msg"` (log progress), `vybe remember "key=value"` (memory), `vybe focus` (read current focus, no cursor advance).
+
+Omit `--request-id` by default — vybe auto-generates one per call. A freshly-generated id never dedupes (identical to omitting it); pass an explicit STABLE id only when retrying the exact same operation.
 
 If a session crashes, run `vybe resume` and keep going.
 

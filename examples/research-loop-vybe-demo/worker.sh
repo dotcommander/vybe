@@ -13,10 +13,6 @@ fi
 # vybe loop passes extra flags; ignore them.
 shift $#
 
-rid() {
-  printf '%s_%s_%s' "$1" "$(date +%s)" "$$_$RANDOM"
-}
-
 BRIEF_JSON="$(vybe resume --agent "$VYBE_AGENT" --peek)"
 TASK_ID="$(echo "$BRIEF_JSON" | jq -r '.data.brief.task.id // ""')"
 TITLE="$(echo "$BRIEF_JSON" | jq -r '.data.brief.task.title // ""')"
@@ -26,16 +22,9 @@ if [[ -z "$TASK_ID" ]]; then
   exit 0
 fi
 
-vybe push \
-  --agent "$VYBE_AGENT" \
-  --request-id "$(rid log_start)" \
-  --json "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"research_started\",\"message\":\"Starting mock research pass for: $TITLE\"}}" >/dev/null
+vybe note "$TASK_ID" "Starting mock research pass for: $TITLE" >/dev/null
 
-vybe memory set \
-  --agent "$VYBE_AGENT" \
-  --request-id "$(rid mem_progress)" \
-  --key checkpoint \
-  --value "searched_local_catalog" \
+vybe remember "checkpoint=searched_local_catalog" \
   --scope task \
   --scope-id "$TASK_ID" >/dev/null
 
@@ -58,27 +47,12 @@ EOF
 
 vybe push \
   --agent "$VYBE_AGENT" \
-  --request-id "$(rid artifact)" \
   --json "{\"task_id\":\"$TASK_ID\",\"artifacts\":[{\"file_path\":\"$ARTIFACT_PATH\"}]}" >/dev/null
 
 if [[ "$TITLE" == *"BLOCKED_DEMO"* ]]; then
-  vybe task set-status \
-    --agent "$VYBE_AGENT" \
-    --request-id "$(rid status_blocked)" \
-    --id "$TASK_ID" \
-    --status blocked \
-    --blocked-reason "Source type not available in demo mode" >/dev/null
+  vybe block "$TASK_ID" --reason "Source type not available in demo mode" --failure >/dev/null
 
   exit 0
 fi
 
-vybe push \
-  --agent "$VYBE_AGENT" \
-  --request-id "$(rid log_done)" \
-  --json "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"research_finished\",\"message\":\"Completed mock research pass and attached artifact\"}}" >/dev/null
-
-vybe task set-status \
-  --agent "$VYBE_AGENT" \
-  --request-id "$(rid status_done)" \
-  --id "$TASK_ID" \
-  --status completed >/dev/null
+vybe done "$TASK_ID" --note "Completed mock research pass and attached artifact" >/dev/null

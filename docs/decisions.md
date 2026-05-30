@@ -72,7 +72,7 @@ Breaking them increases tool-call error rates and retry noise in autonomous work
 ## Design principles (standing)
 
 - **Resume is the entry point.** Agents call `resume` to get their focus task, context, and commands. Everything else is secondary.
-- **Idempotency everywhere.** Every mutation accepts an optional `--request-id` — auto-generated when omitted (at-least-once); pass an explicit stable one for exactly-once dedup. Agents retry freely.
+- **Idempotency everywhere.** Every mutation accepts an optional `--request-id` — auto-generated when omitted (at-least-once); pass an explicit stable one for exactly-once dedup. Agents retry freely. Omit `--request-id` by default — vybe auto-generates one. A freshly-generated per-call id never dedupes (identical to omitting); only pass an explicit STABLE id when retrying the exact same operation. Sugar verbs (`done`, `block`, `note`, `remember`, `focus`) are the ergonomic surface over these idempotent actions.
 - **No human-in-the-loop.** No prompts, no confirmations, no "are you sure?" flows.
 - **Machine-first I/O.** All output is JSON. Exit codes are reliable.
 - **Append-only truth.** Events are the source of truth. Current state is derived.

@@ -15,15 +15,10 @@ export VYBE_AGENT="genealogy-loop-demo"
 
 PROJECT_ID="$ROOT_DIR/.work/demo"
 
-rid() {
-  printf '%s_%s_%s' "$1" "$(date +%s)" "$$_$RANDOM"
-}
-
 # ---------- setup ----------
 
 vybe resume \
   --agent "$VYBE_AGENT" \
-  --request-id "$(rid init)" \
   --project-dir "$PROJECT_ID" >/dev/null
 
 create_task() {
@@ -31,7 +26,6 @@ create_task() {
   local desc="$2"
   vybe task create \
     --agent "$VYBE_AGENT" \
-    --request-id "$(rid task)" \
     --project-id "$PROJECT_ID" \
     --title "$title" \
     --desc "$desc" | jq -r '.data.task.id'
@@ -53,24 +47,15 @@ T4="$(create_task \
   'ACF-1004 Sojourner Truth 1870 census extraction' \
   'Extract and log household details for 1870 census candidate')"
 
-vybe task add-dep --agent "$VYBE_AGENT" --request-id "$(rid dep)" --id "$T2" --depends-on "$T1" >/dev/null
-vybe task add-dep --agent "$VYBE_AGENT" --request-id "$(rid dep)" --id "$T3" --depends-on "$T2" >/dev/null
-vybe task add-dep --agent "$VYBE_AGENT" --request-id "$(rid dep)" --id "$T4" --depends-on "$T3" >/dev/null
+vybe task add-dep --agent "$VYBE_AGENT" --id "$T2" --depends-on "$T1" >/dev/null
+vybe task add-dep --agent "$VYBE_AGENT" --id "$T3" --depends-on "$T2" >/dev/null
+vybe task add-dep --agent "$VYBE_AGENT" --id "$T4" --depends-on "$T3" >/dev/null
 
-vybe memory set \
-  --agent "$VYBE_AGENT" \
-  --request-id "$(rid mem)" \
-  --key evidence_mode \
-  --value strict-image \
+vybe remember "evidence_mode=strict-image" \
   --scope project \
   --scope-id "$PROJECT_ID" >/dev/null
 
-vybe memory set \
-  --agent "$VYBE_AGENT" \
-  --request-id "$(rid mem)" \
-  --key local_first \
-  --value true \
-  --type boolean \
+vybe remember "local_first=true" \
   --scope project \
   --scope-id "$PROJECT_ID" >/dev/null
 

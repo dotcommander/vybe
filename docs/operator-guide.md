@@ -9,13 +9,28 @@ This guide covers running `vybe` in autonomous loops. For integration contracts 
 
 ## Operating rules (non-negotiable)
 
-Your agent needs a stable identity. Pick a name, set it in `VYBE_AGENT`, and keep it across every call.
+Your agent needs a stable identity. Pick a name and keep it across every call. Set it once via `VYBE_AGENT`, or set `default_agent` in `~/.config/vybe/config.yaml` (e.g. `default_agent: worker-001`). Resolution order: `--agent` flag → `VYBE_AGENT` env → `config.yaml: default_agent`. With either set, **omit `--agent` entirely** in single-agent setups — the examples below assume this.
 
-`--request-id` is optional on every mutation — `push`, `resume` (non-`--peek`), `task *`, `memory set|delete|gc`. When omitted, vybe auto-generates one (`req_<nano>_<hex>`), giving at-least-once semantics. Pass an explicit, stable `--request-id` only when you want exactly-once dedup across retries of the *same* logical operation.
+**Omit `--request-id` by default.** A freshly-generated request-id is behaviorally identical to omitting it: vybe auto-generates one (`req_<nano>_<hex>`) and both give at-least-once semantics. Dedup only fires when the *same* `(agent, request-id, command)` tuple recurs — a timestamp+random id never recurs, so it never dedupes. Generating a fresh id per call is pure cargo-cult. Pass an explicit, **stable** `--request-id` *only* when you are deliberately retrying the exact same logical operation and want exactly-once dedup across those retries.
 
 All output comes from `stdout` as a JSON envelope. `stderr` is diagnostics only — do not parse it.
 
 Every loop starts with `resume`. If `focus_task_id` is empty, there's nothing to do — stop.
+
+## The two-verb thesis
+
+Every loop step reduces to two verbs:
+
+1. `vybe resume` — get the focus task.
+2. `vybe done <id>` (or `vybe block <id> --reason "..."`) — close it.
+
+Everything else is optional sugar over the same idempotent actions:
+
+- `vybe note <id> "msg"` — log a progress event.
+- `vybe remember "key=value"` — store a memory.
+- `vybe focus` — re-read the current focus task without advancing the cursor.
+
+These thin verbs call the identical idempotent actions as their verbose forms (`task set-status`, `push`, `memory set`, `resume --peek`), so anything they do can also be done the long way — they just remove ceremony.
 
 ## Bootstrap
 
@@ -28,10 +43,8 @@ set -euo pipefail
 export VYBE_AGENT="${VYBE_AGENT:-worker-001}"
 export VYBE_DB_PATH="${VYBE_DB_PATH:-$HOME/.config/vybe/vybe.db}"
 
-req_id() { printf 'req_%s_%s\n' "$(date +%s)" "$RANDOM"; }
-
 # Auto-creates agent state on first call
-vybe resume --agent "$VYBE_AGENT" --request-id "$(req_id)" >/dev/null
+vybe resume >/dev/null
 ```
 
 ## Baseline loop
@@ -42,21 +55,15 @@ vybe resume --agent "$VYBE_AGENT" --request-id "$(req_id)" >/dev/null
 #!/usr/bin/env bash
 set -euo pipefail
 
-req_id() { printf 'req_%s_%s\n' "$(date +%s)" "$RANDOM"; }
-
-RESUME_JSON="$(vybe resume --agent "$VYBE_AGENT" --request-id "$(req_id)")"
+# Set VYBE_AGENT once (or config.yaml: default_agent) and omit --agent below.
+RESUME_JSON="$(vybe resume)"
 TASK_ID="$(echo "$RESUME_JSON" | jq -r '.data.focus_task_id // ""')"
 
 if [ -n "$TASK_ID" ]; then
-  vybe task begin --agent "$VYBE_AGENT" --request-id "$(req_id)" --id "$TASK_ID" >/dev/null
-
-  vybe push --agent "$VYBE_AGENT" --request-id "$(req_id)" --json \
-    "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"progress\",\"message\":\"working\"}}" >/dev/null
-
+  vybe task begin --id "$TASK_ID" >/dev/null
+  vybe note "$TASK_ID" "working" >/dev/null
   # Do work...
-
-  vybe task set-status --agent "$VYBE_AGENT" --request-id "$(req_id)" \
-    --id "$TASK_ID" --status completed >/dev/null
+  vybe done "$TASK_ID" --note "completed: <summary>" >/dev/null
 fi
 ```
 
@@ -67,11 +74,10 @@ When your agent works inside a specific workspace, pass `--project-dir` to `resu
 ```bash
 WORKSPACE="$(pwd)"
 
-vybe resume --agent "$VYBE_AGENT" --request-id "$(req_id)" --project-dir "$WORKSPACE"
-PROJECT_ID=$(vybe resume --agent "$VYBE_AGENT" --peek | jq -r '.data.project.id // ""')
+vybe resume --project-dir "$WORKSPACE"
+PROJECT_ID=$(vybe resume --peek | jq -r '.data.project.id // ""')
 
-vybe task create --agent "$VYBE_AGENT" --request-id "$(req_id)" \
-  --project-id "$PROJECT_ID" --title "Example" --desc "Scoped task"
+vybe task create --project-id "$PROJECT_ID" --title "Example" --desc "Scoped task"
 ```
 
 ## Driver loop
@@ -131,20 +137,27 @@ Optional `--post-hook "<cmd>"` runs after the loop exits and receives the result
 Create the task, capture the ID from the response, then immediately claim it. Two calls, not one — `begin` is the claim step that transitions status to `in_progress`.
 
 ```bash
-TASK_ID=$(vybe task create --agent "$VYBE_AGENT" --request-id "task_create_1" \
-  --title "Process batch" --desc "Items 1-1000" | jq -r '.data.task.id')
+TASK_ID=$(vybe task create --title "Process batch" --desc "Items 1-1000" \
+  | jq -r '.data.task.id')
 
-vybe task begin --agent "$VYBE_AGENT" --request-id "task_begin_1" --id "$TASK_ID"
+vybe task begin --id "$TASK_ID"
 ```
 
 ### Atomic progress + completion
 
-`push` combines event logging, memory writes, artifact linking, and status updates into one atomic call. Use it at the end of a task instead of issuing four separate commands — it either all lands or none of it does.
+For a simple close, `vybe done` sets status and logs an optional note in one atomic call:
 
 ```bash
-vybe push --agent "$VYBE_AGENT" --request-id "close_1" --json '{
+vybe done "$TASK_ID" --note "Processed successfully"
+```
+
+When you need to combine event logging, memory writes, artifact linking, and status updates in a single atomic operation, reach for `push` — it either all lands or none of it does:
+
+```bash
+vybe push --json '{
   "task_id": "task_123",
   "event": {"kind": "progress", "message": "Processed successfully"},
+  "memories": [{"key": "result", "value": "ok", "scope": "task", "scope_id": "task_123"}],
   "task_status": {"status": "completed", "summary": "Done"}
 }'
 ```
@@ -154,8 +167,7 @@ vybe push --agent "$VYBE_AGENT" --request-id "close_1" --json '{
 Write progress into task-scoped memory so a crash mid-task doesn't lose position. On restart, read the checkpoint and resume from where you stopped.
 
 ```bash
-vybe memory set --agent "$VYBE_AGENT" --request-id "mem_set_1" \
-  --key checkpoint --value "6000" --type number --scope task --scope-id "$TASK_ID"
+vybe remember "checkpoint=6000" --scope task --scope-id "$TASK_ID"
 
 vybe memory get --key checkpoint --scope task --scope-id "$TASK_ID" | jq -r '.data.value'
 ```
@@ -168,14 +180,11 @@ Use `--kind=directive` and `--pin` for behavioral rules that must survive decay 
 
 ```bash
 # Write a directive and pin it
-vybe memory set --agent "$VYBE_AGENT" --request-id "mem_dir_1" \
-  --key always_run_tests \
-  --value "Run go test ./... before reporting any task complete" \
+vybe remember "always_run_tests=Run go test ./... before reporting any task complete" \
   --scope global --kind directive --pin
 
 # Unpin later if the directive no longer applies
-vybe memory pin --agent "$VYBE_AGENT" --request-id "mem_unpin_1" \
-  --key always_run_tests --scope global --unpin
+vybe memory pin --key always_run_tests --scope global --unpin
 ```
 
 A subsequent `memory set` for the same key WITHOUT `--pin` will not clear the pin — only `memory pin --unpin` can.
@@ -213,7 +222,7 @@ Run after setup or upgrades:
 
 ```bash
 vybe status --check
-vybe resume --agent "$VYBE_AGENT" --request-id "verify_resume_1"
+vybe resume
 vybe schema
 ```
 

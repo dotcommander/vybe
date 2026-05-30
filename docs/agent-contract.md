@@ -4,8 +4,8 @@ The canonical machine-facing contract for assistants, plugins, and autonomous wo
 
 ## Fast checklist
 
-1. Set stable `--agent` identity.
-2. Pass a stable `--request-id` when you need exactly-once dedup (optional; auto-generated otherwise).
+1. Set a stable agent identity once via `default_agent` (or `VYBE_AGENT`) so `--agent` can be omitted.
+2. Omit `--request-id` by default; pass a stable one only when retrying the exact same operation.
 3. Parse `stdout` JSON envelope only.
 4. Parse `stderr` logs as diagnostics only.
 5. Discover command/flag schemas via `vybe schema commands`.
@@ -18,7 +18,7 @@ Every call that touches agent state needs `--agent`. Without it, vybe can't scop
 
 ### Idempotency
 
-`--request-id` is optional. When omitted, vybe auto-generates a unique one (`req_<nano>_<hex>`), giving at-least-once semantics — separate calls each get a distinct key and never collide. Pass an explicit, stable `--request-id` only when you want exactly-once dedup across retries of the *same* logical operation: `resume` without `--peek`, `push`, `task *`, `memory set|delete|gc`. When you retry, send the same `--request-id`. Vybe replays the original result — no duplicate write, no side effect. Never mint a new request ID while replaying the same logical write.
+Omit `--request-id` by default. When omitted, vybe auto-generates a unique one (`req_<nano>_<hex>`), giving at-least-once semantics — separate calls each get a distinct key and never collide. A freshly-generated per-call id is identical to omitting it: it never dedupes. Pass an explicit, STABLE `--request-id` only when retrying the *exact same* logical operation: `resume` without `--peek`, `push`, `task *`, `memory set|delete|gc`. When you retry, send the same `--request-id` you used the first time. Vybe replays the original result — no duplicate write, no side effect. Never mint a new request ID while replaying the same logical write.
 
 ### Machine I/O
 
@@ -38,12 +38,17 @@ Hardcoded flags break when the schema changes. `vybe` with no args returns a JSO
 Top-level commands:
 
 - `artifacts`
+- `block` (sugar: block focus/given task)
+- `done` (sugar: complete focus/given task)
 - `events`
+- `focus` (sugar: read current focus, no cursor advance)
 - `help`
 - `hook`
 - `loop`
 - `memory`
+- `note` (sugar: log a progress event)
 - `push`
+- `remember` (sugar: set a memory)
 - `resume`
 - `schema`
 - `status`
@@ -69,33 +74,49 @@ Primary subcommands:
 Your agent has no context without this. Run it at the top of every session:
 
 ```bash
-vybe resume --agent "$AGENT" --request-id "$REQ" --project-dir "$WORKSPACE"
+vybe resume --project-dir "$WORKSPACE"
 ```
 
 Inject `.data.prompt` (or `.data.brief`) into assistant context.
 
-For autonomous loops, use one terminal path: `task set-status --status completed|blocked` for the current `focus_task_id`. Retries with the same `--request-id` are safe and will not duplicate the transition.
+For autonomous loops, the terminal verbs for the current `focus_task_id` are `vybe done <id>` (completed) and `vybe block <id> --reason "..." [--failure]` (blocked). Both are sugar over `task set-status --status completed|blocked`. Retries with the same `--request-id` are safe and will not duplicate the transition.
 
 ### Task sync
 
 - create: `vybe task create ...`
 - claim/start: `vybe task begin ...` or `vybe resume ...` (deterministic focus)
-- terminal status (canonical agent path): `vybe task set-status --id ... --status completed|blocked`
+- terminal — completed (canonical): `vybe done <id> [--note "<summary>"]`
+- terminal — blocked (canonical): `vybe block <id> --reason "..." [--failure]`
+- terminal (equivalent verbose form): `vybe task set-status --id ... --status completed|blocked`
 - task read: `vybe task get --id ...`
 - queue read: `vybe task list --project-id ...`
 
 ### Progress log
 
+For a single progress event, use the sugar verb:
+
 ```bash
-vybe push --agent "$AGENT" --request-id "$REQ" \
-  --json "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"progress\",\"message\":\"...\"}}"
+vybe note <task_id> "what happened"
+```
+
+Use `push --json` for a genuine multi-op atomic batch (event + memory + artifacts + status in one call), or when you need to attach reasoning/metadata to a THINK event:
+
+```bash
+vybe push --json "{\"task_id\":\"$TASK_ID\",\"event\":{\"kind\":\"progress\",\"message\":\"...\"}}"
 ```
 
 ### Durable memory
 
+The sugar verb takes a `key=value` pair:
+
 ```bash
-vybe memory set --agent "$AGENT" --request-id "$REQ" \
-  --key ... --value ... --scope task --scope-id "$TASK_ID"
+vybe remember "key=value" --scope task --scope-id "$TASK_ID"
+```
+
+It accepts the same `--scope`, `--scope-id`, `--kind`, and `--pin` flags as `memory set`, which remains the equivalent verbose form:
+
+```bash
+vybe memory set --key ... --value ... --scope task --scope-id "$TASK_ID"
 ```
 
 For `--scope task` or `--scope project`, `--scope-id` is inferred from the agent's focus (set via `vybe task begin`) when omitted. It is required for `--scope agent`, and for task/project when no focus is set.
@@ -114,24 +135,21 @@ Pin semantics are sticky upward: `--pin` sets the flag, but a later `memory set`
 
 ```bash
 # Pin (or unpin) a memory entry
-vybe memory pin --agent "$AGENT" --request-id "$REQ" \
-  --key <k> --scope task --scope-id "$TASK_ID"
+vybe memory pin --key <k> --scope task --scope-id "$TASK_ID"
 
-vybe memory pin --agent "$AGENT" --request-id "$REQ" \
-  --key <k> --scope task --scope-id "$TASK_ID" --unpin
+vybe memory pin --key <k> --scope task --scope-id "$TASK_ID" --unpin
 ```
 
 ### Artifacts
 
 ```bash
-vybe push --agent "$AGENT" --request-id "$REQ" \
-  --json "{\"task_id\":\"$TASK_ID\",\"artifacts\":[{\"file_path\":\"<file>\"}]}"
+vybe push --json "{\"task_id\":\"$TASK_ID\",\"artifacts\":[{\"file_path\":\"<file>\"}]}"
 ```
 
 ### Event and artifact reads
 
 ```bash
-vybe events --agent "$AGENT" --task-id "$TASK_ID" --limit 50
+vybe events --task-id "$TASK_ID" --limit 50
 vybe artifacts --task-id "$TASK_ID" --limit 50
 ```
 
