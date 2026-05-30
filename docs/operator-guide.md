@@ -34,7 +34,27 @@ These thin verbs call the identical idempotent actions as their verbose forms (`
 
 ## Bootstrap
 
-Run this once before your loop starts. It initializes agent state and confirms the DB is reachable. First call to `resume` auto-creates the agent record if it doesn't exist.
+### First-time install
+
+Run once. It creates the config dir, initializes the database, installs hooks, and sets `default_agent: claude` so you never need to pass `--agent` in single-agent setups.
+
+```bash
+vybe init
+```
+
+Output is structured JSON — check `status: "ok"` to confirm all steps succeeded. Subsequent runs are a no-op: already-applied steps report `"skipped"`.
+
+To validate setup at any time (read-only, no side effects):
+
+```bash
+vybe doctor
+```
+
+`doctor` reports `healthy: true` when the binary is on PATH, hooks are installed, the database is reachable, and the config dir exists. If anything is wrong, it prints a repair hint.
+
+### Loop bootstrap
+
+Before the autonomous loop starts, confirm the DB is reachable and auto-create agent state. First call to `resume` creates the agent record if it doesn't exist.
 
 ```bash
 #!/usr/bin/env bash
@@ -206,6 +226,14 @@ vybe hook install --opencode
 vybe hook uninstall --opencode
 ```
 
+Inspect the hook manifest (event names, matchers, timeouts, command paths):
+
+```bash
+vybe hook export
+```
+
+The manifest is stored at `~/.config/vybe/hooks.json` and is editable. Re-run `vybe hook install` after editing to apply changes.
+
 ### Discover current command surface
 
 ```bash
@@ -221,12 +249,13 @@ vybe schema
 Run after setup or upgrades:
 
 ```bash
-vybe status --check
+vybe doctor          # checks binary on PATH, hooks installed, DB reachable, config dir present
+vybe status --check  # low-level DB connectivity probe
 vybe resume
 vybe schema
 ```
 
-Pass condition: `status --check` JSON output contains `"query_ok": true`, and `resume` returns a packet. Note: `status --check` always exits 0; health is determined from the JSON payload, not the exit code.
+Pass condition: `doctor` returns `healthy: true`; `status --check` JSON output contains `"query_ok": true`; `resume` returns a packet. Both `doctor` and `status --check` always exit 0 — health is determined from the JSON payload, not the exit code.
 
 ## Related docs
 

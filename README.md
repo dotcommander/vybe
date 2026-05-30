@@ -32,16 +32,14 @@ Sending the same command twice is safe — duplicates are detected and ignored. 
 # 1) install
 go install github.com/dotcommander/vybe/cmd/vybe@latest
 
-# 2) connect your assistant (hooks handle agent identity automatically)
-vybe hook install            # Claude Code
-# OR
-vybe hook install --opencode # OpenCode
+# 2) one-step setup: config dir, database, hooks, default agent
+vybe init
 
 # 3) verify
-vybe status --check
+vybe doctor
 ```
 
-If `vybe status --check` returns `query_ok=true`, setup is done.
+`vybe init` is idempotent — re-running it is safe and skips already-applied steps. `vybe doctor` confirms the binary is on PATH, hooks are installed, and the database is reachable. Run it any time to validate setup.
 
 ## First Task
 
@@ -97,7 +95,7 @@ internal/actions/      # Business logic — orchestrate store calls
 internal/store/        # SQLite persistence — transactions, retry, conflict resolution
 ```
 
-**Commands:** `artifacts`, `events`, `hook`, `loop`, `memory`, `push`, `resume`, `schema`, `status`, `task`, `upgrade`
+**Commands:** `artifacts`, `doctor`, `events`, `hook`, `init`, `loop`, `memory`, `push`, `resume`, `schema`, `status`, `task`, `upgrade`
 
 See [`docs/`](docs/) for full documentation.
 

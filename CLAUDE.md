@@ -306,12 +306,14 @@ go build ./...
 
 Claude Code is integrated with vybe via hooks. The system automatically:
 - **SessionStart**: Runs `vybe resume` and injects focus task + memory into context
-- **UserPromptSubmit**: Logs user prompts for cross-session continuity
+- **UserPromptSubmit**: Logs user prompts for cross-session continuity; emits a rich brief only on explicit trigger words (`brief me`, `status`, etc.) — no per-turn task reminder is injected on ordinary prompts
 - **PostToolUseFailure**: Logs failed tool calls for recovery context
 - **TaskCompleted**: Logs task completion lifecycle signals
 - **PreCompact**: Performs checkpoint maintenance
 - **SessionEnd**: Performs best-effort checkpoint maintenance
 - **Commits**: Logs git commits as vybe events
+
+Hook registry is externalized to `~/.config/vybe/hooks.json` (editable; `vybe hook export` emits the current manifest). Run `vybe init` to write the default manifest on first install.
 
 ### Proactive Usage
 
@@ -377,6 +379,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 - Task JSON hydration: `CreateTaskTx`, `getTaskByQuerier`, `ListTasks` must stay in sync when adding columns
 - Command wiring: `internal/commands/root.go`
 - Claude Code hooks use snake_case stdin fields (`session_id`, `hook_event_name`); SessionStart `source` matcher: `startup|resume|clear|compact`
-- Command surface: `artifacts`, `block`, `done`, `events`, `focus`, `hook` (install, uninstall), `loop`, `memory` (set, get, list, delete, gc, pin), `note`, `push`, `remember`, `resume` (--peek, --focus, --project-dir, --limit), `schema`, `status` (--check), `task` (create, begin, get, list, set-status), `upgrade`
+- Command surface: `artifacts`, `block`, `done`, `doctor`, `events`, `focus`, `hook` (install, uninstall, export), `init`, `loop`, `memory` (set, get, list, delete, gc, pin), `note`, `push`, `remember`, `resume` (--peek, --focus, --project-dir, --limit), `schema`, `status` (--check), `task` (create, begin, get, list, set-status), `upgrade`
 - Valid task statuses: `pending`, `in_progress`, `completed`, `blocked`
 - **After code changes**: rebuild binary and update symlink: `go build -o vybe ./cmd/vybe && ln -sf "$(pwd)/vybe" ~/go/bin/vybe`
