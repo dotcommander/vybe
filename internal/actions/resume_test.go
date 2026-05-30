@@ -111,8 +111,8 @@ func TestResume_WithPendingTask(t *testing.T) {
 		t.Errorf("Expected brief task %s, got %s", task.ID, response.Brief.Task.ID)
 	}
 
-	if !strings.Contains(response.Prompt, "--agent=agent1") {
-		t.Errorf("Expected prompt commands to use agent agent1, got prompt: %s", response.Prompt)
+	if !strings.Contains(response.Prompt, "vybe done "+task.ID) {
+		t.Errorf("Expected prompt commands to use the done sugar verb for task %s, got prompt: %s", task.ID, response.Prompt)
 	}
 }
 

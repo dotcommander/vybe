@@ -420,8 +420,8 @@ func buildAgentPrompt(r *actions.ResumeResponse, projectDir string) string {
 	b.WriteString("1. Work only on \"Your current task\" and its task_id.\n")
 	b.WriteString("2. Optional: emit progress logs with LOG.\n")
 	b.WriteString("3. Before stopping, run exactly one terminal command:\n")
-	b.WriteString("   - DONE (set-status completed), OR\n")
-	b.WriteString("   - STUCK (set-status blocked).\n")
+	b.WriteString("   - DONE: vybe done <id> --note \"<summary>\"  (marks the task completed), OR\n")
+	b.WriteString("   - STUCK: vybe block <id> --reason \"<why>\"  (marks the task blocked).\n")
 	b.WriteString("4. Do not use 'vybe task complete' in autonomous mode.\n")
 
 	return b.String()

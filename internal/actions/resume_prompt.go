@@ -131,7 +131,7 @@ func appendDecisionProtocol(b *strings.Builder, task *models.Task) {
 	b.WriteString("\nDecision protocol (strict):\n")
 	fmt.Fprintf(b, "  - Work only on task_id=%s\n", task.ID)
 	b.WriteString("  - Before stopping, set terminal status exactly once: completed OR blocked\n")
-	b.WriteString("  - Use DONE/STUCK commands below (set-status path)\n")
+	b.WriteString("  - Use the done/block commands below\n")
 }
 
 // appendBudgetedSection writes header + lines to b, one line at a time,
@@ -301,21 +301,21 @@ func appendTaskCommands(b *strings.Builder, agentName string, task *models.Task)
 	b.WriteString("Required terminal action: run command 1 OR 2 exactly once before stopping.\n\n")
 
 	fmt.Fprintf(b, "1. DONE (required on success):\n")
-	fmt.Fprintf(b, "   vybe task set-status --agent=%s --request-id=done_$RANDOM --id=%s --status=completed\n\n", agentName, task.ID)
+	fmt.Fprintf(b, "   vybe done %s --note \"<summary>\"\n\n", task.ID)
 
 	fmt.Fprintf(b, "2. STUCK (required when blocked):\n")
-	fmt.Fprintf(b, "   vybe task set-status --agent=%s --request-id=block_$RANDOM --id=%s --status=blocked\n\n", agentName, task.ID)
+	fmt.Fprintf(b, "   vybe block %s --reason \"<why>\"  (add --failure so resume skips it)\n\n", task.ID)
 
 	fmt.Fprintf(b, "3. LOG (optional progress):\n")
-	fmt.Fprintf(b, "   vybe push --agent=%s --request-id=log_$RANDOM --json '{\"task_id\":\"%s\",\"event\":{\"kind\":\"progress\",\"message\":\"YOUR_MESSAGE\"}}'\n\n", agentName, task.ID)
+	fmt.Fprintf(b, "   vybe note %s \"YOUR_MESSAGE\"\n\n", task.ID)
 
 	fmt.Fprintf(b, "4. SAVE (optional memory):\n")
-	fmt.Fprintf(b, "   vybe memory set --agent=%s --request-id=mem_$RANDOM --key=YOUR_KEY --value=\"YOUR_VALUE\" --scope=task --scope-id=%s\n\n", agentName, task.ID)
+	fmt.Fprintf(b, "   vybe remember \"YOUR_KEY=YOUR_VALUE\" --scope task --scope-id %s\n\n", task.ID)
 
 	fmt.Fprintf(b, "5. THINK (optional reasoning checkpoint):\n")
-	fmt.Fprintf(b, "   vybe push --agent=%s --request-id=reason_$RANDOM --json '{\"task_id\":\"%s\",\"event\":{\"kind\":\"reasoning\",\"message\":\"INTENT_SUMMARY\",\"metadata\":{\"intent\":\"...\",\"approach\":\"...\",\"files\":[]}}}'\n\n", agentName, task.ID)
+	fmt.Fprintf(b, "   vybe push --json '{\"task_id\":\"%s\",\"event\":{\"kind\":\"reasoning\",\"message\":\"INTENT_SUMMARY\",\"metadata\":{\"intent\":\"...\",\"approach\":\"...\",\"files\":[]}}}'\n\n", task.ID)
 
-	b.WriteString("$RANDOM is a bash variable that generates a unique number. Do not replace it.\n")
+	b.WriteString("Omit --request-id (auto-generated). With default_agent set in config, omit --agent too.\n")
 }
 
 // extractReasoningFields parses intent and approach from reasoning event metadata.
