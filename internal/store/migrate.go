@@ -36,6 +36,11 @@ func initGoose() error {
 // MigrateDB runs all pending migrations with a file lock to prevent concurrent
 // migration races. For in-memory databases (tests), the lock is skipped.
 func MigrateDB(db *sql.DB, dbPath string) error {
+	// Repair any memory column desyncs before running migrations.
+	if err := repairMemoryProvenanceColumns(db, dbPath); err != nil {
+		return err
+	}
+
 	// Fast path: skip lock + goose.Up when schema is already current.
 	current, latest, err := SchemaVersion(db)
 	if err == nil && current >= latest && latest > 0 {
@@ -116,6 +121,70 @@ func RunMigrations(db *sql.DB) error {
 	// controls SQL generation (e.g., CREATE TABLE syntax), not the driver name.
 	if err := goose.Up(db, "migrations"); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// repairMemoryProvenanceColumns handles the desync case where migration 00028
+// was marked as applied (e.g. locally in dev), but the source_task_id column
+// was not successfully added.
+func repairMemoryProvenanceColumns(db *sql.DB, dbPath string) error {
+	var exists bool
+	err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory')`).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check if memory table exists: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+
+	rows, err := db.Query(`PRAGMA table_info(memory)`)
+	if err != nil {
+		return fmt.Errorf("failed to read memory table info: %w", err)
+	}
+	defer rows.Close()
+
+	hasSourceEventID := false
+	hasSourceTaskID := false
+	for rows.Next() {
+		var cid int
+		var name, typeStr string
+		var notNull int
+		var dfltVal any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typeStr, &notNull, &dfltVal, &pk); err != nil {
+			return fmt.Errorf("failed to scan table info row: %w", err)
+		}
+		if name == "source_event_id" {
+			hasSourceEventID = true
+		}
+		if name == "source_task_id" {
+			hasSourceTaskID = true
+		}
+	}
+
+	if hasSourceEventID && hasSourceTaskID {
+		return nil
+	}
+
+	if dbPath != ":memory:" && !strings.Contains(dbPath, ":memory:") {
+		lockF, err := LockFile(dbPath + ".migrate.lock")
+		if err != nil {
+			return fmt.Errorf("migration lock for repair: %w", err)
+		}
+		defer UnlockFile(lockF)
+	}
+
+	if !hasSourceEventID {
+		if _, err := db.Exec(`ALTER TABLE memory ADD COLUMN source_event_id INTEGER`); err != nil {
+			return fmt.Errorf("failed to add source_event_id column: %w", err)
+		}
+	}
+	if !hasSourceTaskID {
+		if _, err := db.Exec(`ALTER TABLE memory ADD COLUMN source_task_id TEXT`); err != nil {
+			return fmt.Errorf("failed to add source_task_id column: %w", err)
+		}
 	}
 
 	return nil

@@ -190,3 +190,34 @@ func TestMigration0025_MemoryKind(t *testing.T) {
 		assert.False(t, columnExists(t, db, "memory", "kind"), "memory.kind must be gone after Down")
 	})
 }
+
+func TestMigrateDB_RepairProvenanceColumns(t *testing.T) {
+	dbPath := t.TempDir() + "/repair_test.db"
+	db, err := OpenDB(dbPath)
+	require.NoError(t, err)
+	defer db.Close()
+
+	// 1. Run migrations up to 27
+	runMigrationTo(t, db, 27)
+
+	// 2. Simulate the desynced migration 28:
+	// Add only source_event_id column manually
+	_, err = db.Exec(`ALTER TABLE memory ADD COLUMN source_event_id INTEGER`)
+	require.NoError(t, err)
+
+	// Mark version 28 as applied in goose_db_version
+	_, err = db.Exec(`INSERT INTO goose_db_version (version_id, is_applied) VALUES (28, 1)`)
+	require.NoError(t, err)
+
+	// Verify that source_task_id does not exist yet
+	require.False(t, columnExists(t, db, "memory", "source_task_id"))
+	require.True(t, columnExists(t, db, "memory", "source_event_id"))
+
+	// 3. Call MigrateDB, which should trigger repairMemoryProvenanceColumns
+	require.NoError(t, MigrateDB(db, dbPath))
+
+	// 4. Verify that source_task_id has been successfully added
+	assert.True(t, columnExists(t, db, "memory", "source_task_id"))
+	assert.True(t, columnExists(t, db, "memory", "source_event_id"))
+}
+
