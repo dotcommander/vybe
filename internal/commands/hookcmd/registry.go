@@ -77,5 +77,22 @@ func buildVybeHookCommand(subcommand string) string {
 	if exe == vybeCommandFallback {
 		return fmt.Sprintf("vybe hook %s", subcommand)
 	}
-	return fmt.Sprintf("%q hook %s", exe, subcommand)
+	return fmt.Sprintf("%q hook %s", portableExe(exe), subcommand)
+}
+
+// portableExe rewrites an absolute executable path under the user's home
+// directory to a $HOME-prefixed form so emitted hook commands stay portable
+// across machines (git-synced configs). Claude Code expands $HOME in hook
+// `command` strings (even inside double quotes), but does NOT expand `~`.
+// If the home dir is unavailable or exe is not under it, exe is returned unchanged.
+func portableExe(exe string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return exe
+	}
+	prefix := home + string(os.PathSeparator)
+	if !strings.HasPrefix(exe, prefix) {
+		return exe
+	}
+	return "$HOME" + string(os.PathSeparator) + exe[len(prefix):]
 }

@@ -12,7 +12,7 @@ const hookManifestFilename = "hooks.json"
 // hookManifestVersion is the current on-disk format version.
 // Bump when the default event set or schema changes.
 // A file missing this version (or with an older value) is treated as stale.
-const hookManifestVersion = 1
+const hookManifestVersion = 2
 
 // hookManifestFile is the on-disk envelope: {"version":N,"hooks":{...}}.
 // Separating version from hooks lets callers detect staleness without
