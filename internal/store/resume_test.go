@@ -827,59 +827,6 @@ func TestFetchPriorReasoning_ExcludesArchived(t *testing.T) {
 	require.Equal(t, "active reasoning", events[0].Message)
 }
 
-func TestFetchSessionEvents_Empty(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	events, err := FetchSessionEvents(db, 0, "", 200)
-	require.NoError(t, err)
-	require.Empty(t, events)
-}
-
-func TestFetchSessionEvents_FiltersByKind(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	appendEvent(t, db, "user_prompt", "agent1", "", "a prompt")
-	appendEvent(t, db, "reasoning", "agent1", "", "some reasoning")
-	appendEvent(t, db, "tool_failure", "agent1", "", "bash failed")
-	appendEvent(t, db, "task_status", "agent1", "", "completed")
-	appendEvent(t, db, "progress", "agent1", "", "step done")
-	// This kind should be excluded
-	appendEvent(t, db, "task.note", "agent1", "", "random note")
-
-	events, err := FetchSessionEvents(db, 0, "", 200)
-	require.NoError(t, err)
-	require.Len(t, events, 5)
-	// Chronological order
-	require.Equal(t, "user_prompt", events[0].Kind)
-	require.Equal(t, "progress", events[4].Kind)
-}
-
-func TestFetchSessionEvents_ProjectScoped(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, err := AppendEventWithProjectAndMetadataIdempotent(
-		db, "agent1", "req1", "user_prompt", "proj_a", "", "prompt for A", "",
-	)
-	require.NoError(t, err)
-	_, err = AppendEventWithProjectAndMetadataIdempotent(
-		db, "agent1", "req2", "user_prompt", "proj_b", "", "prompt for B", "",
-	)
-	require.NoError(t, err)
-	appendEvent(t, db, "progress", "agent1", "", "global progress")
-
-	events, err := FetchSessionEvents(db, 0, "proj_a", 200)
-	require.NoError(t, err)
-	require.Len(t, events, 2) // proj_a + global
-	for _, e := range events {
-		if e.ProjectID != "" && e.ProjectID != "proj_a" {
-			t.Errorf("Expected only proj_a or global events, got project_id=%q", e.ProjectID)
-		}
-	}
-}
-
 // --- Discovery context tests ---
 
 func TestGetTaskStatusCounts_Global(t *testing.T) {

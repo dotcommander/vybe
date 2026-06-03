@@ -23,7 +23,7 @@ const (
 
 // Agent event kinds with system significance.
 // These are emitted by agents but are also filtered or queried by system logic
-// (resume.go FetchSessionEvents, FetchRecentUserPrompts, FetchPriorReasoning).
+// (resume.go FetchRecentUserPrompts, FetchPriorReasoning).
 const (
 	EventKindUserPrompt  = "user_prompt"
 	EventKindReasoning   = "reasoning"

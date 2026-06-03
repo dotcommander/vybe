@@ -72,44 +72,6 @@ func FetchEventsSince(db *sql.DB, cursorID int64, limit int, projectID string) (
 	return events, nil
 }
 
-// FetchSessionEvents retrieves events useful for session retrospective extraction.
-func FetchSessionEvents(db *sql.DB, sinceID int64, projectID string, limit int) ([]*models.Event, error) {
-	if limit <= 0 {
-		limit = 200
-	}
-
-	var events []*models.Event
-	err := RetryWithBackoff(context.Background(), func() error {
-		query := `
-			SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
-			FROM events
-			WHERE id > ? AND archived_at IS NULL
-			  AND kind IN ('user_prompt', 'reasoning', 'tool_failure', 'task_status', 'progress')
-		`
-		args := []any{sinceID}
-		if projectID != "" {
-			query += " AND (project_id = ? OR project_id = '' OR project_id IS NULL)"
-			args = append(args, projectID)
-		}
-		query += " ORDER BY id ASC LIMIT ?"
-		args = append(args, limit)
-
-		rows, err := db.QueryContext(context.Background(), query, args...)
-		if err != nil {
-			return fmt.Errorf("failed to fetch session events: %w", err)
-		}
-		defer func() { _ = rows.Close() }()
-
-		events, err = scanEventRows(rows)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return events, nil
-}
-
 type projectFocusUpdate int
 
 const (
