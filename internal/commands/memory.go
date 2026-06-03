@@ -52,11 +52,6 @@ func newMemorySetCmd() *cobra.Command {
 			if kind == "" {
 				kind = "fact"
 			}
-			halfLifeRaw, _ := cmd.Flags().GetFloat64("half-life-days")
-			var halfLifeDays *float64
-			if halfLifeRaw >= 0 {
-				halfLifeDays = &halfLifeRaw
-			}
 			sourceTaskID, _ := cmd.Flags().GetString("source-task-id")
 
 			expiresAt, err := actions.ParseExpiresIn(expiresIn)
@@ -66,7 +61,7 @@ func newMemorySetCmd() *cobra.Command {
 
 			var eventID int64
 			if err := withDB(func(db *DB) error {
-				eid, err := actions.MemorySetIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, halfLifeDays, sourceTaskID)
+				eid, err := actions.MemorySetIdempotent(db, agentName, requestID, key, value, valueType, scope, scopeID, expiresAt, pinned, kind, sourceTaskID)
 				if err != nil {
 					return err
 				}
@@ -84,12 +79,11 @@ func newMemorySetCmd() *cobra.Command {
 				ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 				Pinned       bool       `json:"pinned"`
 				Kind         string     `json:"kind"`
-				HalfLifeDays *float64   `json:"half_life_days,omitempty"`
 				SourceTaskID string     `json:"source_task_id,omitzero"`
 			}
 			return output.PrintSuccess(resp{
 				EventID: eventID, Key: key, Scope: scope, ScopeID: scopeID,
-				ExpiresAt: expiresAt, Pinned: pinned, Kind: kind, HalfLifeDays: halfLifeDays,
+				ExpiresAt: expiresAt, Pinned: pinned, Kind: kind,
 				SourceTaskID: sourceTaskID,
 			})
 		},
@@ -103,7 +97,6 @@ func newMemorySetCmd() *cobra.Command {
 	cmd.Flags().String("expires-in", "", "Expiration duration (e.g., 24h, 7d, 2w)")
 	cmd.Flags().Bool("pin", false, "Mark this memory as pinned (bypasses TTL and always appears in brief)")
 	cmd.Flags().String("kind", "fact", "Memory kind: fact (key=value claim), directive (imperative behavioral rule), or lesson (short-lived insight)")
-	cmd.Flags().Float64("half-life-days", -1, "Override decay half-life in days (-1 = use kind default)")
 	cmd.Flags().String("source-task-id", "", "Optional task ID that this memory was derived from (provenance)")
 
 	_ = cmd.MarkFlagRequired("key")

@@ -68,7 +68,7 @@ func tableExists(t *testing.T, db *sql.DB, tableName string) bool {
 }
 
 func TestSchemaInvariants_FullMigration(t *testing.T) {
-	db := migrateToVersion(t, 31)
+	db := migrateToVersion(t, 32)
 
 	t.Run("tables_exist", func(t *testing.T) {
 		tables := []string{
@@ -126,11 +126,8 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 
 	t.Run("columns_exist", func(t *testing.T) {
 		cases := []struct{ table, column string }{
-			{"memory", "access_count"},
-			{"memory", "last_accessed_at"},
 			{"memory", "updated_at"},
 			{"memory", "kind"},
-			{"memory", "half_life_days"},
 			{"memory", "source_event_id"},
 			{"memory", "source_task_id"},
 			{"tasks", "blocked_reason"},
@@ -143,6 +140,11 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 
 	t.Run("dropped_columns_absent", func(t *testing.T) {
 		cases := []struct{ table, column string }{
+			// ACT-R scoring columns removed in migration 00032
+			{"memory", "access_count"},
+			{"memory", "last_accessed_at"},
+			{"memory", "half_life_days"},
+			// Legacy columns removed in earlier migrations
 			{"memory", "canonical_key"},
 			{"memory", "confidence"},
 			{"memory", "superseded_by"},

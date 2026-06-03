@@ -12,7 +12,7 @@ func TestSetMemory_DefaultKindIsFact(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	require.NoError(t, SetMemory(db, "k", "v", "string", "global", "", nil, false, "", nil))
+	require.NoError(t, SetMemory(db, "k", "v", "string", "global", "", nil, false, ""))
 
 	var kind string
 	require.NoError(t, db.QueryRow(`SELECT kind FROM memory WHERE key='k'`).Scan(&kind))
@@ -24,7 +24,7 @@ func TestSetMemory_DirectiveKind(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	require.NoError(t, SetMemory(db, "rule", "always respond in JSON", "string", "global", "", nil, false, "directive", nil))
+	require.NoError(t, SetMemory(db, "rule", "always respond in JSON", "string", "global", "", nil, false, "directive"))
 
 	var kind string
 	require.NoError(t, db.QueryRow(`SELECT kind FROM memory WHERE key='rule'`).Scan(&kind))
@@ -36,7 +36,7 @@ func TestSetMemory_RejectsInvalidKind(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	err := SetMemory(db, "k", "v", "string", "global", "", nil, false, "opinion", nil)
+	err := SetMemory(db, "k", "v", "string", "global", "", nil, false, "opinion")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid kind")
 }
@@ -46,11 +46,11 @@ func TestUpsertMemoryWithEventIdempotent_ReplayPreservesKind(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-kind-replay-1", "rule", "be concise", "string", "global", "", nil, false, "directive", nil, "")
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-kind-replay-1", "rule", "be concise", "string", "global", "", nil, false, "directive", "")
 	require.NoError(t, err)
 
 	// Replay must return same event and not alter kind
-	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-kind-replay-1", "rule", "be concise", "string", "global", "", nil, false, "directive", nil, "")
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-kind-replay-1", "rule", "be concise", "string", "global", "", nil, false, "directive", "")
 	require.NoError(t, err)
 
 	var kind string
@@ -63,7 +63,7 @@ func TestSetMemory_LessonKind(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	require.NoError(t, SetMemory(db, "lesson-key", "always wrap errors with context", "string", "global", "", nil, false, "lesson", nil))
+	require.NoError(t, SetMemory(db, "lesson-key", "always wrap errors with context", "string", "global", "", nil, false, "lesson"))
 
 	var kind string
 	require.NoError(t, db.QueryRow(`SELECT kind FROM memory WHERE key='lesson-key'`).Scan(&kind))
@@ -75,11 +75,11 @@ func TestUpsertMemoryWithEventIdempotent_LessonKind(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-lesson-kind-1", "lesson-key", "prefer table-driven tests", "string", "global", "", nil, false, "lesson", nil, "")
+	_, err := UpsertMemoryWithEventIdempotent(db, "agent", "req-lesson-kind-1", "lesson-key", "prefer table-driven tests", "string", "global", "", nil, false, "lesson", "")
 	require.NoError(t, err)
 
 	// Replay must return same event and not alter kind
-	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-lesson-kind-1", "lesson-key", "prefer table-driven tests", "string", "global", "", nil, false, "lesson", nil, "")
+	_, err = UpsertMemoryWithEventIdempotent(db, "agent", "req-lesson-kind-1", "lesson-key", "prefer table-driven tests", "string", "global", "", nil, false, "lesson", "")
 	require.NoError(t, err)
 
 	var kind string
@@ -92,8 +92,8 @@ func TestListMemory_HydratesKind(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	require.NoError(t, SetMemory(db, "fact-key", "v1", "string", "global", "", nil, false, "fact", nil))
-	require.NoError(t, SetMemory(db, "dir-key", "v2", "string", "global", "", nil, false, "directive", nil))
+	require.NoError(t, SetMemory(db, "fact-key", "v1", "string", "global", "", nil, false, "fact"))
+	require.NoError(t, SetMemory(db, "dir-key", "v2", "string", "global", "", nil, false, "directive"))
 
 	mems, err := ListMemory(db, "global", "")
 	require.NoError(t, err)

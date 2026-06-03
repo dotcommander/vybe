@@ -67,7 +67,7 @@ func TestMemorySetIdempotent_RejectsInvalidValueType(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent1", "req_bad_vt", "k", "v", "invalid_type", "global", "", nil, false, "", nil, "")
+	_, err := MemorySetIdempotent(db, "agent1", "req_bad_vt", "k", "v", "invalid_type", "global", "", nil, false, "", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid value_type")
 }
@@ -84,7 +84,7 @@ func TestMemoryGet_Found(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-get-1", "k1", "v1", "", "global", "", nil, false, "", nil, "")
+	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-get-1", "k1", "v1", "", "global", "", nil, false, "", "")
 	require.NoError(t, err)
 
 	mem, err := MemoryGet(db, "", "k1", "global", "")
@@ -96,9 +96,9 @@ func TestMemoryList_Basic(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-list-1", "x1", "v1", "", "global", "", nil, false, "", nil, "")
+	_, err := MemorySetIdempotent(db, "agent-a", "req-mem-list-1", "x1", "v1", "", "global", "", nil, false, "", "")
 	require.NoError(t, err)
-	_, err = MemorySetIdempotent(db, "agent-a", "req-mem-list-2", "x2", "v2", "", "global", "", nil, false, "", nil, "")
+	_, err = MemorySetIdempotent(db, "agent-a", "req-mem-list-2", "x2", "v2", "", "global", "", nil, false, "", "")
 	require.NoError(t, err)
 
 	list, err := MemoryList(db, "", "global", "")
@@ -120,7 +120,7 @@ func TestMemorySetIdempotent_DefaultsKindToFact(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent1", "req-kind-default-1", "k", "v", "", "global", "", nil, false, "", nil, "")
+	_, err := MemorySetIdempotent(db, "agent1", "req-kind-default-1", "k", "v", "", "global", "", nil, false, "", "")
 	require.NoError(t, err)
 
 	mem, err := MemoryGet(db, "", "k", "global", "")
@@ -132,7 +132,7 @@ func TestMemorySetIdempotent_RejectsInvalidKind(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent1", "req-kind-invalid-1", "k", "v", "", "global", "", nil, false, "opinion", nil, "")
+	_, err := MemorySetIdempotent(db, "agent1", "req-kind-invalid-1", "k", "v", "", "global", "", nil, false, "opinion", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid kind")
 }
@@ -143,7 +143,7 @@ func TestMemoryGCIdempotent(t *testing.T) {
 	defer cleanup()
 
 	expired := time.Now().UTC().Add(-1 * time.Hour)
-	_, err := MemorySetIdempotent(db, "agent1", "req_expire_setup", "expired", "v", "string", "global", "", &expired, false, "", nil, "")
+	_, err := MemorySetIdempotent(db, "agent1", "req_expire_setup", "expired", "v", "string", "global", "", &expired, false, "", "")
 	require.NoError(t, err)
 
 	gc, err := MemoryGCIdempotent(db, "agent1", "req_gc_action", 100)
@@ -167,7 +167,7 @@ func TestMemory_TaskScopeInfersFocusTaskID(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.UpdateAgentStateAtomic(db, state.AgentName, 0, task.ID))
 
-	_, err = MemorySetIdempotent(db, agent, "req-infer-task-set", "mykey", "myval", "", "task", "", nil, false, "", nil, "")
+	_, err = MemorySetIdempotent(db, agent, "req-infer-task-set", "mykey", "myval", "", "task", "", nil, false, "", "")
 	require.NoError(t, err)
 
 	mem, err := MemoryGet(db, agent, "mykey", "task", "")
@@ -184,7 +184,7 @@ func TestMemory_TaskScopeNoFocusErrors(t *testing.T) {
 
 	const agent = "agent-no-focus"
 
-	_, err := MemorySetIdempotent(db, agent, "req-infer-nofocus", "k", "v", "", "task", "", nil, false, "", nil, "")
+	_, err := MemorySetIdempotent(db, agent, "req-infer-nofocus", "k", "v", "", "task", "", nil, false, "", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "scope-id")
 }
@@ -204,7 +204,7 @@ func TestMemory_ProjectScopeInfersFocusProjectID(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.UpdateAgentStateAtomicWithProject(db, state.AgentName, 0, "", project.ID))
 
-	_, err = MemorySetIdempotent(db, agent, "req-infer-proj-set", "projkey", "projval", "", "project", "", nil, false, "", nil, "")
+	_, err = MemorySetIdempotent(db, agent, "req-infer-proj-set", "projkey", "projval", "", "project", "", nil, false, "", "")
 	require.NoError(t, err)
 
 	mem, err := MemoryGet(db, agent, "projkey", "project", "")
@@ -219,7 +219,7 @@ func TestMemory_GlobalScopeIgnoresFocus(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	_, err := MemorySetIdempotent(db, "agent-global", "req-global-infer", "gkey", "gval", "", "global", "", nil, false, "", nil, "")
+	_, err := MemorySetIdempotent(db, "agent-global", "req-global-infer", "gkey", "gval", "", "global", "", nil, false, "", "")
 	require.NoError(t, err)
 
 	mem, err := MemoryGet(db, "", "gkey", "global", "")

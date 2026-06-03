@@ -44,7 +44,6 @@ type PushMemoryInput struct {
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 	Pinned        bool       `json:"pinned,omitempty"`          // omitempty OK for input — defaults to false
 	Kind          string     `json:"kind,omitempty"`            // "" | "fact" | "directive" | "lesson"; default "fact"
-	HalfLifeDays  *float64   `json:"half_life_days,omitempty"`  // nil = preserve stored value; >= 0 = override decay rate
 	SourceEventID *int64     `json:"source_event_id,omitempty"` // optional provenance; auto-populated from batch event if nil
 	SourceTaskID  string     `json:"source_task_id,omitempty"`  // optional task provenance; caller-supplied
 }
@@ -182,7 +181,7 @@ func PushIdempotent(db *sql.DB, agentName, requestID string, input PushInput) (*
 						sourceEventID = &eid
 					}
 					eventID, err := store.UpsertMemoryTx(
-						tx, agentName, mem.Key, mem.Value, mem.ValueType, mem.Scope, mem.ScopeID, mem.ExpiresAt, mem.Pinned, mem.Kind, mem.HalfLifeDays,
+						tx, agentName, mem.Key, mem.Value, mem.ValueType, mem.Scope, mem.ScopeID, mem.ExpiresAt, mem.Pinned, mem.Kind,
 						sourceEventID, mem.SourceTaskID,
 					)
 					if err != nil {

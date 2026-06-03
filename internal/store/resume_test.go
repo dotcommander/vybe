@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -261,12 +260,12 @@ func TestBuildBrief_WithTask(t *testing.T) {
 	}
 
 	// Add some memory
-	err = SetMemory(db, "key1", "value1", "string", "global", "", nil, false, "", nil)
+	err = SetMemory(db, "key1", "value1", "string", "global", "", nil, false, "")
 	if err != nil {
 		t.Fatalf("Failed to set global memory: %v", err)
 	}
 
-	err = SetMemory(db, "key2", "value2", "string", "task", task.ID, nil, false, "", nil)
+	err = SetMemory(db, "key2", "value2", "string", "task", task.ID, nil, false, "")
 	if err != nil {
 		t.Fatalf("Failed to set task memory: %v", err)
 	}
@@ -405,19 +404,19 @@ func TestFetchRelevantMemory(t *testing.T) {
 	}
 
 	// Add global memory
-	err = SetMemory(db, "global_key", "global_value", "string", "global", "", nil, false, "", nil)
+	err = SetMemory(db, "global_key", "global_value", "string", "global", "", nil, false, "")
 	if err != nil {
 		t.Fatalf("Failed to set global memory: %v", err)
 	}
 
 	// Add task-specific memory
-	err = SetMemory(db, "task_key", "task_value", "string", "task", task.ID, nil, false, "", nil)
+	err = SetMemory(db, "task_key", "task_value", "string", "task", task.ID, nil, false, "")
 	if err != nil {
 		t.Fatalf("Failed to set task memory: %v", err)
 	}
 
 	// Add agent memory (should NOT be included)
-	err = SetMemory(db, "agent_key", "agent_value", "string", "agent", "agent1", nil, false, "", nil)
+	err = SetMemory(db, "agent_key", "agent_value", "string", "agent", "agent1", nil, false, "")
 	if err != nil {
 		t.Fatalf("Failed to set agent memory: %v", err)
 	}
@@ -487,7 +486,7 @@ func TestBuildBrief_WithProject(t *testing.T) {
 	}
 
 	// Add project-scoped memory
-	err = SetMemory(db, "pkey", "pval", "string", "project", project.ID, nil, false, "", nil)
+	err = SetMemory(db, "pkey", "pval", "string", "project", project.ID, nil, false, "")
 	if err != nil {
 		t.Fatalf("Failed to set project memory: %v", err)
 	}
@@ -528,11 +527,11 @@ func TestFetchRelevantMemory_ProjectFiltered(t *testing.T) {
 	}
 
 	// Two projects
-	err = SetMemory(db, "p1key", "p1val", "string", "project", "proj_1", nil, false, "", nil)
+	err = SetMemory(db, "p1key", "p1val", "string", "project", "proj_1", nil, false, "")
 	if err != nil {
 		t.Fatalf("Failed to set project 1 memory: %v", err)
 	}
-	err = SetMemory(db, "p2key", "p2val", "string", "project", "proj_2", nil, false, "", nil)
+	err = SetMemory(db, "p2key", "p2val", "string", "project", "proj_2", nil, false, "")
 	if err != nil {
 		t.Fatalf("Failed to set project 2 memory: %v", err)
 	}
@@ -576,11 +575,11 @@ func TestFetchRelevantMemory_FiltersExpired(t *testing.T) {
 	}
 
 	// Active memory, should remain.
-	require.NoError(t, SetMemory(db, "active", "value", "string", "task", task.ID, nil, false, "", nil))
+	require.NoError(t, SetMemory(db, "active", "value", "string", "task", task.ID, nil, false, ""))
 
 	// Expired memory, should be filtered out.
 	expired := time.Now().UTC().Add(-1 * time.Hour)
-	require.NoError(t, SetMemory(db, "expired", "value", "string", "task", task.ID, &expired, false, "", nil))
+	require.NoError(t, SetMemory(db, "expired", "value", "string", "task", task.ID, &expired, false, ""))
 
 	memories, err := fetchRelevantMemory(db, task.ID, "", time.Now())
 	if err != nil {
@@ -924,56 +923,4 @@ func TestFetchPipelineTasks_ExcludesInProgressAndBlocked(t *testing.T) {
 	require.True(t, ids[avail.ID], "Available task should be in pipeline")
 	require.False(t, ids[inprog.ID], "In_progress task should be excluded")
 	require.False(t, ids[blocked.ID], "Blocked task should be excluded")
-}
-
-func TestFetchRelevantMemory_ACTRScoring(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	require.NoError(t, SetMemory(db, "rarely_used", "val1", "string", "global", "", nil, false, "", nil))
-	require.NoError(t, SetMemory(db, "frequently_used", "val2", "string", "global", "", nil, false, "", nil))
-
-	// Simulate high access for frequently_used
-	_, err := db.Exec(`UPDATE memory SET access_count = 10, last_accessed_at = CURRENT_TIMESTAMP WHERE key = 'frequently_used'`)
-	require.NoError(t, err)
-
-	memories, err := fetchRelevantMemory(db, "", "", time.Now())
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(memories), 2)
-
-	var freqIdx, rareIdx int
-	for i, m := range memories {
-		switch m.Key {
-		case "frequently_used":
-			freqIdx = i
-		case "rarely_used":
-			rareIdx = i
-		}
-	}
-	assert.Less(t, freqIdx, rareIdx, "frequently_used should rank higher than rarely_used")
-
-	// Verify relevance is populated
-	for _, m := range memories {
-		if m.Key == "frequently_used" {
-			assert.Greater(t, m.Relevance, 0.0, "relevance should be positive")
-		}
-	}
-}
-
-func TestFetchRelevantMemory_AccessCountIncrement(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	require.NoError(t, SetMemory(db, "counter_test", "val", "string", "global", "", nil, false, "", nil))
-
-	// Fetch twice
-	_, err := fetchRelevantMemory(db, "", "", time.Now())
-	require.NoError(t, err)
-	_, err = fetchRelevantMemory(db, "", "", time.Now())
-	require.NoError(t, err)
-
-	mem, err := GetMemory(db, "counter_test", "global", "")
-	require.NoError(t, err)
-	assert.Equal(t, 2, mem.AccessCount, "access_count should be 2 after two fetches")
-	assert.NotNil(t, mem.LastAccessedAt, "last_accessed_at should be set")
 }

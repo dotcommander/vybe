@@ -28,7 +28,7 @@ func TestMemorySetPinFlag(t *testing.T) {
 
 	_, err = store.UpsertMemoryWithEventIdempotent(
 		db, "agent-pin-flag", "req-pin-set-flag-1",
-		"arch", "monolith", "string", "global", "", nil, true, "", nil, "",
+		"arch", "monolith", "string", "global", "", nil, true, "", "",
 	)
 	require.NoError(t, err)
 
@@ -62,7 +62,7 @@ func TestMemoryPinSubcommand(t *testing.T) {
 	require.NoError(t, dbErr)
 	defer func() { _ = db.Close() }()
 
-	require.NoError(t, store.SetMemory(db, "toggle-key", "v", "string", "global", "", nil, false, "", nil))
+	require.NoError(t, store.SetMemory(db, "toggle-key", "v", "string", "global", "", nil, false, ""))
 
 	// Pin
 	eid1, err := store.PinMemoryIdempotent(context.Background(), db, "agent", "req-toggle-pin", "toggle-key", "global", "", true)

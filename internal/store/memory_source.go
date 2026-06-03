@@ -20,7 +20,7 @@ func ListMemoryBySource(db *sql.DB, sourceEventID *int64, sourceTaskID string) (
 	}
 	var memories []*models.Memory
 	err := RetryWithBackoff(context.Background(), func() error {
-		query := `SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, access_count, last_accessed_at, pinned, kind, half_life_days, source_event_id, source_task_id
+		query := `SELECT id, key, value, value_type, scope, scope_id, expires_at, updated_at, created_at, pinned, kind, source_event_id, source_task_id
 			FROM memory
 			WHERE (pinned = 1 OR expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`
 		var args []any
@@ -42,7 +42,7 @@ func ListMemoryBySource(db *sql.DB, sourceEventID *int64, sourceTaskID string) (
 		for rows.Next() {
 			var mem models.Memory
 			var sourceTaskNull sql.NullString
-			if err := rows.Scan(&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID, &mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.AccessCount, &mem.LastAccessedAt, &mem.Pinned, &mem.Kind, &mem.HalfLifeDays, &mem.SourceEventID, &sourceTaskNull); err != nil {
+			if err := rows.Scan(&mem.ID, &mem.Key, &mem.Value, &mem.ValueType, &mem.Scope, &mem.ScopeID, &mem.ExpiresAt, &mem.UpdatedAt, &mem.CreatedAt, &mem.Pinned, &mem.Kind, &mem.SourceEventID, &sourceTaskNull); err != nil {
 				return fmt.Errorf("failed to scan memory: %w", err)
 			}
 			mem.SourceTaskID = sourceTaskNull.String

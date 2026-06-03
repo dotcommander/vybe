@@ -13,7 +13,7 @@ import (
 func seedMemoryWithProvenance(t *testing.T, db *sql.DB, key, value, scope, scopeID string, pinned bool, sourceEventID *int64, sourceTaskID string) {
 	t.Helper()
 	err := Transact(context.Background(), db, func(tx *sql.Tx) error {
-		_, err := UpsertMemoryTx(tx, "test-agent", key, value, "string", scope, scopeID, nil, pinned, "fact", nil, sourceEventID, sourceTaskID)
+		_, err := UpsertMemoryTx(tx, "test-agent", key, value, "string", scope, scopeID, nil, pinned, "fact", sourceEventID, sourceTaskID)
 		return err
 	})
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestListMemoryBySource_FilterByEventID(t *testing.T) {
 	// Use two distinct event IDs by seeding in separate transactions and capturing the returned eventID.
 	var eid1 int64
 	err := Transact(context.Background(), db, func(tx *sql.Tx) error {
-		id, txErr := UpsertMemoryTx(tx, "test-agent", "evkey1", "v1", "string", "global", "", nil, false, "fact", nil, nil, "")
+		id, txErr := UpsertMemoryTx(tx, "test-agent", "evkey1", "v1", "string", "global", "", nil, false, "fact", nil, "")
 		eid1 = id
 		return txErr
 	})
@@ -69,7 +69,7 @@ func TestListMemoryBySource_FilterByEventID(t *testing.T) {
 
 	// Seed a second memory with source_event_id = eid1
 	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
-		_, txErr := UpsertMemoryTx(tx, "test-agent", "evkey2", "v2", "string", "global", "", nil, false, "fact", nil, &eid1, "")
+		_, txErr := UpsertMemoryTx(tx, "test-agent", "evkey2", "v2", "string", "global", "", nil, false, "fact", &eid1, "")
 		return txErr
 	})
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestListMemoryBySource_FilterByEventID(t *testing.T) {
 	// Seed a third memory with a different source_event_id
 	var eid2 int64
 	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
-		id, txErr := UpsertMemoryTx(tx, "test-agent", "evkey3", "v3", "string", "global", "", nil, false, "fact", nil, nil, "")
+		id, txErr := UpsertMemoryTx(tx, "test-agent", "evkey3", "v3", "string", "global", "", nil, false, "fact", nil, "")
 		eid2 = id
 		return txErr
 	})
@@ -87,7 +87,7 @@ func TestListMemoryBySource_FilterByEventID(t *testing.T) {
 	// Now update evkey3 to point at eid2 (seeded with provenance from the start)
 	// Actually, re-seed a fresh key with eid2 as source directly
 	err = Transact(context.Background(), db, func(tx *sql.Tx) error {
-		_, txErr := UpsertMemoryTx(tx, "test-agent", "evkey4", "v4", "string", "global", "", nil, false, "fact", nil, &eid2, "")
+		_, txErr := UpsertMemoryTx(tx, "test-agent", "evkey4", "v4", "string", "global", "", nil, false, "fact", &eid2, "")
 		return txErr
 	})
 	require.NoError(t, err)
@@ -206,7 +206,7 @@ func TestGCOrphanedMemory_IgnoresNoProvenance(t *testing.T) {
 
 	// Memory with no source_task_id at all — must never be touched.
 	err := Transact(context.Background(), db, func(tx *sql.Tx) error {
-		_, txErr := UpsertMemoryTx(tx, "test-agent", "noprov_key", "val", "string", "global", "", nil, false, "fact", nil, nil, "")
+		_, txErr := UpsertMemoryTx(tx, "test-agent", "noprov_key", "val", "string", "global", "", nil, false, "fact", nil, "")
 		return txErr
 	})
 	require.NoError(t, err)

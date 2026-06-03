@@ -41,10 +41,7 @@ type MemoryKind string
 
 // Memory kind constants. Default is MemoryKindFact; MemoryKindDirective is an imperative rule
 // that renders as a bullet in the brief (e.g., "never mock the database in integration tests").
-// MemoryKindLesson captures retrospective insights with a shorter default half-life (14 days).
-//
-// Brief relevance decay (SQL CASE): directive→1e9d (≈ never), lesson→14d, fact→90d.
-// A per-entry half_life_days overrides the kind default; 0 and NULL both use the CASE default.
+// MemoryKindLesson captures retrospective insights.
 const (
 	MemoryKindFact      MemoryKind = "fact"
 	MemoryKindDirective MemoryKind = "directive"
@@ -134,23 +131,19 @@ type AgentState struct {
 
 // Memory represents a key-value storage entry with scoping
 type Memory struct {
-	ID             int64       `json:"id"`
-	Key            string      `json:"key"`
-	Value          string      `json:"value"`
-	ValueType      string      `json:"value_type"`
-	Scope          MemoryScope `json:"scope"`
-	ScopeID        string      `json:"scope_id"`
-	ExpiresAt      *time.Time  `json:"expires_at,omitempty"`
-	UpdatedAt      time.Time   `json:"updated_at"`
-	CreatedAt      time.Time   `json:"created_at"`
-	AccessCount    int         `json:"access_count"`
-	LastAccessedAt *time.Time  `json:"last_accessed_at,omitempty"`
-	Pinned         bool        `json:"pinned"`
-	Kind           string      `json:"kind,omitzero"`
-	HalfLifeDays   *float64    `json:"half_life_days,omitempty"`
-	Relevance      float64     `json:"relevance,omitempty"`
-	SourceEventID  *int64      `json:"source_event_id,omitempty"`
-	SourceTaskID   string      `json:"source_task_id,omitzero"`
+	ID            int64       `json:"id"`
+	Key           string      `json:"key"`
+	Value         string      `json:"value"`
+	ValueType     string      `json:"value_type"`
+	Scope         MemoryScope `json:"scope"`
+	ScopeID       string      `json:"scope_id"`
+	ExpiresAt     *time.Time  `json:"expires_at,omitempty"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+	CreatedAt     time.Time   `json:"created_at"`
+	Pinned        bool        `json:"pinned"`
+	Kind          string      `json:"kind,omitzero"`
+	SourceEventID *int64      `json:"source_event_id,omitempty"`
+	SourceTaskID  string      `json:"source_task_id,omitzero"`
 }
 
 // IsExpired returns true if the memory has an expiration time and it has passed.

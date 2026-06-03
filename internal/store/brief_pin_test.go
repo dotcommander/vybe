@@ -13,19 +13,17 @@ func TestFetchRelevantMemoryPinnedRanksFirst(t *testing.T) {
 	db, cleanup := setupMemoryTestDB(t)
 	t.Cleanup(cleanup)
 
-	// Write pinned entry with access_count=0 (freshly inserted, never read)
-	require.NoError(t, SetMemory(db, "pinned-arch", "decision", "string", "global", "", nil, true, "", nil))
+	// Write pinned entry first; hot-key is written second so it has a newer updated_at.
+	require.NoError(t, SetMemory(db, "pinned-arch", "decision", "string", "global", "", nil, true, ""))
 
-	// Write unpinned entry then simulate high access_count via direct SQL
-	require.NoError(t, SetMemory(db, "hot-key", "frequent", "string", "global", "", nil, false, "", nil))
-	_, err := db.Exec(`UPDATE memory SET access_count = 100 WHERE key = 'hot-key'`)
-	require.NoError(t, err)
+	// Write unpinned entry second — newer updated_at would rank it first without pin.
+	require.NoError(t, SetMemory(db, "hot-key", "frequent", "string", "global", "", nil, false, ""))
 
 	mems, err := fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(mems), 2)
 
-	// Pinned entry must appear before the high-access unpinned entry
+	// Pinned entry must appear before the newer-updated_at unpinned entry
 	pinnedIdx, hotIdx := -1, -1
 	for i, m := range mems {
 		if m.Key == "pinned-arch" {
@@ -48,9 +46,9 @@ func TestFetchRelevantMemoryPinnedBypassesTTL(t *testing.T) {
 	past := time.Now().Add(-2 * time.Hour)
 
 	// Pinned entry with past expires_at
-	require.NoError(t, SetMemory(db, "pinned-expired", "value", "string", "global", "", &past, true, "", nil))
+	require.NoError(t, SetMemory(db, "pinned-expired", "value", "string", "global", "", &past, true, ""))
 	// Unpinned entry with past expires_at — should NOT appear
-	require.NoError(t, SetMemory(db, "unpinned-expired", "value", "string", "global", "", &past, false, "", nil))
+	require.NoError(t, SetMemory(db, "unpinned-expired", "value", "string", "global", "", &past, false, ""))
 
 	mems, err := fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)

@@ -155,7 +155,7 @@ func newRememberCmd() *cobra.Command {
 
 			var eventID int64
 			if err := withDB(func(db *DB) error {
-				eid, err := actions.MemorySetIdempotent(db, agentName, requestID, key, value, "", scope, scopeID, nil, pinned, kind, nil, "")
+				eid, err := actions.MemorySetIdempotent(db, agentName, requestID, key, value, "", scope, scopeID, nil, pinned, kind, "")
 				if err != nil {
 					return err
 				}
