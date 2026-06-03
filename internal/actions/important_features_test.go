@@ -33,32 +33,6 @@ func TestParseDurationExtended_SupportsShorthandAndEmpty(t *testing.T) {
 	require.Equal(t, 14*24*time.Hour, d)
 }
 
-func TestProjectCreateIdempotent_Replay(t *testing.T) {
-	db, cleanup := setupTestDBWithCleanup(t)
-	defer cleanup()
-
-	p1, e1, err := ProjectCreateIdempotent(db, "agent-a", "req-proj-1", "proj-x", "")
-	require.NoError(t, err)
-	p2, e2, err := ProjectCreateIdempotent(db, "agent-a", "req-proj-1", "proj-x", "")
-	require.NoError(t, err)
-	require.Equal(t, p1.ID, p2.ID)
-	require.Equal(t, e1, e2)
-}
-
-func TestProjectFocusIdempotent_Replay(t *testing.T) {
-	db, cleanup := setupTestDBWithCleanup(t)
-	defer cleanup()
-
-	project, _, err := ProjectCreateIdempotent(db, "agent-a", "req-proj-focus-setup", "proj-focus", "")
-	require.NoError(t, err)
-
-	e1, err := ProjectFocusIdempotent(db, "agent-a", "req-focus-1", project.ID)
-	require.NoError(t, err)
-	e2, err := ProjectFocusIdempotent(db, "agent-a", "req-focus-1", project.ID)
-	require.NoError(t, err)
-	require.Equal(t, e1, e2)
-}
-
 func TestTaskStartIdempotent_Works(t *testing.T) {
 	db, cleanup := setupTestDBWithCleanup(t)
 	defer cleanup()

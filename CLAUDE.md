@@ -155,8 +155,7 @@ internal/testutil/     # CLI test helpers for integration tests
 | `resume.go` | Resume with options, brief building, prompt assembly |
 | `project.go` | Create, focus, get, list, delete |
 | `push.go` | Atomic batch (event + memory + artifacts + status) |
-| `run.go` | Persist run results, run stats |
-| `session.go` | Digest, retrospective, auto-summarize, auto-prune |
+| `session.go` | Auto-summarize events, auto-prune archived events |
 
 ## Coding Guidelines (Backend + CLI)
 
@@ -178,7 +177,7 @@ internal/testutil/     # CLI test helpers for integration tests
 | **Retry logic** | `RetryWithBackoff()` for all DB ops; exponential backoff on SQLITE_BUSY |
 | **Type inference** | Memory values auto-detect: string, number, boolean, json, array |
 | **Event archiving** | Summarize + archive old events; auto-prune archived |
-| **Session management** | Digest, retrospective, rule-based lessons learned |
+| **Session management** | Auto-summarize events, auto-prune archived events |
 | **Project isolation** | Project-scoped tasks, memory, events with focus tracking |
 | **State mutation fixes** | Trace every caller that depends on current clearing/preserving/defaulting behavior before changing it; a fix for one edge case that breaks the normal path is worse than the original bug |
 | **Zero-value filter trap** | When a parameter's zero value (0, "") is a valid domain value, use a sentinel (-1, pointer) to mean "no filter"; see `ListTasks` `priorityFilter` |
@@ -286,7 +285,7 @@ go build ./...
 - Idempotency system with replay
 - Resume/brief with deterministic focus selection
 - Project operations (create, focus, delete, isolation)
-- Session management (digest, retrospective, auto-summarize, auto-prune)
+- Session management (auto-summarize events, auto-prune archived events)
 - Event archiving and summarization
 - 50 test files across all layers
 
