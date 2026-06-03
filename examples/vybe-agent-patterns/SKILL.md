@@ -26,7 +26,6 @@ Patterns and commands for using vybe as the durable state layer in autonomous ag
 | Save cross-session facts | `vybe remember "K=V" --scope S --scope-id SI` | Discoveries that must survive restarts (`--scope-id` optional for `task`/`project` when a focus is set) |
 | Atomic multi-op batch | `vybe push --json '{"task_id":"T","event":{...},"memories":[...],"artifacts":[...]}'` | Several writes that must land together |
 | Read-only context snapshot | `vybe resume --peek` | Inspect full brief without advancing cursor |
-| Run autonomous work loop | `vybe loop --max-tasks N --max-fails M` | Continuous agent execution |
 | Create project context | `vybe resume --project-dir P` (auto-creates) | Scoping tasks and memory to project |
 | Focus on project | `vybe resume --focus T --project-dir P` | Filtering brief to project scope |
 

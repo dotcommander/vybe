@@ -95,7 +95,7 @@ internal/actions/      # Business logic — orchestrate store calls
 internal/store/        # SQLite persistence — transactions, retry, conflict resolution
 ```
 
-**Commands:** `artifacts`, `doctor`, `events`, `hook`, `init`, `loop`, `memory`, `push`, `resume`, `schema`, `status`, `task`, `upgrade`
+**Commands:** `artifacts`, `doctor`, `events`, `hook`, `init`, `memory`, `push`, `resume`, `schema`, `status`, `task`, `upgrade`
 
 See [`docs/`](docs/) for full documentation.
 
@@ -103,7 +103,7 @@ See [`docs/`](docs/) for full documentation.
 
 | Doc | Contents |
 |-----|----------|
-| [`docs/operator-guide.md`](docs/operator-guide.md) | Install/bootstrap plus operational loop recipes |
+| [`docs/operator-guide.md`](docs/operator-guide.md) | Install/bootstrap plus operational recipes |
 | [`docs/agent-contract.md`](docs/agent-contract.md) | Canonical machine I/O and integration contract |
 | [`docs/usage-examples.md`](docs/usage-examples.md) | 50 production-ready CLI command examples |
 | [`docs/decisions.md`](docs/decisions.md) | Why command-surface choices exist and what must not regress |

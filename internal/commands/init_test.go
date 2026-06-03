@@ -40,7 +40,6 @@ func buildTestRoot(t *testing.T) *cobra.Command {
 	root.AddCommand(NewTaskCmd())
 	root.AddCommand(NewMemoryCmd())
 	root.AddCommand(NewResumeCmd())
-	root.AddCommand(NewLoopCmd())
 	root.AddCommand(NewHookCmd())
 	root.AddCommand(NewStatusCmd(root))
 	root.AddCommand(NewUpgradeCmd())

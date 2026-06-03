@@ -44,7 +44,6 @@ Top-level commands:
 - `focus` (sugar: read current focus, no cursor advance)
 - `help`
 - `hook`
-- `loop`
 - `memory`
 - `note` (sugar: log a progress event)
 - `push`
@@ -63,7 +62,7 @@ Primary subcommands:
 
 ## Canonical flag semantics
 
-- `--project-dir`: workspace directory scope (`resume`, `loop`).
+- `--project-dir`: workspace directory scope (`resume`).
 - `--project-id`: task/project entity association/filter (`task create`, `task list`).
 - `--task-id`: artifacts/events read filters.
 
@@ -79,7 +78,7 @@ vybe resume --project-dir "$WORKSPACE"
 
 Inject `.data.prompt` (or `.data.brief`) into assistant context.
 
-For autonomous loops, the terminal verbs for the current `focus_task_id` are `vybe done <id>` (completed) and `vybe block <id> --reason "..." [--failure]` (blocked). Both are sugar over `task set-status --status completed|blocked`. Retries with the same `--request-id` are safe and will not duplicate the transition.
+For autonomous agent work, the terminal verbs for the current `focus_task_id` are `vybe done <id>` (completed) and `vybe block <id> --reason "..." [--failure]` (blocked). Both are sugar over `task set-status --status completed|blocked`. Retries with the same `--request-id` are safe and will not duplicate the transition.
 
 ### Task sync
 
@@ -182,5 +181,5 @@ Examples:
 
 ## Related docs
 
-- `operator-guide.md` for runnable operator loops and recipes
+- `operator-guide.md` for runnable operator recipes
 - `decisions.md` for anti-regression guardrails

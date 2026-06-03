@@ -77,7 +77,6 @@ func Execute(version string) error {
 	root.AddCommand(NewTaskCmd())
 	root.AddCommand(NewMemoryCmd())
 	root.AddCommand(NewResumeCmd())
-	root.AddCommand(NewLoopCmd())
 	root.AddCommand(NewHookCmd())
 	root.AddCommand(NewStatusCmd(root)) // root passed for --schema mode
 	root.AddCommand(NewUpgradeCmd())
