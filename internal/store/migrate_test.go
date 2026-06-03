@@ -68,7 +68,7 @@ func tableExists(t *testing.T, db *sql.DB, tableName string) bool {
 }
 
 func TestSchemaInvariants_FullMigration(t *testing.T) {
-	db := migrateToVersion(t, 29)
+	db := migrateToVersion(t, 31)
 
 	t.Run("tables_exist", func(t *testing.T) {
 		tables := []string{
@@ -87,7 +87,6 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 
 	t.Run("indexes_exist", func(t *testing.T) {
 		indexes := []string{
-			"idx_events_id",
 			"idx_events_agent_name",
 			"idx_events_task_id",
 			"idx_events_archived_at",
@@ -99,6 +98,8 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 			"idx_tasks_focus_selection",
 			"idx_memory_scope_key",
 			"idx_memory_kind",
+			"idx_memory_source_event_id",
+			"idx_memory_source_task_id",
 			"idx_idempotency_agent",
 			"idx_artifacts_project_id",
 		}
@@ -109,6 +110,7 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 
 	t.Run("dropped_indexes_absent", func(t *testing.T) {
 		dropped := []string{
+			"idx_events_id",
 			"idx_tasks_claimed_by",
 			"idx_tasks_claim_expires_at",
 			"idx_memory_scope_canonical_expires",
