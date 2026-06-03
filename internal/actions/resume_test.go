@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
@@ -237,7 +238,7 @@ func TestBrief_ExistingFocus(t *testing.T) {
 	}
 
 	// Get brief
-	brief, err := Brief(db, "agent1")
+	brief, err := Brief(db, "agent1", time.Time{})
 	if err != nil {
 		t.Fatalf("Brief failed: %v", err)
 	}
@@ -262,7 +263,7 @@ func TestBrief_NoFocus(t *testing.T) {
 	}
 
 	// Get brief
-	brief, err := Brief(db, "agent1")
+	brief, err := Brief(db, "agent1", time.Time{})
 	if err != nil {
 		t.Fatalf("Brief failed: %v", err)
 	}
@@ -277,7 +278,7 @@ func TestBrief_RequiresAgentName(t *testing.T) {
 	defer cleanup()
 
 	// Brief with empty agent name
-	_, err := Brief(db, "")
+	_, err := Brief(db, "", time.Time{})
 	if err == nil {
 		t.Error("Expected error for empty agent name")
 	}
@@ -301,7 +302,7 @@ func TestBrief_DoesNotAdvanceCursor(t *testing.T) {
 	}
 
 	// Get brief (should not advance cursor)
-	_, err = Brief(db, "agent1")
+	_, err = Brief(db, "agent1", time.Time{})
 	if err != nil {
 		t.Fatalf("Brief failed: %v", err)
 	}

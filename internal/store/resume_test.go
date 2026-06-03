@@ -231,7 +231,7 @@ func TestBuildBrief_EmptyTask(t *testing.T) {
 	defer cleanup()
 
 	// Build brief with no focus task
-	brief, err := BuildBrief(db, "", "", "")
+	brief, err := BuildBrief(db, "", "", "", time.Now())
 	if err != nil {
 		t.Fatalf("BuildBrief failed: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestBuildBrief_WithTask(t *testing.T) {
 	appendEvent(t, db, "task.started", "agent1", task.ID, "Started work")
 
 	// Build brief
-	brief, err := BuildBrief(db, task.ID, "", "")
+	brief, err := BuildBrief(db, task.ID, "", "", time.Now())
 	if err != nil {
 		t.Fatalf("BuildBrief failed: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestBuildBrief_ApproxTokensFromEventMessages(t *testing.T) {
 	appendEvent(t, db, "task.note", "agent1", task.ID, "abcd")
 	appendEvent(t, db, "task.note", "agent1", task.ID, "12345")
 
-	brief, err := BuildBrief(db, task.ID, "", "")
+	brief, err := BuildBrief(db, task.ID, "", "", time.Now())
 	if err != nil {
 		t.Fatalf("BuildBrief failed: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestFetchRelevantMemory(t *testing.T) {
 	}
 
 	// Fetch relevant memory
-	memories, err := fetchRelevantMemory(db, task.ID, "")
+	memories, err := fetchRelevantMemory(db, task.ID, "", time.Now())
 	if err != nil {
 		t.Fatalf("fetchRelevantMemory failed: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestBuildBrief_WithProject(t *testing.T) {
 		t.Fatalf("Failed to set project memory: %v", err)
 	}
 
-	brief, err := BuildBrief(db, task.ID, project.ID, "")
+	brief, err := BuildBrief(db, task.ID, project.ID, "", time.Now())
 	if err != nil {
 		t.Fatalf("BuildBrief failed: %v", err)
 	}
@@ -538,7 +538,7 @@ func TestFetchRelevantMemory_ProjectFiltered(t *testing.T) {
 	}
 
 	// Filtered: should only get proj_1
-	memories, err := fetchRelevantMemory(db, task.ID, "proj_1")
+	memories, err := fetchRelevantMemory(db, task.ID, "proj_1", time.Now())
 	if err != nil {
 		t.Fatalf("fetchRelevantMemory failed: %v", err)
 	}
@@ -551,7 +551,7 @@ func TestFetchRelevantMemory_ProjectFiltered(t *testing.T) {
 	}
 
 	// Unfiltered: should get both
-	memories, err = fetchRelevantMemory(db, task.ID, "")
+	memories, err = fetchRelevantMemory(db, task.ID, "", time.Now())
 	if err != nil {
 		t.Fatalf("fetchRelevantMemory failed: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestFetchRelevantMemory_FiltersExpired(t *testing.T) {
 	expired := time.Now().UTC().Add(-1 * time.Hour)
 	require.NoError(t, SetMemory(db, "expired", "value", "string", "task", task.ID, &expired, false, "", nil))
 
-	memories, err := fetchRelevantMemory(db, task.ID, "")
+	memories, err := fetchRelevantMemory(db, task.ID, "", time.Now())
 	if err != nil {
 		t.Fatalf("fetchRelevantMemory failed: %v", err)
 	}
@@ -990,7 +990,7 @@ func TestFetchRelevantMemory_ACTRScoring(t *testing.T) {
 	_, err := db.Exec(`UPDATE memory SET access_count = 10, last_accessed_at = CURRENT_TIMESTAMP WHERE key = 'frequently_used'`)
 	require.NoError(t, err)
 
-	memories, err := fetchRelevantMemory(db, "", "")
+	memories, err := fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(memories), 2)
 
@@ -1020,9 +1020,9 @@ func TestFetchRelevantMemory_AccessCountIncrement(t *testing.T) {
 	require.NoError(t, SetMemory(db, "counter_test", "val", "string", "global", "", nil, false, "", nil))
 
 	// Fetch twice
-	_, err := fetchRelevantMemory(db, "", "")
+	_, err := fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)
-	_, err = fetchRelevantMemory(db, "", "")
+	_, err = fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)
 
 	mem, err := GetMemory(db, "counter_test", "global", "")

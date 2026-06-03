@@ -2,6 +2,7 @@ package store
 
 import (
 	"testing"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,8 @@ func TestMemoryHalfLife_KindDefaults(t *testing.T) {
 	_, err := db.Exec(`UPDATE memory SET last_accessed_at = datetime('now', '-14 days') WHERE key = 'lesson-key'`)
 	require.NoError(t, err)
 
-	mems, err := fetchRelevantMemory(db, "", "")
+	// Use time.Now() so julianday(asOf) aligns with SQLite's datetime('now',...) relative timestamps.
+	mems, err := fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)
 
 	var found *models.Memory
@@ -49,7 +51,8 @@ func TestMemoryHalfLife_DirectiveNoDecay(t *testing.T) {
 	_, err := db.Exec(`UPDATE memory SET last_accessed_at = datetime('now', '-365 days') WHERE key = 'dir-key'`)
 	require.NoError(t, err)
 
-	mems, err := fetchRelevantMemory(db, "", "")
+	// Use time.Now() so julianday(asOf) aligns with SQLite's datetime('now',...) relative timestamps.
+	mems, err := fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)
 
 	var found *models.Memory
@@ -75,7 +78,8 @@ func TestMemoryHalfLife_ExplicitOverride(t *testing.T) {
 	_, err := db.Exec(`UPDATE memory SET last_accessed_at = datetime('now', '-1 days') WHERE key = 'fast-decay'`)
 	require.NoError(t, err)
 
-	mems, err := fetchRelevantMemory(db, "", "")
+	// Use time.Now() so julianday(asOf) aligns with SQLite's datetime('now',...) relative timestamps.
+	mems, err := fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)
 
 	var found *models.Memory

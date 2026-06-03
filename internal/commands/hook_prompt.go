@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
@@ -77,7 +78,7 @@ func emitRichBrief(db *DB, agentName, focusTaskID, projectID string) error {
 
 	// Add memory if available
 	if focusTaskID != "" {
-		brief, err := store.BuildBrief(db, focusTaskID, projectID, agentName)
+		brief, err := store.BuildBrief(db, focusTaskID, projectID, agentName, time.Now())
 		// BuildBrief returns non-nil on err==nil (see internal/store/brief.go).
 		if err == nil && len(brief.RelevantMemory) > 0 {
 			b.WriteString("\nSaved notes:\n")

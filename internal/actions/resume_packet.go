@@ -3,6 +3,7 @@ package actions
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
@@ -33,6 +34,9 @@ func normalizeResumeOptions(opts ResumeOptions) ResumeOptions {
 	}
 	if opts.EventLimit > 1000 {
 		opts.EventLimit = 1000
+	}
+	if opts.AsOf.IsZero() {
+		opts.AsOf = time.Now()
 	}
 	return opts
 }
@@ -94,7 +98,7 @@ func computeResumePacket(db *sql.DB, agentName string, opts ResumeOptions) (*res
 		return nil, fmt.Errorf("failed to determine focus task: %w", err)
 	}
 
-	brief, err := store.BuildBrief(db, focusResult.TaskID, snapshot.focusProjectID, agentName)
+	brief, err := store.BuildBrief(db, focusResult.TaskID, snapshot.focusProjectID, agentName, opts.AsOf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build brief: %w", err)
 	}

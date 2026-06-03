@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
@@ -78,12 +79,12 @@ func resumeStateChanged(pkt *resumePacket, resp ResumeResponse) bool {
 	return resp.FocusTaskID != pkt.focusTaskID || resp.NewCursor != pkt.newCursor || resp.FocusProjectID != pkt.focusProjectID
 }
 
-func reconcileResumeContention(db *sql.DB, agentName string, pkt *resumePacket, resp *ResumeResponse) {
+func reconcileResumeContention(db *sql.DB, agentName string, asOf time.Time, pkt *resumePacket, resp *ResumeResponse) {
 	if !resumeStateChanged(pkt, *resp) {
 		return
 	}
 
-	newBrief, err := store.BuildBrief(db, resp.FocusTaskID, resp.FocusProjectID, agentName)
+	newBrief, err := store.BuildBrief(db, resp.FocusTaskID, resp.FocusProjectID, agentName, asOf)
 	if err != nil {
 		slog.Default().Warn("failed to rebuild brief after contention", "error", err)
 		resp.Brief = &store.BriefPacket{}

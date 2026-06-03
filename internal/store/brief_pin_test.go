@@ -21,7 +21,7 @@ func TestFetchRelevantMemoryPinnedRanksFirst(t *testing.T) {
 	_, err := db.Exec(`UPDATE memory SET access_count = 100 WHERE key = 'hot-key'`)
 	require.NoError(t, err)
 
-	mems, err := fetchRelevantMemory(db, "", "")
+	mems, err := fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(mems), 2)
 
@@ -52,7 +52,7 @@ func TestFetchRelevantMemoryPinnedBypassesTTL(t *testing.T) {
 	// Unpinned entry with past expires_at — should NOT appear
 	require.NoError(t, SetMemory(db, "unpinned-expired", "value", "string", "global", "", &past, false, "", nil))
 
-	mems, err := fetchRelevantMemory(db, "", "")
+	mems, err := fetchRelevantMemory(db, "", "", time.Now())
 	require.NoError(t, err)
 
 	var foundPinned, foundUnpinned bool

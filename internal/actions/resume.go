@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
@@ -25,8 +26,9 @@ type ResumeResponse struct {
 // ResumeOptions controls the behavior of a resume operation.
 type ResumeOptions struct {
 	EventLimit        int
-	ProjectDir        string // When set, scope resume to this project and include recent prompts for it
-	FocusTaskOverride string // When set, override focus task atomically within the resume transaction
+	ProjectDir        string    // When set, scope resume to this project and include recent prompts for it
+	FocusTaskOverride string    // When set, override focus task atomically within the resume transaction
+	AsOf              time.Time // Logical clock for memory decay/expiry; zero means "use entry-boundary now"
 }
 
 // ResumeWithOptionsIdempotent performs Resume once per (agentName, requestID); replays the original response on retries.
@@ -50,12 +52,12 @@ func ResumeWithOptionsIdempotent(db *sql.DB, agentName, requestID string, opts R
 		return nil, err
 	}
 
-	reconcileResumeContention(db, agentName, pkt, &persisted)
+	reconcileResumeContention(db, agentName, opts.AsOf, pkt, &persisted)
 	return &persisted, nil
 }
 
 // Brief returns a brief packet for an agent's current focus without advancing cursor.
-func Brief(db *sql.DB, agentName string) (*store.BriefPacket, error) {
+func Brief(db *sql.DB, agentName string, asOf time.Time) (*store.BriefPacket, error) {
 	if agentName == "" {
 		return nil, errors.New("agent name is required")
 	}
@@ -65,7 +67,7 @@ func Brief(db *sql.DB, agentName string) (*store.BriefPacket, error) {
 		return nil, fmt.Errorf("failed to load agent state: %w", err)
 	}
 
-	brief, err := store.BuildBrief(db, state.FocusTaskID, state.FocusProjectID, agentName)
+	brief, err := store.BuildBrief(db, state.FocusTaskID, state.FocusProjectID, agentName, asOf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build brief: %w", err)
 	}
