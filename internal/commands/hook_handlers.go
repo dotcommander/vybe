@@ -34,11 +34,12 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hctx := resolveHookContext(cmd)
+			ev := hctx.Input.toCanonical(EventKindSessionStart)
 
 			// On compact, the model already has session context — skip full resume.
 			// Emit a lightweight focus-task reminder so the model doesn't lose
 			// track of what it's working on after context compression.
-			if hctx.Input.Source == "compact" {
+			if ev.Source == "compact" {
 				var reminder string
 				runHookDB("session-start-compact", func(db *DB) error {
 					// Ensure project focus is maintained
@@ -64,13 +65,7 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 					return nil
 				}, nil)
 
-				out := hookOutput{
-					HookSpecificOutput: &hookSpecific{
-						HookEventName:     "SessionStart",
-						AdditionalContext: reminder,
-					},
-				}
-				return json.NewEncoder(os.Stdout).Encode(out)
+				return renderClaudeResult("SessionStart", ContextResult{Context: reminder})
 			}
 
 			requestID := hookRequestID("session", hctx.AgentName)
@@ -107,20 +102,12 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 				return nil
 			}
 
-			prevContext := hookcmd.ReadPreviousSessionContext(hctx.CWD, hctx.Input.SessionID)
+			prevContext := hookcmd.ReadPreviousSessionContext(hctx.CWD, ev.SessionID)
 			if prevContext != "" {
 				prompt += "\n" + prevContext
 			}
 
-			out := hookOutput{
-				HookSpecificOutput: &hookSpecific{
-					HookEventName:     "SessionStart",
-					AdditionalContext: prompt,
-				},
-			}
-
-			enc := json.NewEncoder(os.Stdout)
-			return enc.Encode(out)
+			return renderClaudeResult("SessionStart", ContextResult{Context: prompt})
 		},
 	}
 }
@@ -142,19 +129,21 @@ Register via 'vybe hook install'.`,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hctx := resolveHookContext(cmd)
-			if hctx.Input.Prompt == "" {
+			ev := hctx.Input.toCanonical(EventKindPrompt)
+			if ev.Prompt == "" {
 				return nil
 			}
 
 			// Truncate long prompts
-			msg, _ := truncateString(hctx.Input.Prompt, 500)
+			msg, _ := truncateString(ev.Prompt, 500)
 
 			requestID := hookRequestID("prompt", hctx.AgentName)
 
 			// Hooks must never block Claude Code — errors are swallowed.
 			runHookDB("prompt", func(db *DB) error {
+				// metadata stays host-shaped until Phase 1 metadata renderer
 				metadata, _ := json.Marshal(map[string]string{
-					"source":        defaultAgentName,
+					"source":        defaultEventSource,
 					"session_id":    hctx.Input.SessionID,
 					"hook_event":    hctx.Input.HookEventName,
 					"resume_source": hctx.Input.Source,
@@ -175,7 +164,7 @@ Register via 'vybe hook install'.`,
 				}
 
 				// Detect trigger words for rich summary (loaded from triggers.yaml)
-				lower := strings.ToLower(strings.TrimSpace(hctx.Input.Prompt))
+				lower := strings.ToLower(strings.TrimSpace(ev.Prompt))
 				_, isTrigger := app.LoadTriggerWords()[lower]
 
 				if isTrigger {
@@ -198,16 +187,18 @@ func newHookToolFailureCmd() *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hctx := resolveHookContext(cmd)
-			if hctx.Input.ToolName == "" {
+			ev := hctx.Input.toCanonical(EventKindToolFailure)
+			if ev.ToolName == "" {
 				return nil
 			}
 
 			requestID := hookRequestID("tool_failure", hctx.AgentName)
-			msg := fmt.Sprintf("%s failed", hctx.Input.ToolName)
+			msg := fmt.Sprintf("%s failed", ev.ToolName)
 			if hctx.Input.HookEventName != "" {
 				msg = fmt.Sprintf("%s (%s)", msg, hctx.Input.HookEventName)
 			}
 
+			// metadata stays host-shaped until Phase 1 metadata renderer
 			metadata := buildToolMetadata(hctx.Input)
 
 			// Hooks must never block Claude Code — log diagnostic and exit clean.

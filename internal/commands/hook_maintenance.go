@@ -54,7 +54,7 @@ func buildToolMetadata(input hookInput) string {
 	outputPreview, outputTruncated := truncateString(string(input.ToolResponse), 4096)
 
 	metaObj := map[string]any{
-		"source":                  defaultAgentName,
+		"source":                  defaultEventSource,
 		"session_id":              input.SessionID,
 		"hook_event":              input.HookEventName,
 		"tool_name":               input.ToolName,
@@ -87,7 +87,7 @@ func buildToolMetadata(input hookInput) string {
 	}
 
 	fallback := map[string]any{
-		"source":                  defaultAgentName,
+		"source":                  defaultEventSource,
 		"session_id":              input.SessionID,
 		"hook_event":              input.HookEventName,
 		"tool_name":               input.ToolName,

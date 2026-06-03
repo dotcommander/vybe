@@ -21,8 +21,13 @@ const (
 	// 1 MB is generous headroom that prevents unbounded allocation.
 	maxHookStdinBytes = 1 << 20
 
-	// defaultAgentName is the default agent identity used by hooks when no --agent flag is provided.
-	defaultAgentName = "claude"
+	// Claude-host defaults. Phase 1 parameterizes these per --host; until then both
+	// remain "claude" so DB identity and event-metadata "source" bytes are unchanged.
+	//   defaultHostAgentName — identity fallback for agent_state/event rows when no
+	//     --agent / VYBE_AGENT / config.default_agent is set.
+	//   defaultEventSource   — the "source" value written into event metadata JSON.
+	defaultHostAgentName = "claude"
+	defaultEventSource   = "claude"
 
 	// disableExternalLLMEnv blocks claude/opencode subprocess execution in guarded flows.
 	disableExternalLLMEnv = "VYBE_DISABLE_EXTERNAL_LLM"
@@ -72,7 +77,7 @@ func resolveHookContext(cmd *cobra.Command) hookContext {
 	input := readHookStdin()
 	agentName := resolveActorName(cmd, "")
 	if agentName == "" {
-		agentName = defaultAgentName
+		agentName = defaultHostAgentName
 		slog.Default().Warn("hook using default agent identity",
 			"agent", agentName,
 			"hint", "set VYBE_AGENT or --agent to avoid cross-session contamination")
