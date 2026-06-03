@@ -10,7 +10,7 @@ import (
 )
 
 // emitRichBrief builds a comprehensive vybe summary for trigger words like "brief me" and "remember".
-func emitRichBrief(db *DB, agentName, focusTaskID, projectID string) error {
+func emitRichBrief(db *DB, agentName, focusTaskID, projectID string, render func(ContextResult) error) error {
 	var b strings.Builder
 
 	b.WriteString("== VYBE PROJECT SUMMARY ==\n")
@@ -90,5 +90,5 @@ func emitRichBrief(db *DB, agentName, focusTaskID, projectID string) error {
 
 	b.WriteString("\nPresent this summary to the user and ask which task(s) they'd like to work on.\n")
 
-	return emitHookJSON("UserPromptSubmit", b.String())
+	return render(ContextResult{Context: b.String()})
 }

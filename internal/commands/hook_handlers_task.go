@@ -16,8 +16,7 @@ func newHookTaskCompletedCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			hctx := resolveHookContext(cmd)
-			ev := hctx.Input.toCanonical(EventKindTaskCompleted)
+			ev, hctx := resolveCanonical(cmd, EventKindTaskCompleted)
 			requestID := hookRequestID("task_completed", hctx.AgentName)
 
 			if rawTaskID, ok := ev.Raw["task_id"].(string); ok && rawTaskID != "" {

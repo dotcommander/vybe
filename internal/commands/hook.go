@@ -15,6 +15,8 @@ func NewHookCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 
+	cmd.PersistentFlags().String("host", "", "Host protocol: claude (default) | generic; or set VYBE_HOST")
+
 	cmd.AddCommand(newHookInstallCmd())
 	cmd.AddCommand(newHookUninstallCmd())
 	cmd.AddCommand(hookcmd.NewExportCmd())

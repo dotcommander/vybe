@@ -33,8 +33,7 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			hctx := resolveHookContext(cmd)
-			ev := hctx.Input.toCanonical(EventKindSessionStart)
+			ev, hctx := resolveCanonical(cmd, EventKindSessionStart)
 
 			// On compact, the model already has session context — skip full resume.
 			// Emit a lightweight focus-task reminder so the model doesn't lose
@@ -65,7 +64,7 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 					return nil
 				}, nil)
 
-				return renderClaudeResult("SessionStart", ContextResult{Context: reminder})
+				return renderResult(cmd, "SessionStart", ContextResult{Context: reminder})
 			}
 
 			requestID := hookRequestID("session", hctx.AgentName)
@@ -107,7 +106,7 @@ This runs alongside any existing SessionStart hooks — no conflicts.`,
 				prompt += "\n" + prevContext
 			}
 
-			return renderClaudeResult("SessionStart", ContextResult{Context: prompt})
+			return renderResult(cmd, "SessionStart", ContextResult{Context: prompt})
 		},
 	}
 }
@@ -128,8 +127,7 @@ Register via 'vybe hook install'.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			hctx := resolveHookContext(cmd)
-			ev := hctx.Input.toCanonical(EventKindPrompt)
+			ev, hctx := resolveCanonical(cmd, EventKindPrompt)
 			if ev.Prompt == "" {
 				return nil
 			}
@@ -167,7 +165,8 @@ Register via 'vybe hook install'.`,
 				_, isTrigger := app.LoadTriggerWords()[lower]
 
 				if isTrigger {
-					return emitRichBrief(db, hctx.AgentName, state.FocusTaskID, focusProjectID)
+					return emitRichBrief(db, hctx.AgentName, state.FocusTaskID, focusProjectID,
+						func(r ContextResult) error { return renderResult(cmd, "UserPromptSubmit", r) })
 				}
 
 				return nil
@@ -185,8 +184,7 @@ func newHookToolFailureCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			hctx := resolveHookContext(cmd)
-			ev := hctx.Input.toCanonical(EventKindToolFailure)
+			ev, hctx := resolveCanonical(cmd, EventKindToolFailure)
 			if ev.ToolName == "" {
 				return nil
 			}
@@ -206,7 +204,7 @@ func newHookToolFailureCmd() *cobra.Command {
 				)
 				return err
 			}, func(err error) {
-				slog.Default().Error("tool-failure hook failed", "error", err, "tool_name", hctx.Input.ToolName)
+				slog.Default().Error("tool-failure hook failed", "error", err, "tool_name", ev.ToolName)
 			})
 
 			return nil

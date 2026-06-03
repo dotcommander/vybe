@@ -77,3 +77,11 @@ func resolveCanonical(cmd *cobra.Command, kind EventKind) (CanonicalEvent, hookC
 	}
 	return ev, hookContext{Input: claudeInput, AgentName: agentName, CWD: cwd}
 }
+
+// renderResult writes a ContextResult via the selected host's output renderer.
+func renderResult(cmd *cobra.Command, claudeEventName string, res ContextResult) error {
+	if resolveHost(cmd) == hostGeneric {
+		return renderGenericResult(res)
+	}
+	return renderClaudeResult(claudeEventName, res)
+}

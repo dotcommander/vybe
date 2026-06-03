@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/dotcommander/vybe/internal/store"
-	"github.com/spf13/cobra"
 )
 
 const (
@@ -74,23 +73,6 @@ type hookContext struct {
 	Input     hookInput
 	AgentName string
 	CWD       string
-}
-
-// resolveHookContext reads stdin and resolves agent name and working directory.
-func resolveHookContext(cmd *cobra.Command) hookContext {
-	input := readHookStdin()
-	agentName := resolveActorName(cmd, "")
-	if agentName == "" {
-		agentName = defaultHostAgentName
-		slog.Default().Warn("hook using default agent identity",
-			"agent", agentName,
-			"hint", "set VYBE_AGENT or --agent to avoid cross-session contamination")
-	}
-	cwd := input.CWD
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	return hookContext{Input: input, AgentName: agentName, CWD: cwd}
 }
 
 func randomHex(bytesLen int) string {
@@ -200,15 +182,4 @@ func appendEventWithFocusTask(db *DB, agentName, requestID, kind, projectID, tas
 	return store.AppendEventWithProjectAndMetadataIdempotent(
 		db, agentName, requestID, kind, projectID, taskID, msg, metadata,
 	)
-}
-
-// emitHookJSON writes a hookOutput JSON to stdout.
-func emitHookJSON(eventName, context string) error {
-	out := hookOutput{
-		HookSpecificOutput: &hookSpecific{
-			HookEventName:     eventName,
-			AdditionalContext: context,
-		},
-	}
-	return json.NewEncoder(os.Stdout).Encode(out)
 }
