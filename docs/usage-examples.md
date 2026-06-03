@@ -414,14 +414,14 @@ Fetches recent events in raw output format.
 vybe events --limit 20
 ```
 
-### 47. Archiving a range of events with a summarized compression event
-Compresses old logs to save token budget.
+### 47. Logging a progress milestone after completing a phase
+Records a structured progress event so future resumes surface the milestone.
 ```bash
 vybe push --json '{
   "task_id": "task_123",
   "event": {
-    "kind": "events_summary", 
-    "message": "Archived events 1 to 50: setup phase completed successfully"
+    "kind": "progress",
+    "message": "Setup phase completed successfully — proceeding to implementation"
   }
 }'
 ```

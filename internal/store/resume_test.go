@@ -811,21 +811,6 @@ func TestFetchPriorReasoning_ProjectScoped(t *testing.T) {
 	}
 }
 
-func TestFetchPriorReasoning_ExcludesArchived(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	id := appendEvent(t, db, "reasoning", "agent1", "", "archived reasoning")
-	_, err := db.Exec(`UPDATE events SET archived_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
-	require.NoError(t, err)
-	appendEvent(t, db, "reasoning", "agent1", "", "active reasoning")
-
-	events, err := FetchPriorReasoning(db, "", 10)
-	require.NoError(t, err)
-	require.Len(t, events, 1)
-	require.Equal(t, "active reasoning", events[0].Message)
-}
-
 // --- Discovery context tests ---
 
 func TestGetTaskStatusCounts_Global(t *testing.T) {

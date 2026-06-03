@@ -7,20 +7,19 @@ import (
 // NewEventsCmd creates the events command.
 func NewEventsCmd() *cobra.Command {
 	var (
-		all             bool
-		taskID          string
-		kind            string
-		limit           int
-		since           int64
-		asc             bool
-		includeArchived bool
+		all    bool
+		taskID string
+		kind   string
+		limit  int
+		since  int64
+		asc    bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "events",
 		Short: "List events from the event stream",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEventsMode(cmd, all, taskID, kind, since, limit, asc, includeArchived)
+			return runEventsMode(cmd, all, taskID, kind, since, limit, asc)
 		},
 	}
 
@@ -30,7 +29,6 @@ func NewEventsCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 50, "Max events to return")
 	cmd.Flags().Int64Var(&since, "since-id", 0, "Only events with id > since-id")
 	cmd.Flags().BoolVar(&asc, "asc", false, "Sort oldest first (default newest first)")
-	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived events")
 
 	return cmd
 }

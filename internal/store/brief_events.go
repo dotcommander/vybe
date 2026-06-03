@@ -23,7 +23,7 @@ func FetchRecentUserPrompts(db *sql.DB, projectDir string, limit int) ([]*models
 			query = `
 				SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 				FROM events
-				WHERE kind = 'user_prompt' AND archived_at IS NULL
+				WHERE kind = 'user_prompt'
 				  AND (project_id = ? OR json_extract(metadata, '$.project') = ?)
 				ORDER BY id DESC LIMIT ?
 			`
@@ -32,7 +32,7 @@ func FetchRecentUserPrompts(db *sql.DB, projectDir string, limit int) ([]*models
 			query = `
 				SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 				FROM events
-				WHERE kind = 'user_prompt' AND archived_at IS NULL
+				WHERE kind = 'user_prompt'
 				ORDER BY id DESC LIMIT ?
 			`
 			args = []any{limit}
@@ -69,7 +69,7 @@ func FetchPriorReasoning(db *sql.DB, projectID string, limit int) ([]*models.Eve
 			query = `
 				SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 				FROM events
-				WHERE kind = 'reasoning' AND archived_at IS NULL
+				WHERE kind = 'reasoning'
 				  AND ` + ProjectOrGlobalScopeClause + `
 				ORDER BY id DESC LIMIT ?
 			`
@@ -78,7 +78,7 @@ func FetchPriorReasoning(db *sql.DB, projectID string, limit int) ([]*models.Eve
 			query = `
 				SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 				FROM events
-				WHERE kind = 'reasoning' AND archived_at IS NULL
+				WHERE kind = 'reasoning'
 				ORDER BY id DESC LIMIT ?
 			`
 			args = []any{limit}
@@ -106,7 +106,7 @@ func fetchRecentEvents(db *sql.DB, taskID string) ([]*models.Event, error) {
 		rows, err := db.QueryContext(context.Background(), `
 			SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 			FROM events
-			WHERE task_id = ? AND archived_at IS NULL
+			WHERE task_id = ?
 			ORDER BY id DESC
 			LIMIT 20
 		`, taskID)

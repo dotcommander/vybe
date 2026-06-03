@@ -13,7 +13,6 @@ type StatusCounts struct {
 	Memory       int              `json:"memory"`
 	Agents       int              `json:"agents"`
 	Projects     int              `json:"projects"`
-	EventsDetail *EventsDetail    `json:"events_detail,omitempty"`
 	MemoryDetail *MemoryDetail    `json:"memory_detail,omitempty"`
 	AgentsDetail *AgentsDetail    `json:"agents_detail,omitempty"`
 	TasksDetail  *TasksDetail     `json:"tasks_detail,omitempty"`
@@ -25,12 +24,6 @@ type TaskStatusCounts struct {
 	InProgress int `json:"in_progress"`
 	Completed  int `json:"completed"`
 	Blocked    int `json:"blocked"`
-}
-
-// EventsDetail breaks down event counts by archive state.
-type EventsDetail struct {
-	Active   int `json:"active"`
-	Archived int `json:"archived"`
 }
 
 // MemoryDetail breaks down memory entry counts by health/state.
@@ -53,7 +46,6 @@ type TasksDetail struct {
 // GetStatusCounts retrieves all status counts in a single atomic query with retry.
 func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 	counts := &StatusCounts{}
-	var evActive, evArchived int
 	var memActive, memExpired int
 	var agActive7d int
 	var taskTotal, taskUnknown int
@@ -69,8 +61,6 @@ func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 				(SELECT COUNT(*) FROM memory),
 				(SELECT COUNT(*) FROM agent_state),
 				(SELECT COUNT(*) FROM projects),
-				(SELECT COUNT(*) FROM events WHERE archived_at IS NULL),
-				(SELECT COUNT(*) FROM events WHERE archived_at IS NOT NULL),
 				(SELECT COUNT(*) FROM memory WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP),
 				(SELECT COUNT(*) FROM memory WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP),
 				(SELECT COUNT(*) FROM agent_state WHERE last_active_at >= datetime('now', '-7 days')),
@@ -85,8 +75,6 @@ func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 			&counts.Memory,
 			&counts.Agents,
 			&counts.Projects,
-			&evActive,
-			&evArchived,
 			&memActive,
 			&memExpired,
 			&agActive7d,
@@ -98,7 +86,6 @@ func GetStatusCounts(db *sql.DB) (*StatusCounts, error) {
 		return nil, fmt.Errorf("failed to get status counts: %w", err)
 	}
 
-	counts.EventsDetail = &EventsDetail{Active: evActive, Archived: evArchived}
 	counts.MemoryDetail = &MemoryDetail{Active: memActive, Expired: memExpired}
 	counts.AgentsDetail = &AgentsDetail{Active7d: agActive7d}
 	counts.TasksDetail = &TasksDetail{Total: taskTotal, Unknown: taskUnknown}

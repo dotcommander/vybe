@@ -46,7 +46,7 @@ func FetchEventsSince(db *sql.DB, cursorID int64, limit int, projectID string) (
 		query := `
 			SELECT id, kind, agent_name, project_id, task_id, message, metadata, created_at
 			FROM events
-			WHERE id > ? AND archived_at IS NULL
+			WHERE id > ?
 		`
 		args := []any{cursorID}
 		if projectID != "" {

@@ -11,14 +11,13 @@ import (
 
 // ListEventsParams configures the ListEvents query.
 type ListEventsParams struct {
-	AgentName       string
-	ProjectID       string
-	TaskID          string
-	Kind            string
-	SinceID         int64
-	Limit           int
-	Desc            bool
-	IncludeArchived bool
+	AgentName string
+	ProjectID string
+	TaskID    string
+	Kind      string
+	SinceID   int64
+	Limit     int
+	Desc      bool
 }
 
 // ListEvents retrieves events matching the given params, supporting optional filtering by task, project, agent, kind, and archive status.
@@ -54,9 +53,6 @@ func ListEvents(db *sql.DB, p ListEventsParams) ([]*models.Event, error) {
 	if p.SinceID > 0 {
 		where = append(where, "id > ?")
 		args = append(args, p.SinceID)
-	}
-	if !p.IncludeArchived {
-		where = append(where, "archived_at IS NULL")
 	}
 
 	query := `

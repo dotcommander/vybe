@@ -68,7 +68,7 @@ func tableExists(t *testing.T, db *sql.DB, tableName string) bool {
 }
 
 func TestSchemaInvariants_FullMigration(t *testing.T) {
-	db := migrateToVersion(t, 32)
+	db := migrateToVersion(t, 33)
 
 	t.Run("tables_exist", func(t *testing.T) {
 		tables := []string{
@@ -89,9 +89,8 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 		indexes := []string{
 			"idx_events_agent_name",
 			"idx_events_task_id",
-			"idx_events_archived_at",
+			"idx_events_kind_id",
 			"idx_events_project_cursor",
-			"idx_events_kind_archived",
 			"idx_tasks_status",
 			"idx_tasks_project_id",
 			"idx_tasks_priority",
@@ -111,6 +110,8 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 	t.Run("dropped_indexes_absent", func(t *testing.T) {
 		dropped := []string{
 			"idx_events_id",
+			"idx_events_archived_at",
+			"idx_events_kind_archived",
 			"idx_tasks_claimed_by",
 			"idx_tasks_claim_expires_at",
 			"idx_memory_scope_canonical_expires",
@@ -140,6 +141,8 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 
 	t.Run("dropped_columns_absent", func(t *testing.T) {
 		cases := []struct{ table, column string }{
+			// archived_at column removed in migration 00033
+			{"events", "archived_at"},
 			// ACT-R scoring columns removed in migration 00032
 			{"memory", "access_count"},
 			{"memory", "last_accessed_at"},

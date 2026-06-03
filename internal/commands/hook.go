@@ -10,9 +10,10 @@ import (
 // NewHookCmd creates the hook parent command.
 func NewHookCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "hook",
-		Short: "Hook handlers and installers for Claude/OpenCode",
-		Args:  cobra.NoArgs,
+		Use:     "event",
+		Aliases: []string{"hook"}, // back-compat: installed settings.json call `vybe hook <sub>`
+		Short:   "Event handlers and installers for Claude/OpenCode",
+		Args:    cobra.NoArgs,
 	}
 
 	cmd.PersistentFlags().String("host", "", "Host protocol: claude (default) | generic; or set VYBE_HOST")

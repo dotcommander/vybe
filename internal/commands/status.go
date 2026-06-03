@@ -33,7 +33,7 @@ func NewStatusCmd(root *cobra.Command) *cobra.Command {
 	return cmd
 }
 
-func runEventsMode(cmd *cobra.Command, all bool, taskID, kind string, since int64, limit int, asc, includeArchived bool) error {
+func runEventsMode(cmd *cobra.Command, all bool, taskID, kind string, since int64, limit int, asc bool) error {
 	agentName := resolveActorName(cmd, "")
 	if all {
 		agentName = ""
@@ -45,13 +45,12 @@ func runEventsMode(cmd *cobra.Command, all bool, taskID, kind string, since int6
 	var events []*models.Event
 	if err := withDB(func(db *DB) error {
 		ev, err := store.ListEvents(db, store.ListEventsParams{
-			AgentName:       agentName,
-			TaskID:          taskID,
-			Kind:            kind,
-			SinceID:         since,
-			Limit:           limit,
-			Desc:            !asc,
-			IncludeArchived: includeArchived,
+			AgentName: agentName,
+			TaskID:    taskID,
+			Kind:      kind,
+			SinceID:   since,
+			Limit:     limit,
+			Desc:      !asc,
 		})
 		if err != nil {
 			return err

@@ -64,13 +64,10 @@ func TestGetStatusCounts_SingleAtomicQuery(t *testing.T) {
 	assert.Equal(t, 1, counts.Projects, "projects count")
 
 	// Detail structs should always be populated
-	require.NotNil(t, counts.EventsDetail)
 	require.NotNil(t, counts.MemoryDetail)
 	require.NotNil(t, counts.AgentsDetail)
 	require.NotNil(t, counts.TasksDetail)
 
-	assert.GreaterOrEqual(t, counts.EventsDetail.Active, 1, "active events")
-	assert.Equal(t, 0, counts.EventsDetail.Archived, "archived events")
 	assert.Equal(t, 1, counts.MemoryDetail.Active, "active memory")
 	assert.Equal(t, 0, counts.MemoryDetail.Expired, "expired memory")
 	assert.Equal(t, 1, counts.AgentsDetail.Active7d, "agents active 7d")
