@@ -75,19 +75,3 @@ func TestBuildPrompt_EmptyMemoryExpandsEventBudget(t *testing.T) {
 	eventLines := strings.Count(prompt, "short event message")
 	assert.Equal(t, 10, eventLines, "with no memories, all short events should fit in budget")
 }
-
-func TestEstimateTokens(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected int
-	}{
-		{"", 0},
-		{"a", 1},
-		{"abcd", 1},
-		{"abcde", 2},
-		{strings.Repeat("x", 100), 25},
-	}
-	for _, tt := range tests {
-		assert.Equal(t, tt.expected, estimateTokens(tt.input), "input: %q", tt.input)
-	}
-}

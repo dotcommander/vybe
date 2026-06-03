@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dotcommander/vybe/internal/actions/promptbuilder"
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
 	"github.com/stretchr/testify/assert"
@@ -33,9 +34,8 @@ func TestAppendMemoryContext_DirectivesFirst(t *testing.T) {
 		mem("", "always respond in JSON", "directive"),
 	)
 
-	var b strings.Builder
-	budget := largeBudget
-	appendMemoryContext(&b, brief, &budget)
+	b := promptbuilder.New(largeBudget)
+	appendMemoryContext(b, brief)
 
 	out := b.String()
 	require.Contains(t, out, "=== Directives ===")
@@ -53,9 +53,8 @@ func TestAppendMemoryContext_OnlyFacts(t *testing.T) {
 		mem("key2", "val2", "fact"),
 	)
 
-	var b strings.Builder
-	budget := largeBudget
-	appendMemoryContext(&b, brief, &budget)
+	b := promptbuilder.New(largeBudget)
+	appendMemoryContext(b, brief)
 
 	out := b.String()
 	assert.NotContains(t, out, "=== Directives ===", "no Directives header when no directives present")
@@ -71,9 +70,8 @@ func TestAppendMemoryContext_OnlyDirectives(t *testing.T) {
 		mem("", "prefer JSON output", "directive"),
 	)
 
-	var b strings.Builder
-	budget := largeBudget
-	appendMemoryContext(&b, brief, &budget)
+	b := promptbuilder.New(largeBudget)
+	appendMemoryContext(b, brief)
 
 	out := b.String()
 	assert.Contains(t, out, "=== Directives ===")
@@ -89,9 +87,8 @@ func TestAppendMemoryContext_CaveatRenderedOnce(t *testing.T) {
 		mem("", "be terse", "directive"),
 	)
 
-	var b strings.Builder
-	budget := largeBudget
-	appendMemoryContext(&b, brief, &budget)
+	b := promptbuilder.New(largeBudget)
+	appendMemoryContext(b, brief)
 
 	out := b.String()
 	count := strings.Count(out, "recalled memory may be out of date")
@@ -110,9 +107,8 @@ func TestAppendMemoryContext_StalenessTagOnDirective(t *testing.T) {
 	}
 	brief := briefWithMemory(m)
 
-	var b strings.Builder
-	budget := largeBudget
-	appendMemoryContext(&b, brief, &budget)
+	b := promptbuilder.New(largeBudget)
+	appendMemoryContext(b, brief)
 
 	out := b.String()
 	assert.Contains(t, out, "[stale:", "hard-stale directive must carry [stale:] tag")
@@ -130,9 +126,8 @@ func TestAppendMemoryContext_PinnedDirectiveNoStaleness(t *testing.T) {
 	}
 	brief := briefWithMemory(m)
 
-	var b strings.Builder
-	budget := largeBudget
-	appendMemoryContext(&b, brief, &budget)
+	b := promptbuilder.New(largeBudget)
+	appendMemoryContext(b, brief)
 
 	out := b.String()
 	assert.NotContains(t, out, "[stale:", "pinned directive must not carry staleness tag")
@@ -147,9 +142,8 @@ func TestAppendMemoryContext_SortByScopeWithinKind(t *testing.T) {
 		memWithScope("global-dir", "gd", "directive", models.MemoryScopeGlobal),
 	)
 
-	var b strings.Builder
-	budget := largeBudget
-	appendMemoryContext(&b, brief, &budget)
+	b := promptbuilder.New(largeBudget)
+	appendMemoryContext(b, brief)
 
 	out := b.String()
 
