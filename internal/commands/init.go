@@ -59,6 +59,9 @@ func runInit() error {
 	// Step 4b: write agent_protocol.json if absent or stale (idempotent, best-effort).
 	steps = append(steps, runInitAgentProtocol())
 
+	// Step 4c: write loop_prompt.json if absent or stale (idempotent, best-effort).
+	steps = append(steps, runInitLoopPrompt())
+
 	// Step 5: install Claude hooks (best-effort; failure → partial, not fatal)
 	steps = append(steps, runInitHooks())
 
@@ -185,6 +188,19 @@ func runInitAgentProtocol() initStep {
 		return initStep{Name: "agent_protocol", Status: "error", Detail: err.Error()}
 	}
 	return initStep{Name: "agent_protocol", Status: "ok"}
+}
+
+// runInitLoopPrompt writes loop_prompt.json if absent or stale. Best-effort:
+// failure is reported as a step error but does not abort init.
+func runInitLoopPrompt() initStep {
+	dir, err := app.ConfigDir()
+	if err != nil {
+		return initStep{Name: "loop_prompt", Status: "error", Detail: err.Error()}
+	}
+	if _, err := LoadOrWriteLoopPrompt(dir); err != nil {
+		return initStep{Name: "loop_prompt", Status: "error", Detail: err.Error()}
+	}
+	return initStep{Name: "loop_prompt", Status: "ok"}
 }
 
 func runInitHooks() initStep {

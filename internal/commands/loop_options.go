@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dotcommander/vybe/internal/actions"
+	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/commands/hookcmd"
 	"github.com/dotcommander/vybe/internal/models"
 	"github.com/dotcommander/vybe/internal/store"
@@ -36,16 +37,15 @@ func buildAgentPrompt(r *actions.ResumeResponse, projectDir string) string {
 		}
 	}
 
-	// Autonomous behavior rules — tells the agent HOW to work, not WHAT commands to run
-	b.WriteString("\n== AUTONOMOUS MODE ==\n")
-	b.WriteString("There is no human to ask questions. You must work independently.\n\n")
-	b.WriteString("Execution contract:\n")
-	b.WriteString("1. Work only on \"Your current task\" and its task_id.\n")
-	b.WriteString("2. Optional: emit progress logs with LOG.\n")
-	b.WriteString("3. Before stopping, run exactly one terminal command:\n")
-	b.WriteString("   - DONE: vybe done <id> --note \"<summary>\"  (marks the task completed), OR\n")
-	b.WriteString("   - STUCK: vybe block <id> --reason \"<why>\"  (marks the task blocked).\n")
-	b.WriteString("4. Do not use 'vybe task complete' in autonomous mode.\n")
+	// Autonomous behavior rules — externalized to loop_prompt.json (config, not source).
+	// Pure read with defaults-on-error: buildAgentPrompt must never fail.
+	lp := buildLoopPrompt()
+	if dir, err := app.ConfigDir(); err == nil {
+		if loaded, lerr := LoadLoopPrompt(dir); lerr == nil {
+			lp = loaded
+		}
+	}
+	b.WriteString(lp.render())
 
 	return b.String()
 }
