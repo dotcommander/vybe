@@ -30,7 +30,14 @@ func EnsureConfigDir() error {
 
 	configFile := filepath.Join(dir, "config.yaml")
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
-		return os.WriteFile(configFile, []byte(defaultConfig), 0600)
+		if err := os.WriteFile(configFile, []byte(defaultConfig), 0600); err != nil {
+			return err
+		}
+	}
+
+	triggersFile := filepath.Join(dir, "triggers.yaml")
+	if _, err := os.Stat(triggersFile); os.IsNotExist(err) {
+		return os.WriteFile(triggersFile, []byte(defaultTriggers), 0600)
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"log/slog"
@@ -35,11 +36,17 @@ func openDB() (*DB, func(), error) {
 	}
 
 	if err := store.MigrateDB(db, dbPath); err != nil {
-		_ = store.CloseDB(db)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = store.CloseDB(ctx, db)
 		return nil, nil, err
 	}
 
-	return db, func() { _ = store.CloseDB(db) }, nil
+	return db, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = store.CloseDB(ctx, db)
+	}, nil
 }
 
 func withDB(fn func(db *DB) error) error {

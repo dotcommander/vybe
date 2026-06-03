@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"testing"
 )
@@ -123,5 +124,37 @@ func TestSchemaVersion_AfterMigrate(t *testing.T) {
 	}
 	if current != latest {
 		t.Errorf("Expected current=%d after migration, got %d", latest, current)
+	}
+}
+
+func TestCloseDB(t *testing.T) {
+	tempDir := t.TempDir()
+	testDBPath := tempDir + "/test_close.db"
+	db, err := InitDBWithPath(testDBPath)
+	if err != nil {
+		t.Fatalf("InitDBWithPath failed: %v", err)
+	}
+	if err := CloseDB(t.Context(), db); err != nil {
+		t.Fatalf("CloseDB failed: %v", err)
+	}
+	if pingErr := db.PingContext(t.Context()); pingErr == nil {
+		t.Fatal("expected error pinging closed DB, got nil")
+	}
+}
+
+func TestCloseDB_CancelledCtx(t *testing.T) {
+	tempDir := t.TempDir()
+	testDBPath := tempDir + "/test_close_cancelled.db"
+	db, err := InitDBWithPath(testDBPath)
+	if err != nil {
+		t.Fatalf("InitDBWithPath failed: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := CloseDB(ctx, db); err != nil {
+		t.Fatalf("CloseDB with cancelled ctx should still close cleanly, got: %v", err)
+	}
+	if pingErr := db.PingContext(context.Background()); pingErr == nil {
+		t.Fatal("expected error pinging closed DB, got nil")
 	}
 }

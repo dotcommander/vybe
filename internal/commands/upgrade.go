@@ -246,7 +246,11 @@ func migrateAfterUpgrade() (bool, string) {
 	if err != nil {
 		return false, err.Error()
 	}
-	defer func() { _ = store.CloseDB(db) }()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = store.CloseDB(ctx, db)
+	}()
 	if err := store.MigrateDB(db, dbPath); err != nil {
 		return false, err.Error()
 	}

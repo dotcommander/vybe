@@ -15,6 +15,10 @@ import (
 func Execute(version string) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
+	// Best-effort: ensure config + triggers.yaml exist even for `--help`,
+	// which cobra serves before PersistentPreRunE runs. Errors are non-fatal.
+	_ = app.EnsureConfigDir()
+
 	root := &cobra.Command{
 		Use:           "vybe",
 		Short:         "Agent continuity primitives (resume, push, task, memory, status)",

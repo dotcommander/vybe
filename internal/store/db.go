@@ -16,8 +16,9 @@ import (
 // CloseDB runs PRAGMA optimize then closes the connection.
 // Use this instead of db.Close() for proper SQLite lifecycle management.
 // PRAGMA optimize updates query planner statistics accumulated during the session.
-func CloseDB(db *sql.DB) error {
-	_, _ = db.ExecContext(context.Background(), "PRAGMA optimize")
+// Caller must supply a bounded ctx (e.g. context.WithTimeout) so a hung optimize cannot block shutdown.
+func CloseDB(ctx context.Context, db *sql.DB) error {
+	_, _ = db.ExecContext(ctx, "PRAGMA optimize")
 	return db.Close()
 }
 
@@ -108,8 +109,8 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	}
 
 	for _, pragma := range pragmas {
-		if err := RetryWithBackoff(context.Background(), func() error {
-			_, err := db.ExecContext(context.Background(), pragma)
+		if err := RetryWithBackoff(context.TODO(), func() error {
+			_, err := db.ExecContext(context.TODO(), pragma)
 			return err
 		}); err != nil {
 			_ = db.Close()

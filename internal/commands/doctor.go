@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -134,7 +135,11 @@ func checkDBReachable() checkResult {
 		return checkResult{Name: "db_reachable", OK: false, Detail: err.Error(),
 			Repair: "run 'vybe init' to create the database"}
 	}
-	defer func() { _ = store.CloseDB(db) }()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = store.CloseDB(ctx, db)
+	}()
 
 	var one int
 	if err := db.QueryRowContext(context.Background(), "SELECT 1").Scan(&one); err != nil {

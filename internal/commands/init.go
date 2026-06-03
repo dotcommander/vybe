@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/commands/hookcmd"
@@ -55,13 +56,18 @@ func runInit() error {
 	// Step 4: write hooks.json if absent or stale (idempotent, best-effort).
 	steps = append(steps, runInitHookManifest())
 
+	// Step 4b: write agent_protocol.json if absent or stale (idempotent, best-effort).
+	steps = append(steps, runInitAgentProtocol())
+
 	// Step 5: install Claude hooks (best-effort; failure → partial, not fatal)
 	steps = append(steps, runInitHooks())
 
 	// Step 6: connectivity check (only if db opened successfully)
 	steps = append(steps, runInitConnectivity(db))
 	if db != nil {
-		_ = store.CloseDB(db)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = store.CloseDB(ctx, db)
 	}
 
 	okCount := 0
@@ -166,6 +172,19 @@ func runInitHookManifest() initStep {
 		return initStep{Name: "hook_manifest", Status: "error", Detail: err.Error()}
 	}
 	return initStep{Name: "hook_manifest", Status: "ok"}
+}
+
+// runInitAgentProtocol writes agent_protocol.json if absent or stale. Best-effort:
+// failure is reported as a step error but does not abort init.
+func runInitAgentProtocol() initStep {
+	dir, err := app.ConfigDir()
+	if err != nil {
+		return initStep{Name: "agent_protocol", Status: "error", Detail: err.Error()}
+	}
+	if _, err := LoadOrWriteAgentProtocol(dir); err != nil {
+		return initStep{Name: "agent_protocol", Status: "error", Detail: err.Error()}
+	}
+	return initStep{Name: "agent_protocol", Status: "ok"}
 }
 
 func runInitHooks() initStep {
