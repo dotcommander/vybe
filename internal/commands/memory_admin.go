@@ -17,10 +17,18 @@ func newMemoryGCCmd() *cobra.Command {
 				return err
 			}
 			limit, _ := cmd.Flags().GetInt("limit")
+			orphaned, _ := cmd.Flags().GetBool("orphaned")
+			includeFailed, _ := cmd.Flags().GetBool("include-failed")
 
 			var result *actions.MemoryGCResult
 			if err := withDB(func(db *DB) error {
-				r, err := actions.MemoryGCIdempotent(db, agentName, requestID, limit)
+				var r *actions.MemoryGCResult
+				var err error
+				if orphaned {
+					r, err = actions.MemoryGCOrphanedIdempotent(db, agentName, requestID, limit, includeFailed)
+				} else {
+					r, err = actions.MemoryGCIdempotent(db, agentName, requestID, limit)
+				}
 				if err != nil {
 					return err
 				}
@@ -30,16 +38,23 @@ func newMemoryGCCmd() *cobra.Command {
 				return err
 			}
 
-			type resp struct {
-				EventID int64 `json:"event_id"`
-				Deleted int   `json:"deleted"`
-				Limit   int   `json:"limit"`
+			mode := "ttl"
+			if orphaned {
+				mode = "orphan"
 			}
-			return output.PrintSuccess(resp{EventID: result.EventID, Deleted: result.Deleted, Limit: limit})
+			type resp struct {
+				EventID int64  `json:"event_id"`
+				Deleted int    `json:"deleted"`
+				Limit   int    `json:"limit"`
+				Mode    string `json:"mode"`
+			}
+			return output.PrintSuccess(resp{EventID: result.EventID, Deleted: result.Deleted, Limit: limit, Mode: mode})
 		},
 	}
 
 	cmd.Flags().Int("limit", 500, "Maximum rows to delete in one run")
+	cmd.Flags().Bool("orphaned", false, "Reap memory whose source task no longer exists (provenance GC) instead of TTL GC")
+	cmd.Flags().Bool("include-failed", false, "With --orphaned, also reap memory derived from failure-blocked tasks")
 	cmd.Annotations = map[string]string{"mutates": "true"}
 	return cmd
 }

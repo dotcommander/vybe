@@ -53,6 +53,69 @@ func GCMemoryWithEventIdempotent(db *sql.DB, agentName, requestID string, limit 
 	return r.EventID, r.Deleted, nil
 }
 
+// GCOrphanedMemoryWithEventIdempotent removes memory rows whose source_task_id references
+// a task that no longer exists. When includeFailed is true, it also reaps memory whose
+// source task exists but is failure-blocked (status='blocked' AND blocked_reason LIKE 'failure:%').
+// Pinned rows are never deleted. Rows with empty source_task_id are never touched (no provenance).
+// Idempotent per (agentName, requestID). Emits a memory_gc event with mode=orphan metadata.
+func GCOrphanedMemoryWithEventIdempotent(db *sql.DB, agentName, requestID string, limit int, includeFailed bool) (int64, int, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	const queryOrphan = `
+		DELETE FROM memory WHERE id IN (
+			SELECT m.id FROM memory m
+			WHERE m.pinned = 0
+			  AND m.source_task_id IS NOT NULL AND m.source_task_id != ''
+			  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = m.source_task_id)
+			LIMIT ?
+		)
+	`
+	const queryOrphanOrFailed = `
+		DELETE FROM memory WHERE id IN (
+			SELECT m.id FROM memory m
+			WHERE m.pinned = 0
+			  AND m.source_task_id IS NOT NULL AND m.source_task_id != ''
+			  AND ( NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = m.source_task_id)
+			     OR EXISTS (SELECT 1 FROM tasks t WHERE t.id = m.source_task_id
+			                AND t.status = 'blocked' AND t.blocked_reason LIKE 'failure:%') )
+			LIMIT ?
+		)
+	`
+
+	type idemResult struct {
+		EventID int64 `json:"event_id"`
+		Deleted int   `json:"deleted"`
+	}
+
+	r, err := RunIdempotent(context.Background(), db, agentName, requestID, "memory.gc.orphan", func(tx *sql.Tx) (idemResult, error) {
+		query := queryOrphan
+		if includeFailed {
+			query = queryOrphanOrFailed
+		}
+		result, err := tx.Exec(query, limit)
+		if err != nil {
+			return idemResult{}, fmt.Errorf("failed to gc orphaned memory: %w", err)
+		}
+		deleted, err := result.RowsAffected()
+		if err != nil {
+			return idemResult{}, fmt.Errorf("failed to check rows affected: %w", err)
+		}
+
+		meta, _ := json.Marshal(map[string]any{"deleted": deleted, "limit": limit, "mode": "orphan", "include_failed": includeFailed})
+		eventID, err := InsertEventTx(tx, models.EventKindMemoryGC, agentName, "", fmt.Sprintf("Memory orphan GC deleted %d rows", deleted), string(meta))
+		if err != nil {
+			return idemResult{}, fmt.Errorf("failed to append memory_gc event: %w", err)
+		}
+		return idemResult{EventID: eventID, Deleted: int(deleted)}, nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return r.EventID, r.Deleted, nil
+}
+
 // DeleteMemoryTx deletes a memory entry and appends an event within an existing transaction.
 // Returns (eventID, found, error). found is false when no row matched the key/scope/scopeID.
 func DeleteMemoryTx(ctx context.Context, tx *sql.Tx, agentName, key, scope, scopeID string) (int64, bool, error) {

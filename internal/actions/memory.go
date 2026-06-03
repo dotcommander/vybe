@@ -112,6 +112,27 @@ func MemoryGCIdempotent(db *sql.DB, agentName, requestID string, limit int) (*Me
 	return &MemoryGCResult{EventID: eventID, Deleted: deleted}, nil
 }
 
+// MemoryGCOrphanedIdempotent reaps memory whose source task no longer exists
+// (and, when includeFailed, failure-blocked source tasks). Reuses MemoryGCResult.
+func MemoryGCOrphanedIdempotent(db *sql.DB, agentName, requestID string, limit int, includeFailed bool) (*MemoryGCResult, error) {
+	if agentName == "" {
+		return nil, errors.New("agent name is required")
+	}
+	if requestID == "" {
+		return nil, errors.New("request id is required")
+	}
+	if limit <= 0 {
+		return nil, errors.New("limit must be > 0")
+	}
+
+	eventID, deleted, err := store.GCOrphanedMemoryWithEventIdempotent(db, agentName, requestID, limit, includeFailed)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MemoryGCResult{EventID: eventID, Deleted: deleted}, nil
+}
+
 // MemoryGet retrieves a memory entry by key, scope, and scope_id.
 // When scope is task|project and scopeID is empty, it infers scope_id from agentName's focus state.
 func MemoryGet(db *sql.DB, agentName, key, scope, scopeID string) (*models.Memory, error) {
