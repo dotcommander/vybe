@@ -92,15 +92,16 @@ func TestTruncateString(t *testing.T) {
 }
 
 func TestBuildToolFailureMetadata(t *testing.T) {
-	input := hookInput{
+	ev := CanonicalEvent{
 		SessionID:     "test-session",
-		HookEventName: "PostToolUseFailure",
+		HostEventName: "PostToolUseFailure",
 		ToolName:      "Bash",
 		ToolInput:     json.RawMessage(`{"command":"go build"}`),
 		ToolResponse:  json.RawMessage(`{"error":"exit 1"}`),
+		EventSource:   "claude",
 	}
 
-	meta := buildToolMetadata(input)
+	meta := buildToolMetadata(ev)
 
 	// Should be valid JSON
 	var parsed map[string]any
@@ -123,15 +124,16 @@ func TestBuildToolFailureMetadata_LargePayload(t *testing.T) {
 		largePayload[i] = 'x'
 	}
 
-	input := hookInput{
+	ev := CanonicalEvent{
 		SessionID:     "test-session",
-		HookEventName: "PostToolUseFailure",
+		HostEventName: "PostToolUseFailure",
 		ToolName:      "Bash",
 		ToolInput:     json.RawMessage(`"` + string(largePayload) + `"`),
 		ToolResponse:  json.RawMessage(`"` + string(largePayload) + `"`),
+		EventSource:   "claude",
 	}
 
-	meta := buildToolMetadata(input)
+	meta := buildToolMetadata(ev)
 	require.LessOrEqual(t, len(meta), store.MaxEventMetadataLength)
 
 	var parsed map[string]any
@@ -184,15 +186,16 @@ func TestSanitizeRequestToken(t *testing.T) {
 }
 
 func TestBuildToolSuccessMetadata(t *testing.T) {
-	input := hookInput{
+	ev := CanonicalEvent{
 		SessionID:     "test-session",
-		HookEventName: "PostToolUse",
+		HostEventName: "PostToolUse",
 		ToolName:      "Write",
 		ToolInput:     json.RawMessage(`{"file_path":"/tmp/test.go","content":"package main"}`),
 		ToolResponse:  json.RawMessage(`{}`),
+		EventSource:   "claude",
 	}
 
-	meta := buildToolMetadata(input)
+	meta := buildToolMetadata(ev)
 
 	var parsed map[string]any
 	require.NoError(t, json.Unmarshal([]byte(meta), &parsed))
@@ -236,6 +239,7 @@ func TestCheckpointAndSessionEndSharePath(t *testing.T) {
 		AgentName: "test-agent-share",
 		CWD:       t.TempDir(),
 	}
+	ev := CanonicalEvent{SessionID: "sess-share-path", HostEventName: "PreCompact"}
 
 	// Checkpoint path: random request ID.
 	checkpointReqID := hookRequestID("checkpoint", hctx.AgentName)
@@ -243,7 +247,7 @@ func TestCheckpointAndSessionEndSharePath(t *testing.T) {
 		db, closeDB, err := openDB()
 		require.NoError(t, err, "openDB must succeed for checkpoint path")
 		defer closeDB()
-		runCheckpoint(db, hctx, checkpointReqID) // must not panic
+		runCheckpoint(db, ev, hctx, checkpointReqID) // must not panic
 	}
 
 	// Session-end path: stable (session-scoped) request ID.
@@ -252,7 +256,7 @@ func TestCheckpointAndSessionEndSharePath(t *testing.T) {
 		db, closeDB, err := openDB()
 		require.NoError(t, err, "openDB must succeed for session-end path")
 		defer closeDB()
-		runCheckpoint(db, hctx, sessionEndReqID) // must not panic
+		runCheckpoint(db, ev, hctx, sessionEndReqID) // must not panic
 	}
 
 	// The two strategies must produce different IDs for the same invocation context.
