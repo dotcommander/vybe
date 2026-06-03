@@ -92,3 +92,9 @@ func TestMemoryFlagSetup(t *testing.T) {
 	requireFlagExists(t, deleteCmd, "scope-id")
 	require.Equal(t, "true", deleteCmd.Flag("key").Annotations[cobra.BashCompOneRequiredFlag][0])
 }
+
+func TestMemoryListCmd_HasSourceFilterFlags(t *testing.T) {
+	list := newMemoryListCmd()
+	requireFlagExists(t, list, "by-source-task")
+	requireFlagExists(t, list, "by-source-event")
+}

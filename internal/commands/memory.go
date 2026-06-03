@@ -151,22 +151,41 @@ func newMemoryGetCmd() *cobra.Command {
 func newMemoryListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List all memory entries for a scope",
+		Short: "List all memory entries for a scope, or by provenance source",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentName := resolveActorName(cmd, "")
 			scope, _ := cmd.Flags().GetString("scope")
 			scopeID, _ := cmd.Flags().GetString("scope-id")
+			bySourceTask, _ := cmd.Flags().GetString("by-source-task")
+			bySourceEvent, _ := cmd.Flags().GetInt64("by-source-event")
+
+			var sourceEventID *int64
+			if cmd.Flags().Changed("by-source-event") {
+				sourceEventID = &bySourceEvent
+			}
+			useSource := sourceEventID != nil || bySourceTask != ""
 
 			var memories []*models.Memory
 			if err := withDB(func(db *DB) error {
-				m, err := actions.MemoryList(db, agentName, scope, scopeID)
-				if err != nil {
-					return err
+				var err error
+				if useSource {
+					memories, err = actions.MemoryListBySource(db, sourceEventID, bySourceTask)
+				} else {
+					memories, err = actions.MemoryList(db, agentName, scope, scopeID)
 				}
-				memories = m
-				return nil
+				return err
 			}); err != nil {
 				return err
+			}
+
+			if useSource {
+				type sourceResp struct {
+					BySourceEvent *int64           `json:"by_source_event,omitempty"`
+					BySourceTask  string           `json:"by_source_task,omitempty"`
+					Count         int              `json:"count"`
+					Memories      []*models.Memory `json:"memories"`
+				}
+				return output.PrintSuccess(sourceResp{BySourceEvent: sourceEventID, BySourceTask: bySourceTask, Count: len(memories), Memories: memories})
 			}
 
 			type resp struct {
@@ -181,6 +200,8 @@ func newMemoryListCmd() *cobra.Command {
 
 	cmd.Flags().StringP("scope", "s", "global", "Scope (global, project, task, agent)")
 	cmd.Flags().String("scope-id", "", "Scope ID (required for non-global scopes)")
+	cmd.Flags().String("by-source-task", "", "Filter by provenance source_task_id (overrides scope listing)")
+	cmd.Flags().Int64("by-source-event", 0, "Filter by provenance source_event_id (overrides scope listing)")
 
 	return cmd
 }

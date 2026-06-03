@@ -164,6 +164,13 @@ func MemoryList(db *sql.DB, agentName, scope, scopeID string) ([]*models.Memory,
 	return store.ListMemory(db, scope, scopeID)
 }
 
+// MemoryListBySource retrieves memory entries by provenance. At least one of
+// sourceEventID (non-nil) or sourceTaskID (non-empty) must be provided. This is a
+// read path with no scope inference and no idempotency layer (mirrors MemoryList).
+func MemoryListBySource(db *sql.DB, sourceEventID *int64, sourceTaskID string) ([]*models.Memory, error) {
+	return store.ListMemoryBySource(db, sourceEventID, sourceTaskID)
+}
+
 // MemoryPinIdempotent sets or clears the pinned flag on an existing memory entry.
 func MemoryPinIdempotent(ctx context.Context, db *sql.DB, agentName, requestID, key, scope, scopeID string, pin bool) (int64, error) {
 	if agentName == "" {
