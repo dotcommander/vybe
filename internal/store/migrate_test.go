@@ -68,12 +68,12 @@ func tableExists(t *testing.T, db *sql.DB, tableName string) bool {
 }
 
 func TestSchemaInvariants_FullMigration(t *testing.T) {
-	db := migrateToVersion(t, 25)
+	db := migrateToVersion(t, 29)
 
 	t.Run("tables_exist", func(t *testing.T) {
 		tables := []string{
 			"events", "tasks", "agent_state", "memory", "artifacts",
-			"projects", "idempotency", "task_dependencies", "goose_db_version",
+			"projects", "idempotency", "goose_db_version",
 		}
 		for _, tbl := range tables {
 			assert.True(t, tableExists(t, db, tbl), "table %q should exist", tbl)
@@ -82,6 +82,7 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 
 	t.Run("dropped_tables_absent", func(t *testing.T) {
 		assert.False(t, tableExists(t, db, "retrospective_jobs"), "table retrospective_jobs should not exist")
+		assert.False(t, tableExists(t, db, "task_dependencies"), "table task_dependencies should not exist (dropped in 00029)")
 	})
 
 	t.Run("indexes_exist", func(t *testing.T) {
@@ -100,8 +101,6 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 			"idx_memory_kind",
 			"idx_idempotency_agent",
 			"idx_artifacts_project_id",
-			"idx_task_deps_depends_on",
-			"idx_task_deps_task_id",
 		}
 		for _, idx := range indexes {
 			assert.True(t, indexExists(t, db, idx), "index %q should exist", idx)
@@ -115,6 +114,8 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 			"idx_memory_scope_canonical_expires",
 			"idx_memory_canonical_unique",
 			"idx_memory_active_canonical",
+			"idx_task_deps_depends_on",
+			"idx_task_deps_task_id",
 		}
 		for _, idx := range dropped {
 			assert.False(t, indexExists(t, db, idx), "index %q should not exist", idx)
@@ -127,6 +128,9 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 			{"memory", "last_accessed_at"},
 			{"memory", "updated_at"},
 			{"memory", "kind"},
+			{"memory", "half_life_days"},
+			{"memory", "source_event_id"},
+			{"memory", "source_task_id"},
 			{"tasks", "blocked_reason"},
 			{"tasks", "priority"},
 		}
@@ -139,7 +143,6 @@ func TestSchemaInvariants_FullMigration(t *testing.T) {
 		cases := []struct{ table, column string }{
 			{"memory", "canonical_key"},
 			{"memory", "confidence"},
-			{"memory", "source_event_id"},
 			{"memory", "superseded_by"},
 			{"memory", "last_seen_at"},
 			{"tasks", "claimed_by"},
@@ -220,4 +223,3 @@ func TestMigrateDB_RepairProvenanceColumns(t *testing.T) {
 	assert.True(t, columnExists(t, db, "memory", "source_task_id"))
 	assert.True(t, columnExists(t, db, "memory", "source_event_id"))
 }
-
