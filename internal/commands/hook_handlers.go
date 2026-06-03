@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -222,9 +221,6 @@ func newHookMaintenanceCmd(use, short string, buildReqID func(agentName, session
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = os.Setenv(disableExternalLLMEnv, "1")
-			slog.Default().Debug("LLM subprocess execution disabled for hook", "env", disableExternalLLMEnv)
-
 			ev, hctx := resolveCanonical(cmd, EventKindCheckpoint)
 			requestIDPrefix := buildReqID(hctx.AgentName, ev.SessionID)
 

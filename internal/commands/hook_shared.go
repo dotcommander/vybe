@@ -32,9 +32,6 @@ const (
 	genericHostAgentName = "generic"
 	genericEventSource   = "generic"
 
-	// disableExternalLLMEnv blocks claude/opencode subprocess execution in guarded flows.
-	disableExternalLLMEnv = "VYBE_DISABLE_EXTERNAL_LLM"
-
 	// maxAutoMemoryChars caps the Claude Code auto-memory injected into hook context.
 	maxAutoMemoryChars = 2000
 )

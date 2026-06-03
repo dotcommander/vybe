@@ -363,7 +363,6 @@ The focus task from `vybe resume` is your primary work item. When starting work:
 | `VYBE_AGENT` | (none) | Default agent identity for commands (persistent fallback below it: `config.yaml: default_agent`) |
 | `VYBE_REQUEST_ID` | (none) | Default idempotency key for mutations |
 | `VYBE_BUSY_TIMEOUT_MS` | `5000` | SQLite busy_timeout override (ms) |
-| `VYBE_DISABLE_EXTERNAL_LLM` | unset | Blocks LLM CLI subprocess execution in hooks |
 | `VYBE_PRETTY_JSON` | unset | Human-readable JSON output formatting |
 
 ## Contributor Notes
