@@ -26,8 +26,14 @@ type CanonicalEvent struct {
 	ToolInput    json.RawMessage
 	ToolResponse json.RawMessage
 	Source       string // host-provided sub-source, e.g. "compact"
-	TaskID       string
-	Raw          map[string]any // passthrough for diagnostics / unknown fields
+	// HostEventName is the host's NATIVE event label (Claude: "UserPromptSubmit").
+	// Distinct from Kind (vybe taxonomy). Written verbatim into metadata "hook_event".
+	HostEventName string
+	// EventSource is the per-host metadata "source" value ("claude" / "generic").
+	// Distinct from Source (host sub-source). Set by the host input parser.
+	EventSource string
+	TaskID      string
+	Raw         map[string]any // passthrough for diagnostics / unknown fields
 }
 
 // ContextResult is the host-agnostic result handlers produce. The host output

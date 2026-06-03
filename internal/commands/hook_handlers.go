@@ -141,12 +141,11 @@ Register via 'vybe hook install'.`,
 
 			// Hooks must never block Claude Code — errors are swallowed.
 			runHookDB("prompt", func(db *DB) error {
-				// metadata stays host-shaped until Phase 1 metadata renderer
 				metadata, _ := json.Marshal(map[string]string{
-					"source":        defaultEventSource,
-					"session_id":    hctx.Input.SessionID,
-					"hook_event":    hctx.Input.HookEventName,
-					"resume_source": hctx.Input.Source,
+					"source":        ev.EventSource,
+					"session_id":    ev.SessionID,
+					"hook_event":    ev.HostEventName,
+					"resume_source": ev.Source,
 				})
 				_, _ = appendEventWithFocusTask(
 					db, hctx.AgentName, requestID, models.EventKindUserPrompt, hctx.CWD, "", msg, string(metadata),
@@ -194,12 +193,11 @@ func newHookToolFailureCmd() *cobra.Command {
 
 			requestID := hookRequestID("tool_failure", hctx.AgentName)
 			msg := fmt.Sprintf("%s failed", ev.ToolName)
-			if hctx.Input.HookEventName != "" {
-				msg = fmt.Sprintf("%s (%s)", msg, hctx.Input.HookEventName)
+			if ev.HostEventName != "" {
+				msg = fmt.Sprintf("%s (%s)", msg, ev.HostEventName)
 			}
 
-			// metadata stays host-shaped until Phase 1 metadata renderer
-			metadata := buildToolMetadata(hctx.Input)
+			metadata := buildToolMetadata(ev)
 
 			// Hooks must never block Claude Code — log diagnostic and exit clean.
 			runHookDB("tool-failure", func(db *DB) error {
@@ -229,11 +227,11 @@ func newHookMaintenanceCmd(use, short string, buildReqID func(agentName, session
 			_ = os.Setenv(disableExternalLLMEnv, "1")
 			slog.Default().Debug("LLM subprocess execution disabled for hook", "env", disableExternalLLMEnv)
 
-			hctx := resolveHookContext(cmd)
-			requestIDPrefix := buildReqID(hctx.AgentName, hctx.Input.SessionID)
+			ev, hctx := resolveCanonical(cmd, EventKindCheckpoint)
+			requestIDPrefix := buildReqID(hctx.AgentName, ev.SessionID)
 
 			runHookDB("maintenance", func(db *DB) error {
-				runCheckpoint(db, hctx, requestIDPrefix)
+				runCheckpoint(db, ev, hctx, requestIDPrefix)
 				return nil
 			}, func(err error) {
 				slog.Default().Error("maintenance hook failed", "error", err, "use", use)

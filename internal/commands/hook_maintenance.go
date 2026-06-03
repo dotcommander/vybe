@@ -13,12 +13,12 @@ import (
 
 // runCheckpoint performs best-effort memory GC and event summarization.
 // Used by both the checkpoint and session-end hook handlers.
-func runCheckpoint(db *DB, hctx hookContext, requestIDPrefix string) {
+func runCheckpoint(db *DB, ev CanonicalEvent, hctx hookContext, requestIDPrefix string) {
 	maint := app.EffectiveEventMaintenanceSettings()
 
 	_, gcErr := actions.MemoryGCIdempotent(db, hctx.AgentName, requestIDPrefix+"_gc", 500)
 	if gcErr != nil {
-		slog.Default().Warn("checkpoint gc failed", "error", gcErr, "hook_event", hctx.Input.HookEventName)
+		slog.Default().Warn("checkpoint gc failed", "error", gcErr, "hook_event", ev.HostEventName)
 	}
 
 	// Auto-compress old events when active count exceeds threshold
@@ -29,7 +29,7 @@ func runCheckpoint(db *DB, hctx hookContext, requestIDPrefix string) {
 		maint.SummarizeThreshold, maint.SummarizeKeepRecent,
 	)
 	if summarizeErr != nil {
-		slog.Default().Warn("checkpoint auto-summarize failed", "error", summarizeErr, "hook_event", hctx.Input.HookEventName)
+		slog.Default().Warn("checkpoint auto-summarize failed", "error", summarizeErr, "hook_event", ev.HostEventName)
 	}
 
 	deleted, pruneErr := actions.AutoPruneArchivedEventsIdempotent(
@@ -37,29 +37,29 @@ func runCheckpoint(db *DB, hctx hookContext, requestIDPrefix string) {
 		maint.RetentionDays, maint.PruneBatch,
 	)
 	if pruneErr != nil {
-		slog.Default().Warn("checkpoint archived-event prune failed", "error", pruneErr, "hook_event", hctx.Input.HookEventName)
+		slog.Default().Warn("checkpoint archived-event prune failed", "error", pruneErr, "hook_event", ev.HostEventName)
 		return
 	}
 	if deleted > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if err := store.CheckpointWAL(ctx, db, "TRUNCATE"); err != nil {
-			slog.Default().Warn("checkpoint wal truncate failed", "error", err, "hook_event", hctx.Input.HookEventName)
+			slog.Default().Warn("checkpoint wal truncate failed", "error", err, "hook_event", ev.HostEventName)
 		}
 	}
 }
 
-func buildToolMetadata(input hookInput) string {
-	inputPreview, inputTruncated := truncateString(string(input.ToolInput), 2048)
-	outputPreview, outputTruncated := truncateString(string(input.ToolResponse), 4096)
+func buildToolMetadata(ev CanonicalEvent) string {
+	inputPreview, inputTruncated := truncateString(string(ev.ToolInput), 2048)
+	outputPreview, outputTruncated := truncateString(string(ev.ToolResponse), 4096)
 
 	metaObj := map[string]any{
-		"source":                  defaultEventSource,
-		"session_id":              input.SessionID,
-		"hook_event":              input.HookEventName,
-		"tool_name":               input.ToolName,
-		"tool_input_bytes":        len(input.ToolInput),
-		"tool_output_bytes":       len(input.ToolResponse),
+		"source":                  ev.EventSource,
+		"session_id":              ev.SessionID,
+		"hook_event":              ev.HostEventName,
+		"tool_name":               ev.ToolName,
+		"tool_input_bytes":        len(ev.ToolInput),
+		"tool_output_bytes":       len(ev.ToolResponse),
 		"tool_input_preview":      inputPreview,
 		"tool_output_preview":     outputPreview,
 		"tool_input_truncated":    inputTruncated,
@@ -87,12 +87,12 @@ func buildToolMetadata(input hookInput) string {
 	}
 
 	fallback := map[string]any{
-		"source":                  defaultEventSource,
-		"session_id":              input.SessionID,
-		"hook_event":              input.HookEventName,
-		"tool_name":               input.ToolName,
-		"tool_input_bytes":        len(input.ToolInput),
-		"tool_output_bytes":       len(input.ToolResponse),
+		"source":                  ev.EventSource,
+		"session_id":              ev.SessionID,
+		"hook_event":              ev.HostEventName,
+		"tool_name":               ev.ToolName,
+		"tool_input_bytes":        len(ev.ToolInput),
+		"tool_output_bytes":       len(ev.ToolResponse),
 		"metadata_schema_version": "v1",
 	}
 	minimal, _ := json.Marshal(fallback)

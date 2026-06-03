@@ -29,6 +29,10 @@ const (
 	defaultHostAgentName = "claude"
 	defaultEventSource   = "claude"
 
+	// generic-host defaults (Phase 1).
+	genericHostAgentName = "generic"
+	genericEventSource   = "generic"
+
 	// disableExternalLLMEnv blocks claude/opencode subprocess execution in guarded flows.
 	disableExternalLLMEnv = "VYBE_DISABLE_EXTERNAL_LLM"
 

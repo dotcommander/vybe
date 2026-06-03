@@ -11,16 +11,18 @@ import (
 // PascalCase event-name strings remain confined to manifest.go.
 func (in hookInput) toCanonical(kind EventKind) CanonicalEvent {
 	return CanonicalEvent{
-		Kind:         kind,
-		CWD:          in.CWD,
-		SessionID:    in.SessionID,
-		Prompt:       in.Prompt,
-		ToolName:     in.ToolName,
-		ToolInput:    in.ToolInput,
-		ToolResponse: in.ToolResponse,
-		Source:       in.Source,
-		TaskID:       in.TaskID,
-		Raw:          in.Raw,
+		Kind:          kind,
+		CWD:           in.CWD,
+		SessionID:     in.SessionID,
+		Prompt:        in.Prompt,
+		ToolName:      in.ToolName,
+		ToolInput:     in.ToolInput,
+		ToolResponse:  in.ToolResponse,
+		Source:        in.Source,
+		HostEventName: in.HookEventName,
+		EventSource:   defaultEventSource,
+		TaskID:        in.TaskID,
+		Raw:           in.Raw,
 	}
 }
 

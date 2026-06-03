@@ -24,15 +24,13 @@ func newHookTaskCompletedCmd() *cobra.Command {
 				ev.TaskID = rawTaskID
 			}
 
-			rawPayload, _ := json.Marshal(hctx.Input.Raw)
+			rawPayload, _ := json.Marshal(ev.Raw)
 			payloadPreview, payloadTruncated := truncateString(string(rawPayload), 6000)
 
-			// metadata stays host-shaped until Phase 1 metadata renderer;
-			// task_id uses the canonical-resolved value to stay byte-identical.
 			metadataObj := map[string]any{
-				"source":                    defaultEventSource,
-				"session_id":                hctx.Input.SessionID,
-				"hook_event":                hctx.Input.HookEventName,
+				"source":                    ev.EventSource,
+				"session_id":                ev.SessionID,
+				"hook_event":                ev.HostEventName,
 				"task_id":                   ev.TaskID,
 				"payload_preview":           payloadPreview,
 				"payload_preview_truncated": payloadTruncated,

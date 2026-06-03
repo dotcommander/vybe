@@ -3,7 +3,6 @@ package models
 // System event kinds emitted by vybe's store and action layers.
 const (
 	EventKindTaskCreated       = "task_created"
-	EventKindTaskDeleted       = "task_deleted"
 	EventKindTaskStatus        = "task_status"
 	EventKindProjectCreated    = "project_created"
 	EventKindProjectDeleted    = "project_deleted"
