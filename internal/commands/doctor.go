@@ -48,6 +48,9 @@ func runDoctor() error {
 	// 2. Claude settings.json present and contains vybe hooks for each expected event.
 	checks = append(checks, checkHooksInstalled())
 
+	// Report any additional detected non-Claude hosts (presence of bridge install).
+	checks = append(checks, checkDetectedHostHooks()...)
+
 	// 3. DB reachable: open + SELECT 1.
 	checks = append(checks, checkDBReachable())
 
@@ -120,6 +123,24 @@ func checkHooksInstalled() checkResult {
 	}
 
 	return checkResult{Name: "hooks_installed", OK: true}
+}
+
+// checkDetectedHostHooks emits one check per detected non-Claude host, reporting
+// that the host is present. Claude is covered by checkHooksInstalled (deep per-event
+// audit) and is skipped here to avoid double-reporting.
+func checkDetectedHostHooks() []checkResult {
+	var out []checkResult
+	for _, h := range hookcmd.DetectedHostInstallers() {
+		if h.Name() == "claude" {
+			continue
+		}
+		out = append(out, checkResult{
+			Name:   "host_detected_" + h.Name(),
+			OK:     true,
+			Detail: h.Name() + " host detected",
+		})
+	}
+	return out
 }
 
 // checkDBReachable opens the DB and runs SELECT 1.

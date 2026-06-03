@@ -59,8 +59,8 @@ func runInit() error {
 	// Step 4b: write agent_protocol.json if absent or stale (idempotent, best-effort).
 	steps = append(steps, runInitAgentProtocol())
 
-	// Step 5: install Claude hooks (best-effort; failure → partial, not fatal)
-	steps = append(steps, runInitHooks())
+	// Step 5: install hooks into every detected host (best-effort; failure → partial, not fatal)
+	steps = append(steps, runInitHostHooks()...)
 
 	// Step 6: connectivity check (only if db opened successfully)
 	steps = append(steps, runInitConnectivity(db))
@@ -187,15 +187,32 @@ func runInitAgentProtocol() initStep {
 	return initStep{Name: "agent_protocol", Status: "ok"}
 }
 
-func runInitHooks() initStep {
-	res, err := hookcmd.InstallClaudeHooks(false)
-	if err != nil {
-		return initStep{Name: "hooks_install", Status: "error", Detail: err.Error()}
+// runInitHostHooks installs hooks into every detected host, emitting one step per
+// host. Claude is always in the registry; non-Claude hosts install only when
+// Detect() reports them present. Non-interactive: install-all-detected, no prompt.
+// If no host is detected (fresh machine), falls back to installing Claude so first
+// run still wires the default host.
+func runInitHostHooks() []initStep {
+	installers := hookcmd.DetectedHostInstallers()
+	if len(installers) == 0 {
+		for _, h := range hookcmd.HostInstallers() {
+			if h.Name() == "claude" {
+				installers = []hookcmd.HostInstaller{h}
+				break
+			}
+		}
 	}
-	if len(res.Installed) == 0 && len(res.Updated) == 0 {
-		return initStep{Name: "hooks_install", Status: "skipped", Detail: "already installed"}
+
+	var steps []initStep
+	for _, h := range installers {
+		name := "hooks_install_" + h.Name()
+		if _, err := h.Install(hookcmd.InstallOptions{}); err != nil {
+			steps = append(steps, initStep{Name: name, Status: "error", Detail: err.Error()})
+			continue
+		}
+		steps = append(steps, initStep{Name: name, Status: "ok", Detail: h.Name()})
 	}
-	return initStep{Name: "hooks_install", Status: "ok"}
+	return steps
 }
 
 func runInitConnectivity(db *DB) initStep {
