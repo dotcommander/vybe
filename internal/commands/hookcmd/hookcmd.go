@@ -10,9 +10,11 @@
 package hookcmd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/dotcommander/vybe/internal/app"
 	"github.com/dotcommander/vybe/internal/output"
@@ -36,7 +38,11 @@ func ensureHookAgentStateBestEffort(agentName string) {
 		slog.Default().Warn("hook install: open db failed", "error", err)
 		return
 	}
-	defer func() { _ = store.CloseDB(db) }()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = store.CloseDB(ctx, db)
+	}()
 
 	if err := store.RunMigrations(db); err != nil {
 		slog.Default().Warn("hook install: run migrations failed", "error", err)

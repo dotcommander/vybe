@@ -397,3 +397,32 @@ func TestPromptTriggerEmitsRichBrief(t *testing.T) {
 	require.True(t, hasHookSpecific,
 		"trigger output must contain hookSpecificOutput field: %s", trimmed)
 }
+
+// TestHookPoliciesMatchLegacyWrapperChoice locks the hookPolicy table to the
+// per-call-site DB-wrapper choice that existed before the data-driven refactor.
+// swallowErrors=true  corresponds to the old withDBSilent call sites.
+// swallowErrors=false corresponds to the old withDB call sites.
+// If a future edit flips any flag, this test fails — that is intentional:
+// which hooks swallow vs propagate is observable behavior and must not drift.
+func TestHookPoliciesMatchLegacyWrapperChoice(t *testing.T) {
+	t.Parallel()
+
+	want := map[string]bool{
+		"session-start-compact": true,  // was withDBSilent
+		"prompt":                true,  // was withDBSilent
+		"session-start-resume":  false, // was withDB
+		"tool-failure":          false, // was withDB
+		"task-completed":        false, // was withDB
+		"maintenance":           false, // was withDB
+	}
+
+	require.Len(t, hookPolicies, len(want),
+		"hookPolicies must list exactly the known hook db-call-sites")
+
+	for name, swallow := range want {
+		got, ok := hookPolicies[name]
+		require.True(t, ok, "missing policy for hook db-call-site %q", name)
+		require.Equal(t, swallow, got.swallowErrors,
+			"swallowErrors for %q must match legacy wrapper choice", name)
+	}
+}
