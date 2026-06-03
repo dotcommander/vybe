@@ -114,7 +114,6 @@ func (h *harness) vybeWithDir(dir string, args ...string) string {
 	return stdout
 }
 
-
 // mustJSON parses JSON output and returns map[string]any.
 func mustJSON(t *testing.T, output string) map[string]any {
 	t.Helper()
@@ -1205,72 +1204,6 @@ func TestDemoAgentSession(t *testing.T) {
 			_, hasRemoved := claudeUninstall["removed"]
 			require.True(t, hasRemoved, "claude uninstall result should have 'removed' field: %s", uninstallOut)
 			t.Logf("Hook uninstall: removed=%v — hooks cleanly removed, no stale config", claudeUninstall["removed"])
-		})
-
-		// Loop dry-run — autonomous loop picks up a pending task
-		t.Run("loop_dry_run", func(t *testing.T) {
-			t.Log("Running `loop --dry-run` — the autonomous task driver that resumes, selects, and would spawn an agent")
-			t.Log("In dry-run mode with --max-tasks=1, the loop finds the next pending task and reports what it would do")
-
-			// Create a fresh pending task for the loop to pick up
-			loopTaskOut := h.vybe("task", "create",
-				"--title", "Loop Demo Task",
-				"--request-id", rid("p17loop", 1),
-			)
-			loopTaskM := requireSuccess(t, loopTaskOut)
-			loopTaskID := getStr(loopTaskM, "data", "task", "id")
-			require.NotEmpty(t, loopTaskID, "loop demo task should have an ID")
-			t.Logf("Created pending task %s for loop to discover", loopTaskID)
-
-			// Run the loop in dry-run mode — resumes, selects focus, reports without spawning
-			out := h.vybe("loop", "--dry-run", "--max-tasks=1", "--cooldown=0s")
-			m := requireSuccess(t, out)
-			data := m["data"].(map[string]any)
-			require.Equal(t, float64(1), data["completed"], "dry-run loop should complete 1 iteration")
-			require.Equal(t, float64(1), data["total"], "dry-run loop should run 1 total")
-			results := data["results"].([]any)
-			require.Len(t, results, 1, "should have exactly 1 result")
-			r0 := results[0].(map[string]any)
-			require.Equal(t, "dry_run", r0["status"], "result status should be dry_run")
-			require.NotEmpty(t, r0["task_title"], "result should have a task title")
-			t.Logf("Loop dry-run: found task %s (%s) — status=%s", r0["task_id"], r0["task_title"], r0["status"])
-			t.Log("The autonomous loop resumes, selects the next pending task, and would spawn an agent command")
-			t.Log("In dry-run mode, it reports what it found without executing")
-		})
-
-		// Loop circuit breaker — safety rail when spawned command doesn't complete the task
-		t.Run("loop_circuit_breaker", func(t *testing.T) {
-			t.Log("Running `loop --command true` — spawns `true` which exits 0 but doesn't complete the task")
-			t.Log("The loop detects the task is still in_progress after the command exits → marks blocked → trips circuit breaker")
-
-			// Create and begin a task so it's in_progress
-			cbTaskOut := h.vybe("task", "create",
-				"--title", "Circuit Breaker Task",
-				"--request-id", rid("p17cb", 1),
-			)
-			cbTaskM := requireSuccess(t, cbTaskOut)
-			cbTaskID := getStr(cbTaskM, "data", "task", "id")
-			require.NotEmpty(t, cbTaskID, "circuit breaker task should have an ID")
-
-			beginOut := h.vybe("task", "begin",
-				"--id", cbTaskID,
-				"--request-id", rid("p17cb", 2),
-			)
-			requireSuccess(t, beginOut)
-			t.Logf("Task %s is now in_progress — loop will pick it up via resume", cbTaskID)
-
-			// Run loop with `true` as command — exits 0 but doesn't complete the task
-			out := h.vybe("loop", "--command", "true", "--max-tasks=1", "--max-fails=1", "--cooldown=0s", "--task-timeout=5s")
-			m := requireSuccess(t, out)
-			data := m["data"].(map[string]any)
-			require.GreaterOrEqual(t, data["failed"], float64(1), "should have at least 1 failure")
-			results := data["results"].([]any)
-			require.NotEmpty(t, results, "should have at least 1 result")
-			r0 := results[0].(map[string]any)
-			require.Equal(t, "blocked", r0["status"], "task should be marked blocked after command exits without completing")
-			t.Logf("Circuit breaker: task %s status=%s — loop detected stuck task", r0["task_id"], r0["status"])
-			t.Log("When the spawned command exits without completing the task, the loop marks it blocked")
-			t.Log("This prevents runaway loops from burning resources on stuck work")
 		})
 
 		t.Log("")

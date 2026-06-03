@@ -17,7 +17,7 @@ Route to the right doc fast.
 | [`agent-contract.md`](agent-contract.md) | Machine I/O contract, idempotency, retry behavior, session mappings |
 | [`decisions.md`](decisions.md) | Command-surface guardrails and design principles |
 
-Working examples (Claude Code skill, autonomous loop demo, OpenCode plugin) are in [`examples/`](../examples/).
+Working examples (Claude Code skill, OpenCode plugin) are in [`examples/`](../examples/).
 
 For machine callers, use `vybe schema` as the source of truth for flags and required fields.
 
