@@ -8,7 +8,6 @@ import (
 )
 
 // DeleteTaskTx deletes a task by ID inside an existing transaction.
-// Foreign key CASCADE handles cleanup of task_dependencies rows.
 // Returns error if the task does not exist.
 func DeleteTaskTx(tx *sql.Tx, _, taskID string) error {
 	if taskID == "" {

@@ -137,7 +137,6 @@ internal/store/        # SQLite persistence + migrations (transactions, retry, C
 
 internal/app/          # Config loading, DB init, settings
 internal/output/       # JSON output formatting
-internal/llm/          # LLM CLI integration (extract runner)
 internal/models/       # Domain types shared across layers
 internal/testutil/     # CLI test helpers for integration tests
 ```

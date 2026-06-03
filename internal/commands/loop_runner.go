@@ -19,7 +19,7 @@ import (
 	"github.com/dotcommander/vybe/internal/store"
 )
 
-//nolint:gocognit,gocyclo,funlen,revive // run loop orchestrates per-task execution with claim, run, status-update, and retry phases
+//nolint:gocognit,gocyclo,funlen,revive // run loop orchestrates per-task execution with run, status-update, and retry phases
 func runLoop(opts runOptions) error {
 	loopStart := time.Now()
 

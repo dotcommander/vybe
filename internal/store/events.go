@@ -20,7 +20,7 @@ const (
 
 	// ProjectScopeClause filters events to a specific project ONLY (strict).
 	// Use with a single ? arg. Apply for queries/archives where only that project's
-	// events are wanted (listing, archiving, run summaries, session retrospective).
+	// events are wanted (listing, archiving, run summaries).
 	ProjectScopeClause = "(project_id = ?)"
 
 	// ProjectOrGlobalScopeClause filters to a specific project plus global (NULL project_id) events.

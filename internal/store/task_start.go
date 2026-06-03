@@ -10,7 +10,7 @@ import (
 )
 
 // setAgentFocusTx ensures agent_state exists, sets focus_task_id with CAS,
-// and emits an agent_focus event. Shared by task begin and task claim flows.
+// and emits an agent_focus event. Used by the task begin flow.
 func setAgentFocusTx(tx *sql.Tx, agentName, taskID string) (focusEventID int64, err error) {
 	// Ensure agent_state exists.
 	if _, execErr := tx.ExecContext(context.Background(), `
