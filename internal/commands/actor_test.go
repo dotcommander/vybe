@@ -3,6 +3,7 @@ package commands
 import (
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/app"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,14 @@ func TestResolveActorName_UsesEnvFallback(t *testing.T) {
 }
 
 func TestRequireActorName_ErrorWhenMissing(t *testing.T) {
+	// Isolate config so app.LoadSettings finds no config.yaml; otherwise the shipped
+	// default_agent ("claude") makes resolveActorName return non-empty even with VYBE_AGENT="".
+	app.ResetSettingsForTest()
+	t.Cleanup(app.ResetSettingsForTest)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
 	cmd := newActorTestCmd(t)
 	t.Setenv("VYBE_AGENT", "")
 
@@ -51,6 +60,15 @@ func newTestCmd() *cobra.Command {
 }
 
 func TestResolveActorName_Normalization(t *testing.T) {
+	// Isolate config so the "empty stays empty" case does not pick up the shipped
+	// default_agent ("claude") from the real ~/.config/vybe/config.yaml.
+	app.ResetSettingsForTest()
+	t.Cleanup(app.ResetSettingsForTest)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("VYBE_AGENT", "")
+
 	tests := []struct {
 		name     string
 		flagVal  string

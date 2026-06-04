@@ -3,6 +3,7 @@ package commands
 import (
 	"testing"
 
+	"github.com/dotcommander/vybe/internal/app"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
@@ -35,6 +36,15 @@ func TestMemorySetCmd_InvalidExpiresInReturnsPrintedError(t *testing.T) {
 }
 
 func TestMemoryMutatingCommands_RequireAgent(t *testing.T) {
+	// Isolate config so app.LoadSettings finds no config.yaml; otherwise the shipped
+	// default_agent ("claude") makes resolveActorName return non-empty even with
+	// VYBE_AGENT="", which lets the command reach withDB and block on the real DB.
+	app.ResetSettingsForTest()
+	t.Cleanup(app.ResetSettingsForTest)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
 	t.Run("gc without agent/request-id", func(t *testing.T) {
 		t.Setenv("VYBE_AGENT", "")
 		t.Setenv("VYBE_REQUEST_ID", "")
